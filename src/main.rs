@@ -3,15 +3,15 @@ use gpui_kit::component::{
     button::Button,
     label::Label,
     notification::Notification,
-    setting::{
-        NumberFieldOptions, SettingField, SettingGroup, SettingItem, SettingPage, Settings,
-    },
+    setting::{NumberFieldOptions, SettingField, SettingGroup, SettingItem, SettingPage, Settings},
     v_flex,
 };
 use gpui_kit::{
-    App, AppContext as _, Context, FocusHandle, Focusable, Global, IntoElement,
-    ParentElement as _, Render, SharedString, Styled as _, Window, WindowOptions, div,
+    App, AppContext as _, Context, FocusHandle, Focusable, Global, IntoElement, ParentElement as _,
+    Render, SharedString, Styled as _, Window, WindowOptions, div, px,
 };
+
+mod theme;
 
 /// Application state, stored as a GPUI global so `SettingField` closures can
 /// reach it through `&App` / `&mut App`.
@@ -196,9 +196,7 @@ impl SettingsWindow {
                                     .label("Send")
                                     .on_click(|_, window, cx| {
                                         window.push_notification(
-                                            Notification::success(
-                                                "Hello from settings-demo!",
-                                            ),
+                                            Notification::success("Hello from settings-demo!"),
                                             cx,
                                         );
                                     })
@@ -210,8 +208,7 @@ impl SettingsWindow {
             SettingPage::new("Profile")
                 .icon(Icon::new(IconName::User))
                 .resettable(true)
-                .group(
-                    SettingGroup::new().title("Account").items(vec![
+                .group(SettingGroup::new().title("Account").items(vec![
                         SettingItem::new(
                             "Username",
                             SettingField::input(
@@ -234,8 +231,7 @@ impl SettingsWindow {
                             .default_value(defaults.display_name.clone()),
                         )
                         .description("Shown instead of your username."),
-                    ]),
-                ),
+                    ])),
             SettingPage::new("About")
                 .icon(Icon::new(IconName::Info))
                 .groups(vec![
@@ -246,7 +242,12 @@ impl SettingsWindow {
                             .items_center()
                             .justify_center()
                             .child(Icon::new(IconName::GalleryVerticalEnd).size_16())
-                            .child("settings-demo")
+                            .child(
+                                div()
+                                    .font_family("Xanh Mono")
+                                    .italic()
+                                    .child("settings-demo"),
+                            )
                             .child(
                                 Label::new("A settings-style demo app built with GPUI Kit.")
                                     .text_sm()
@@ -304,7 +305,11 @@ impl Render for SettingsWindow {
         div()
             .size_full()
             .bg(cx.theme().background)
-            .child(Settings::new("settings-demo").pages(self.setting_pages(cx)))
+            .child(
+                Settings::new("settings-demo")
+                    .sidebar_width(px(240.))
+                    .pages(self.setting_pages(cx)),
+            )
             .children(Root::render_dialog_layer(window, cx))
             .children(Root::render_sheet_layer(window, cx))
             .children(Root::render_notification_layer(window, cx))
@@ -317,6 +322,7 @@ fn main() {
         .run(|cx| {
             // This must be called before using any GPUI Component features.
             gpui_kit::init(cx);
+            theme::install(cx);
             cx.spawn(async move |cx| {
                 cx.open_window(WindowOptions::default(), |window, cx| {
                     let view = cx.new(|cx| SettingsWindow::new(window, cx));

@@ -5,3 +5,6 @@ edition = "2024"
 
 [dependencies]
 gpui-kit = "0.6"
+
+[dev-dependencies]
+serde_json = "1.0.151"
