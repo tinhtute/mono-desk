@@ -1,0 +1,14 @@
+--- a/src/sidebar/menu.rs
++++ b/src/sidebar/menu.rs
+@@ -350,9 +350,10 @@
+                     })
+                     .when(is_disabled, |this| {
+                         this.text_color(cx.theme().muted_foreground)
++                            .cursor_default()
+                     })
+                     .when(!is_disabled, |this| {
+-                        this.on_click({
++                        this.cursor_pointer().on_click({
+                             let open_state = open_state.clone();
+                             move |ev, window, cx| {
+                                 if click_to_open {

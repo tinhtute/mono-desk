@@ -1,0 +1,101 @@
+--- a/src/setting/settings.rs
++++ b/src/setting/settings.rs
+@@ -8,11 +8,12 @@
+     resizable_panel,
+     setting::{SettingGroup, SettingPage},
+     sidebar::{Sidebar, SidebarMenu, SidebarMenuItem},
++    v_flex,
+ };
+ use gpui::{
+-    App, AppContext as _, Axis, ElementId, Entity, IntoElement, ParentElement as _, Pixels,
+-    RenderOnce, StyleRefinement, Styled, Window, container_query, div, prelude::FluentBuilder as _,
+-    px, relative,
++    AnyElement, App, AppContext as _, Axis, ElementId, Entity, IntoElement, ParentElement as _,
++    Pixels, RenderOnce, StyleRefinement, Styled, Window, container_query, div,
++    prelude::FluentBuilder as _, px, relative,
+ };
+ use rust_i18n::t;
+ 
+@@ -41,6 +42,10 @@
+     sidebar_style: StyleRefinement,
+     default_selected_index: SelectIndex,
+     header_style: StyleRefinement,
++    /// Custom content rendered above the sidebar search input.
++    sidebar_header: Option<AnyElement>,
++    /// Custom content rendered at the bottom of the sidebar.
++    sidebar_footer: Option<AnyElement>,
+ }
+ 
+ impl Settings {
+@@ -56,6 +61,8 @@
+             sidebar_style: StyleRefinement::default(),
+             default_selected_index: SelectIndex::default(),
+             header_style: StyleRefinement::default(),
++            sidebar_header: None,
++            sidebar_footer: None,
+         }
+     }
+ 
+@@ -106,6 +113,18 @@
+     /// Set the style refinement for the header.
+     pub fn header_style(mut self, style: &StyleRefinement) -> Self {
+         self.header_style = style.clone();
++        self
++    }
++
++    /// Set custom content rendered above the sidebar search input.
++    pub fn sidebar_header(mut self, header: impl IntoElement) -> Self {
++        self.sidebar_header = Some(header.into_any_element());
++        self
++    }
++
++    /// Set custom content rendered at the bottom of the sidebar.
++    pub fn sidebar_footer(mut self, footer: impl IntoElement) -> Self {
++        self.sidebar_footer = Some(footer.into_any_element());
+         self
+     }
+ 
+@@ -164,7 +183,7 @@
+     }
+ 
+     fn render_sidebar(
+-        &self,
++        &mut self,
+         state: &Entity<SettingsState>,
+         pages: &Vec<SettingPage>,
+         _: &mut Window,
+@@ -180,11 +199,22 @@
+             .collapsible(false)
+             .collapsed(false)
+             .header(
+-                div()
++                v_flex()
+                     .w_full()
+-                    .refine_style(&self.header_style)
+-                    .child(Input::new(&search_input).prefix(IconName::Search)),
++                    .gap_2()
++                    .when_some(self.sidebar_header.take(), |this, header| {
++                        this.child(header)
++                    })
++                    .child(
++                        div()
++                            .w_full()
++                            .refine_style(&self.header_style)
++                            .child(Input::new(&search_input).prefix(IconName::Search)),
++                    ),
+             )
++            .when_some(self.sidebar_footer.take(), |this, footer| {
++                this.footer(footer)
++            })
+             .child(
+                 SidebarMenu::new().children(pages.iter().enumerate().map(|(page_ix, page)| {
+                     let is_page_active =
+@@ -362,7 +392,7 @@
+ }
+ 
+ impl RenderOnce for Settings {
+-    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
++    fn render(mut self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+         let state = window.use_keyed_state(self.id.clone(), cx, |window, cx| {
+             let search_input = cx.new(|cx| {
+                 InputState::new(window, cx)

@@ -8,3 +8,9 @@ gpui-kit = "0.6"
 
 [dev-dependencies]
 serde_json = "1.0.151"
+
+# Vendored gpui-component 0.6.1: two additive Settings rail slots
+# (sidebar_header / sidebar_footer) + pointer cursor on rail items.
+# Deltas: vendor/patches/sidebar-slots.patch, vendor/patches/sidebar-cursor.patch
+[patch.crates-io]
+gpui-component = { path = "vendor/gpui-component" }
