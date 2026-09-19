@@ -8,7 +8,10 @@ ifneq ($(wildcard $(SHIM_DIR)),)
 export RUSTFLAGS += -L $(SHIM_DIR)
 endif
 
-.PHONY: help run build release run-release check test lint fmt fmt-check clean deps shim
+.PHONY: help run build release run-release check test lint fmt fmt-check clean deps shim app open-app
+
+APP_NAME ?= mono-desk
+APP_BUNDLE ?= target/macos/$(APP_NAME).app
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
@@ -56,3 +59,32 @@ shim: ## Recreate linker shims for missing -dev packages (no sudo)
 	ln -sf /usr/lib/x86_64-linux-gnu/libxkbcommon-x11.so.0 $(SHIM_DIR)/libxkbcommon-x11.so
 	ln -sf /usr/lib/x86_64-linux-gnu/libX11-xcb.so.1 $(SHIM_DIR)/libX11-xcb.so
 	@echo "Shims ready in $(SHIM_DIR)"
+
+app: build ## Bundle mono-desk.app with the brand icon (macOS only)
+	@test "$$(uname -s)" = "Darwin" || { echo "make app is macOS-only — use make run"; exit 1; }
+	mkdir -p "$(APP_BUNDLE)/Contents/MacOS" "$(APP_BUNDLE)/Contents/Resources"
+	cp target/debug/$(APP_NAME) "$(APP_BUNDLE)/Contents/MacOS/$(APP_NAME)"
+	cp assets/brand/icon.icns "$(APP_BUNDLE)/Contents/Resources/icon.icns"
+	printf '%s\n' \
+		'<?xml version="1.0" encoding="UTF-8"?>' \
+		'<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
+		'<plist version="1.0">' \
+		'<dict>' \
+		'  <key>CFBundleName</key><string>$(APP_NAME)</string>' \
+		'  <key>CFBundleDisplayName</key><string>$(APP_NAME)</string>' \
+		'  <key>CFBundleIdentifier</key><string>lab.monodesk.settings-demo</string>' \
+		'  <key>CFBundleExecutable</key><string>$(APP_NAME)</string>' \
+		'  <key>CFBundleIconFile</key><string>icon</string>' \
+		'  <key>CFBundlePackageType</key><string>APPL</string>' \
+		'  <key>CFBundleShortVersionString</key><string>0.1.0</string>' \
+		'  <key>CFBundleVersion</key><string>0.1.0</string>' \
+		'  <key>LSMinimumSystemVersion</key><string>11.0</string>' \
+		'  <key>NSHighResolutionCapable</key><true/>' \
+		'</dict>' \
+		'</plist>' > "$(APP_BUNDLE)/Contents/Info.plist"
+	plutil -lint "$(APP_BUNDLE)/Contents/Info.plist"
+	@echo "Bundle ready: $(APP_BUNDLE)"
+	@echo "Open it with: open $(APP_BUNDLE)   (Dock and Cmd-Tab show the kumo icon)"
+
+open-app: app ## Build the bundle and open it (macOS only)
+	open "$(APP_BUNDLE)"

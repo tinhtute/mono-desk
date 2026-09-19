@@ -1,17 +1,22 @@
 use gpui_kit::component::{
     ActiveTheme, Icon, IconName, Root, Sizable, Theme, ThemeMode, WindowExt,
-    button::Button,
+    button::{Button, ButtonVariants},
+    h_flex,
     label::Label,
     notification::Notification,
     setting::{NumberFieldOptions, SettingField, SettingGroup, SettingItem, SettingPage, Settings},
     v_flex,
 };
 use gpui_kit::{
-    App, AppContext as _, Context, FocusHandle, Focusable, Global, IntoElement, ParentElement as _,
-    Render, SharedString, Styled as _, Window, WindowOptions, div, px,
+    App, AppContext as _, Bounds, Context, FocusHandle, Focusable, Global, IntoElement, KeyBinding,
+    Menu, MenuItem, ParentElement as _, Render, SharedString, Styled as _, TitlebarOptions, Window,
+    WindowBounds, WindowOptions, div, img, point, px, size,
 };
 
+mod assets;
 mod theme;
+
+gpui_kit::actions!(mono_desk, [Quit]);
 
 /// Application state, stored as a GPUI global so `SettingField` closures can
 /// reach it through `&App` / `&mut App`.
@@ -241,7 +246,7 @@ impl SettingsWindow {
                             .w_full()
                             .items_center()
                             .justify_center()
-                            .child(Icon::new(IconName::GalleryVerticalEnd).size_16())
+                            .child(img("brand/brand-mark.png").size(px(64.)))
                             .child(
                                 div()
                                     .font_family("Xanh Mono")
@@ -300,6 +305,50 @@ impl Focusable for SettingsWindow {
     }
 }
 
+/// Rail brand block: its own row above the search, left-aligned.
+///
+/// `img()` (not `svg()`): GPUI renders SVG as a monochrome alpha mask, which
+/// would flatten the mark's gradient into the rail's text color. The row adds
+/// its own vertical padding so the mark reads as a block of its own rather
+/// than part of the search field.
+fn rail_brand() -> impl IntoElement {
+    h_flex()
+        .w_full()
+        .gap_2()
+        .items_center()
+        .pt_1()
+        .pb_2()
+        .child(img("brand/brand-mark.png").size(px(48.)))
+        .child(
+            div()
+                .flex_1()
+                .min_w(px(0.))
+                .font_family("Xanh Mono")
+                .italic()
+                .text_xl()
+                .truncate()
+                .child("settings-demo"),
+        )
+}
+
+/// Rail footer: light/dark toggle, mirroring the kumo-desk sidebar footer.
+fn rail_footer(cx: &App) -> impl IntoElement {
+    let dark = cx.theme().mode.is_dark();
+    Button::new("rail-theme-toggle")
+        .primary()
+        .w_full()
+        .icon(if dark { IconName::Sun } else { IconName::Moon })
+        .label(if dark { "Light mode" } else { "Dark mode" })
+        .on_click(|_, window, cx| {
+            let next = if cx.theme().mode.is_dark() {
+                ThemeMode::Light
+            } else {
+                ThemeMode::Dark
+            };
+            Theme::change(next, Some(window), cx);
+        })
+}
+
 impl Render for SettingsWindow {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         div()
@@ -308,6 +357,8 @@ impl Render for SettingsWindow {
             .child(
                 Settings::new("settings-demo")
                     .sidebar_width(px(240.))
+                    .sidebar_header(rail_brand())
+                    .sidebar_footer(rail_footer(cx))
                     .pages(self.setting_pages(cx)),
             )
             .children(Root::render_dialog_layer(window, cx))
@@ -316,15 +367,59 @@ impl Render for SettingsWindow {
     }
 }
 
+/// Fraction of gpui's default new-window bounds used for the settings window.
+///
+/// gpui's default is `DEFAULT_WINDOW_SIZE` (1536×1095) clipped to the display
+/// and centered; this window opens at 70% of that, keeping the same center.
+const WINDOW_SCALE: f32 = 0.7;
+
+fn default_window_bounds(cx: &App) -> WindowBounds {
+    let base = cx
+        .primary_display()
+        .map(|display| display.default_bounds())
+        .unwrap_or_else(|| Bounds::new(point(px(0.), px(0.)), gpui_kit::DEFAULT_WINDOW_SIZE));
+    let scaled = size(
+        base.size.width * WINDOW_SCALE,
+        base.size.height * WINDOW_SCALE,
+    );
+    let center = base.center();
+
+    WindowBounds::Windowed(Bounds::new(
+        point(
+            center.x - scaled.width * 0.5,
+            center.y - scaled.height * 0.5,
+        ),
+        scaled,
+    ))
+}
+
 fn main() {
     gpui_kit::application()
-        .with_assets(gpui_kit::assets::Assets)
+        .with_assets(assets::AppAssets)
         .run(|cx| {
             // This must be called before using any GPUI Component features.
             gpui_kit::init(cx);
             theme::install(cx);
+            // ⌘Q: gpui ships no default Quit action or menu item, and macOS
+            // uses `QuitMode::Explicit`, so both have to be registered here.
+            // Bind first — `set_menus` reads the keymap for key equivalents.
+            cx.bind_keys([KeyBinding::new("cmd-q", Quit, None)]);
+            cx.set_menus(vec![
+                Menu::new("mono-desk").items([MenuItem::action("Quit", Quit)]),
+            ]);
+            cx.on_action(|_: &Quit, cx: &mut App| cx.quit());
+            // Native titlebar: gpui only calls `setTitle` when a title is set,
+            // so `WindowOptions::default()` leaves the window title empty.
+            let window_options = WindowOptions {
+                window_bounds: Some(default_window_bounds(cx)),
+                titlebar: Some(TitlebarOptions {
+                    title: Some("mono-desk".into()),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            };
             cx.spawn(async move |cx| {
-                cx.open_window(WindowOptions::default(), |window, cx| {
+                cx.open_window(window_options, |window, cx| {
                     let view = cx.new(|cx| SettingsWindow::new(window, cx));
                     // The first level on the window must be a Root.
                     cx.new(|cx| Root::new(view, window, cx))
