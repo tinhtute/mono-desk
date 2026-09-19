@@ -3,7 +3,9 @@
 ## What is this project?
 - `mono-desk` is a settings-style desktop demo app: a single-window GPUI
   application built on `gpui-kit` 0.6, showcasing the `Settings` component
-  with grouped pages, fields, and overlay layers.
+  with grouped pages, fields, and overlay layers — plus app-owned rail
+  chrome (brand block, search, item list, footer theme toggle) on a
+  vendored, minimally patched `gpui-component`.
 
 ## Who is it for?
 - Its owner (lab project) and developers evaluating gpui-kit patterns for
@@ -14,19 +16,31 @@
   i18n implementation, no multi-window or multi-view product surface.
 
 ## What are the gate commands?
-- run from: repository root (`/home/tinhpt/Lab/mono-desk`)
-- tests: n/a (no test suite)
+- run from: repository root (host-local: `/Users/tinhtute/Lab/mono-desk`,
+  Linux sessions `/home/tinhpt/Lab/mono-desk`)
+- tests: `cargo test` (embedded theme/font assertions in `src/theme.rs`)
 - types: `make check`
 - lint: `make lint`
 - build: `make run` (compiles; window needs a GUI session)
 - format: `make fmt`
 
 ## Architecture in one breath
-- runtime shape: single binary crate, Rust 2024, one dep `gpui-kit`
+- runtime shape: single binary crate, Rust 2024, one direct dep `gpui-kit`
+  0.6, plus `[patch.crates-io] gpui-component = { path =
+  "vendor/gpui-component" }` — upstream 0.6.1 carrying two additive
+  `Settings` rail slots and a pointer cursor on rail items (deltas in
+  `vendor/patches/`)
+- assets: `assets/themes/mono.json` (embedded ThemeSet), `assets/fonts/`
+  (8 static TTFs registered at startup), `assets/brand/` (SVG + PNG mark +
+  `icon.icns`) served by an app `AssetSource` that delegates other paths
+  to `gpui_kit::assets::Assets`
 - where state lives: `AppSettings` in a GPUI `Global` set inside the view
   constructor (`cx.set_global`)
 - entrypoints: `src/main.rs` — `gpui_kit::application()` → `gpui_kit::init`
   → `Root::new(SettingsWindow)` with dialog/sheet/notification layers
 
 ## What are we working on right now?
-- plan: docs/plans/active/mono-design-port.md (active)
+- plan: docs/plans/active/mono-design-port.md (active) — refined
+  2026-09-18 with requirements 8–14 (rail chrome: brand block, footer
+  theme toggle, vendored `gpui-component` patch); next stage `to-plan`
+  authors their phases, the three checked phases stay as recorded.

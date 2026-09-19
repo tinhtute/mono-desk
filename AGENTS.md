@@ -3,14 +3,20 @@
 ## Project
 
 `mono-desk` — a settings-style desktop demo app. Single binary crate, Rust
-edition 2024, one dependency: `gpui-kit = "0.6"` (re-exports `gpui`,
-`gpui-base`, `gpui-component`, assets/icons — no other GPUI crates needed).
+edition 2024, one direct dependency: `gpui-kit = "0.6"` (re-exports `gpui`,
+`gpui-base`, `gpui-component`, assets/icons — no other GPUI crates needed),
+plus a vendored `gpui-component` 0.6.1 carrying two additive `Settings` rail
+slots and a pointer cursor on rail items (`[patch.crates-io]`; deltas in
+`vendor/patches/` — re-apply both when upgrading).
 
 ## Commands
 
 Use the Makefile — it auto-injects the linker shim flag (see caveats):
 
 - `make run` — build and launch the app
+- `make app` — bundle `target/macos/mono-desk.app` with the vendored brand icon
+  (`assets/brand/icon.icns`); macOS only, needed for the Dock/⌘-Tab icon —
+  `cargo run` shows a generic one. `make open-app` builds and opens it.
 - `make check` — fast type-check (~30s cold)
 - `make lint` — clippy `--all-targets -D warnings` (run before committing)
 - `make fmt` — format before committing

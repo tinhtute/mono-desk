@@ -87,6 +87,42 @@ Applied in mono-desk `Settings`:
   `text-[10px] uppercase` group labels, and per-item density are
   component-internal and not expressible via `sidebar_style` without
   inventing new surface — left as documented deviation.
+- **Rail chrome (applied, requirements 8–14):** the rail renders, top to
+  bottom: brand block, search input, page/group item list, footer toggle.
+  - Brand block: `brand-mark.svg` copied verbatim from the source
+    (`assets/brand/brand-mark.svg`, 1254×1254, gradient `#0789B2` /
+    `#0BA8C8` @55% / `#18C6E1`) drawn at 32px, beside the wordmark
+    `settings-demo` in Xanh Mono italic at `text_xl` — source `h-8 w-8` +
+    `font-serif text-xl italic tracking-tight`.
+  - Asset path: `brand/brand-mark.svg` is served by `AppAssets`
+    (`src/assets.rs`), which embeds the SVG and delegates every other path
+    to `gpui_kit::assets::Assets`; `main()` registers it with a single
+    `.with_assets` call. The mark is not in the Lucide `IconName` set, so
+    it needs this app-level source.
+  - Footer toggle: `Button::new("rail-theme-toggle")`, primary variant,
+    full width, Sun icon + "Light mode" while dark and Moon + "Dark mode"
+    while light; the click calls
+    `Theme::change(next, Some(window), cx)` — the `None` form refreshes no
+    window, so icon and palette would not repaint.
+  - How the slots exist: `Settings` exposes no content hook upstream, so
+    `vendor/gpui-component/` is the 0.6.1 crate carrying two additive
+    builder methods — `sidebar_header(impl IntoElement)` (content above
+    the search input) and `sidebar_footer(impl IntoElement)` (passed to
+    `Sidebar::footer`) — resolved via
+    `[patch.crates-io] gpui-component = { path = "vendor/gpui-component" }`.
+    The vendored deltas are `vendor/patches/sidebar-slots.patch` (101
+    lines, `src/setting/settings.rs`) and `vendor/patches/sidebar-cursor.patch`
+    (14 lines, `src/sidebar/menu.rs` — `cursor_pointer()` on rail items,
+    `cursor_default()` when disabled, matching the `Button` convention);
+    upgrade = re-copy upstream + re-apply both patches.
+  - Rail item cursor: upstream `SidebarMenuItem` sets hover colors but no
+    cursor, so the rail items showed the default arrow — patched to
+    `cursor_pointer()` (footer toggle already inherits it from `Button`).
+  - Rejected for this: an app-side `Sidebar` shell (page/group/item
+    renderers are `pub(super)` and field renderers `pub(crate)`, so it
+    would reimplement content, search, and reset) and the
+    absolutely-positioned overlay over `header_style` padding (fragile
+    z-order and hit-testing, sits over the search box).
 - `sidebar.border` dark = `#ebebeb` (source `oklch(0.9401 0 0)`) is a
   bright edge against the dark rail — ported faithfully, flagged for
   owner visual check.
@@ -120,7 +156,10 @@ are recorded as the design intent where components allow, not restyled.
 ## Known flags for owner review
 
 - `sidebar.border` dark `#ebebeb` — bright divider on dark rail.
+- Rail chrome (brand block, footer toggle) is not visually verified
+  headless — `make run` is the owner check; see Sidebar metrics.
 - Variable→static instancing — rendering verified by name/weight tables,
   not yet by glyphs in a live window (`make run` pending).
-- Revert path: `git checkout -- assets src/theme.rs src/main.rs` removes
-  the whole applied theme.
+- Revert path: `git checkout -- assets src/theme.rs src/main.rs Cargo.toml
+  Cargo.lock` + `git clean -fd vendor assets/brand src/assets.rs` removes
+  the theme and the rail chrome.
