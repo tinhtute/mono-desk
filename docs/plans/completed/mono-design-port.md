@@ -1,13 +1,13 @@
 ---
 id: plan-kumo-design-port-20260918
 intake_id: intake-20260918-kumo-design-port
-status: active
+status: completed
 lane: normal
 created: 2026-09-18
-updated: 2026-09-19
+updated: 2026-09-22
 approach: planned
 planning_status: planned
-exact_next_action: closing handoff or git commit of the scoped diff
+exact_next_action: none — initiative closed; plan archived under docs/plans/completed/
 ---
 
 # Mono design port
@@ -293,7 +293,7 @@ family is used as-is and could render wrong before fonts register).
 
 ### Phase `theme-colors` — story_id: story-kumo-theme-colors-20260918
 
-- **Status:** `checked`
+- **Status:** `done`
 - **Goal:** `mono-light`/`mono-dark` active; dark-mode toggle intact.
 - **Depends on:** none.
 - **Allowed surfaces:** `assets/themes/mono.json` (new), `src/theme.rs`
@@ -326,7 +326,7 @@ mismatch (per WORKFLOW `escalate_when`).
 
 ### Phase `mono-fonts` — story_id: story-kumo-fonts-20260918
 
-- **Status:** `checked`
+- **Status:** `done`
 - **Goal:** three font families embedded + active; wordmark italic.
 - **Depends on:** `theme-colors`.
 - **Allowed surfaces:** `assets/fonts/**` (new), `src/theme.rs`
@@ -362,7 +362,7 @@ ship without it, record in spec doc, report.
 
 ### Phase `patterns-spec` — story_id: story-kumo-patterns-20260918
 
-- **Status:** `checked`
+- **Status:** `done`
 - **Goal:** spec doc committed; sidebar metrics applied.
 - **Depends on:** `theme-colors`, `mono-fonts` (documents applied
   state).
@@ -396,7 +396,7 @@ record the gap in the spec doc — do not invent new styling surface.
 
 ### Phase `vendor-patch` — story_id: story-kumo-vendor-patch-20260918
 
-- **Status:** `checked`
+- **Status:** `done`
 - **Goal:** `gpui-component` resolves to `vendor/gpui-component/`
   (upstream 0.6.1 + exactly the two additive `Settings` slots); the delta
   is reproducible from `vendor/patches/sidebar-slots.patch`; the app
@@ -458,7 +458,7 @@ fails to build after two attempts → halt and report (WORKFLOW
 
 ### Phase `rail-chrome` — story_id: story-kumo-rail-chrome-20260918
 
-- **Status:** `checked`
+- **Status:** `done`
 - **Goal:** the rail opens with the kumo brand mark + Xanh Mono italic
   wordmark above the search input, and ends with a working theme toggle;
   icons keep resolving.
@@ -515,7 +515,7 @@ further.
 
 ### Phase `spec-sync` — story_id: story-kumo-spec-sync-20260918
 
-- **Status:** `checked`
+- **Status:** `done`
 - **Goal:** the spec doc states the applied rail; the initiative closes
   on green gates.
 - **Depends on:** `rail-chrome`.
@@ -724,6 +724,11 @@ independently verified" instead of asserting it.
   hunks (101 lines). Content unchanged and re-verified line-by-line by
   the independent reviewer in `check full`; the count was a transcription
   error in this log only.
+- 2026-09-22 19:47 +07 — initiative `mono-design-port`, owner sign-off —
+  owner accepted the GUI-only proof gap ("tui thấy ok rồi"): the rail
+  visual check (brand mark + italic wordmark, search, item list, footer
+  theme toggle) is discharged by owner verdict; no `make run` was
+  executed in this session. `handoff` proceeds to final closure.
 
 ## Decisions
 
@@ -755,6 +760,7 @@ independently verified" instead of asserting it.
   a concurrent session would have read a stale `planned` status. No
   scope or evidence impact; `vendor-patch` used the immediate write and
   `spec-sync` does too. Affected: `rail-chrome` (bookkeeping only).
+absorb: none
 
 ## Validation
 
@@ -1006,15 +1012,17 @@ independently verified" instead of asserting it.
 
 ## Current State
 
-- active phase: `spec-sync`; lifecycle_status: checked
+- active phase: none; lifecycle_status: done — all six phases `done`
 - anchors: `check full` APPROVED (judge: independent — read-only subagent
-  reviewer, separate context) 2026-09-19 07:26 +07; all six phases
-  `checked`; gates green (`cargo test` 2 tests, `make check`, `make lint`,
-  `cargo fmt --check`, `make build`); reviewed revision pinned by sha256
-  in the Validation tail
+  reviewer, separate context) 2026-09-19 07:26 +07; owner accepted the
+  GUI-only proof gap 2026-09-22 19:47 +07; gates green (`cargo test` 2
+  tests, `make check`, `make lint`, `cargo fmt --check`, `make build`)
+- completed work: `mono-light`/`mono-dark` theme set + installer; three
+  vendored font families; port spec; vendored gpui-component 0.6.1 with
+  `sidebar-slots` + `sidebar-cursor` patches; rail chrome (brand block,
+  search, item list, footer theme toggle); spec synced to applied state
 - blockers: none
-- open items: owner `make run` for rail visual sign-off; rendered rail not
-  independently verified headless; untracked `.agents/`, `CLAUDE.md` in
-  the worktree (not this initiative)
-- next action: closing `handoff` (owns the `done` transition) or `git`
-  commit of the scoped initiative diff
+- open items: none — `.agents/` remains untracked and unrelated to this
+  initiative
+- next action: none — initiative closed; plan moved to
+  `docs/plans/completed/mono-design-port.md`
