@@ -14,8 +14,8 @@
 ## Non-goals
 - Not a production settings/productivity app; no multi-window or
   multi-view product surface. (Persistence and i18n were non-goals
-  until 2026-09-23 — now in scope under
-  docs/plans/active/real-settings.md.)
+  until 2026-09-23 — shipped under
+  docs/plans/completed/real-settings.md.)
 
 ## What are the gate commands?
 - run from: repository root (host-local: `/Users/tinhtute/Lab/mono-desk`,
@@ -36,14 +36,14 @@
   (8 static TTFs registered at startup), `assets/brand/` (SVG + PNG mark +
   `icon.icns`) served by an app `AssetSource` that delegates other paths
   to `gpui_kit::assets::Assets`
-- where state lives: `AppSettings` in a GPUI `Global` set inside the view
-  constructor (`cx.set_global`)
+- where state lives: `AppSettings` in a GPUI `Global` set in `main()`
+  before window creation (`cx.set_global`, loaded from persisted config)
 - entrypoints: `src/main.rs` — `gpui_kit::application()` → `gpui_kit::init`
   → `Root::new(SettingsWindow)` with dialog/sheet/notification layers
 
 ## What are we working on right now?
-- plan: docs/plans/active/real-settings.md (active) — locked
-  2026-09-23; makes every settings control produce a real effect
-  (repaint, rem-scale, gated send, OS autostart, live locale, profile
-  preview) and persists values to platform config JSON. Next stage
-  `to-plan` authors phases.
+- plan: docs/plans/completed/real-settings.md — completed 2026-09-23;
+  every settings control produces a real effect (repaint, rem-scale,
+  gated send, OS autostart, live locale, profile preview) and values
+  persist to a platform config file (`key=value` with an ownership
+  marker, atomic write). No active plan.
