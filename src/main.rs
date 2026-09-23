@@ -1,5 +1,5 @@
 use gpui_kit::component::{
-    ActiveTheme, Icon, IconName, Root, Sizable, Theme, ThemeMode, WindowExt,
+    ActiveTheme, Disableable, Icon, IconName, Root, Sizable, Theme, ThemeMode, WindowExt,
     button::{Button, ButtonVariants},
     h_flex,
     label::Label,
@@ -14,19 +14,23 @@ use gpui_kit::{
 };
 
 mod assets;
+mod i18n;
+mod persist;
 mod theme;
+
+use i18n::tr;
+use persist::StoredSettings;
 
 gpui_kit::actions!(mono_desk, [Quit]);
 
 /// Application state, stored as a GPUI global so `SettingField` closures can
 /// reach it through `&App` / `&mut App`.
 struct AppSettings {
+    dark_mode: bool,
     language: SharedString,
     font_size: f64,
     launch_at_login: bool,
-    auto_update: bool,
     notifications_enabled: bool,
-    digest: SharedString,
     username: SharedString,
     display_name: SharedString,
 }
@@ -34,12 +38,11 @@ struct AppSettings {
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
+            dark_mode: false,
             language: "en".into(),
             font_size: 14.0,
             launch_at_login: false,
-            auto_update: true,
             notifications_enabled: true,
-            digest: "immediate".into(),
             username: "ninja".into(),
             display_name: "Ninja".into(),
         }
@@ -58,31 +61,66 @@ impl AppSettings {
     }
 }
 
+impl AppSettings {
+    fn from_stored(s: StoredSettings) -> Self {
+        Self {
+            dark_mode: s.dark_mode,
+            language: s.language.into(),
+            font_size: if s.font_size.is_finite() {
+                s.font_size
+            } else {
+                14.0
+            },
+            launch_at_login: s.launch_at_login,
+            notifications_enabled: s.notifications_enabled,
+            username: s.username.into(),
+            display_name: s.display_name.into(),
+        }
+    }
+
+    fn to_stored(&self) -> StoredSettings {
+        StoredSettings {
+            dark_mode: self.dark_mode,
+            language: self.language.to_string(),
+            font_size: self.font_size,
+            launch_at_login: self.launch_at_login,
+            notifications_enabled: self.notifications_enabled,
+            username: self.username.to_string(),
+            display_name: self.display_name.to_string(),
+        }
+    }
+}
+
+/// Persists the current settings; errors are logged inside `persist::save`.
+fn save_settings(cx: &App) {
+    persist::save(&AppSettings::global(cx).to_stored());
+}
+
+
 struct SettingsWindow {
     focus_handle: FocusHandle,
 }
 
 impl SettingsWindow {
     fn new(_window: &mut Window, cx: &mut Context<Self>) -> Self {
-        cx.set_global(AppSettings::default());
         Self {
             focus_handle: cx.focus_handle(),
         }
     }
 
     fn setting_pages(&self, cx: &mut Context<Self>) -> Vec<SettingPage> {
-        let _ = cx;
+        let lang = AppSettings::global(cx).language.clone();
         let defaults = AppSettings::default();
 
         vec![
-            SettingPage::new("General")
+            SettingPage::new(tr("page.general", &lang))
                 .icon(Icon::new(IconName::Settings2))
                 .default_open(true)
                 .resettable(true)
                 .groups(vec![
-                    SettingGroup::new().title("Appearance").items(vec![
+                    SettingGroup::new().title(tr("group.appearance", &lang)).items(vec![
                         SettingItem::new(
-                            "Dark Mode",
+                            tr("item.dark_mode", &lang),
                             SettingField::switch(
                                 |cx: &App| cx.theme().mode.is_dark(),
                                 |val: bool, cx: &mut App| {
@@ -91,32 +129,38 @@ impl SettingsWindow {
                                     } else {
                                         ThemeMode::Light
                                     };
-                                    Theme::global_mut(cx).mode = mode;
                                     Theme::change(mode, None, cx);
+                                    AppSettings::global_mut(cx).dark_mode = val;
+                                    apply_font_size(cx);
+                                    save_settings(cx);
+                                    cx.refresh_windows();
                                 },
                             )
                             .default_value(false),
                         )
-                        .description("Switch between light and dark themes."),
+                        .description(tr("item.dark_mode.desc", &lang)),
                         SettingItem::new(
-                            "Language",
+                            tr("item.language", &lang),
                             SettingField::dropdown(
                                 vec![
                                     ("en".into(), "English".into()),
                                     ("vi".into(), "Tiếng Việt".into()),
-                                    ("zh".into(), "简体中文".into()),
+                                    ("zh-CN".into(), "简体中文".into()),
                                     ("ja".into(), "日本語".into()),
                                 ],
                                 |cx: &App| AppSettings::global(cx).language.clone(),
                                 |val: SharedString, cx: &mut App| {
-                                    AppSettings::global_mut(cx).language = val;
+                                    AppSettings::global_mut(cx).language = val.clone();
+                                    gpui_kit::component::set_locale(component_locale(&val));
+                                    save_settings(cx);
+                                    cx.refresh_windows();
                                 },
                             )
                             .default_value(defaults.language.clone()),
                         )
-                        .description("Interface language (demo only, no i18n wired)."),
+                        .description(tr("item.language.desc", &lang)),
                         SettingItem::new(
-                            "Font Size",
+                            tr("item.font_size", &lang),
                             SettingField::number_input(
                                 NumberFieldOptions {
                                     min: 8.0,
@@ -125,119 +169,130 @@ impl SettingsWindow {
                                 },
                                 |cx: &App| AppSettings::global(cx).font_size,
                                 |val: f64, cx: &mut App| {
-                                    AppSettings::global_mut(cx).font_size = val;
+                                    let Some(size) = normalize_font_size(val) else {
+                                        return;
+                                    };
+                                    AppSettings::global_mut(cx).font_size = size;
+                                    apply_font_size(cx);
+                                    save_settings(cx);
+                                    cx.refresh_windows();
                                 },
                             )
                             .default_value(defaults.font_size),
                         )
-                        .description("Base UI font size, 8–32."),
+                        .description(tr("item.font_size.desc", &lang)),
                     ]),
-                    SettingGroup::new().title("Startup").items(vec![
+                    SettingGroup::new().title(tr("group.startup", &lang)).items(vec![
                         SettingItem::new(
-                            "Launch at Login",
+                            tr("item.launch_at_login", &lang),
                             SettingField::checkbox(
                                 |cx: &App| AppSettings::global(cx).launch_at_login,
                                 |val: bool, cx: &mut App| {
                                     AppSettings::global_mut(cx).launch_at_login = val;
+                                    persist::autostart_converge(val);
+                                    save_settings(cx);
                                 },
                             )
                             .default_value(defaults.launch_at_login),
                         )
-                        .description("Start the app when you sign in."),
-                        SettingItem::new(
-                            "Auto Update",
-                            SettingField::switch(
-                                |cx: &App| AppSettings::global(cx).auto_update,
-                                |val: bool, cx: &mut App| {
-                                    AppSettings::global_mut(cx).auto_update = val;
-                                },
-                            )
-                            .default_value(defaults.auto_update),
-                        )
-                        .description("Download and install updates automatically."),
+                        .description(tr("item.launch_at_login.desc", &lang)),
                     ]),
                 ]),
-            SettingPage::new("Notifications")
+            SettingPage::new(tr("page.notifications", &lang))
                 .icon(Icon::new(IconName::Bell))
                 .resettable(true)
                 .groups(vec![
-                    SettingGroup::new().title("Delivery").items(vec![
+                    SettingGroup::new().title(tr("group.delivery", &lang)).items(vec![
                         SettingItem::new(
-                            "Enable Notifications",
+                            tr("item.notifications", &lang),
                             SettingField::switch(
                                 |cx: &App| AppSettings::global(cx).notifications_enabled,
                                 |val: bool, cx: &mut App| {
                                     AppSettings::global_mut(cx).notifications_enabled = val;
+                                    save_settings(cx);
+                                    cx.refresh_windows();
                                 },
                             )
                             .default_value(defaults.notifications_enabled),
                         )
-                        .description("Allow in-app notifications."),
-                        SettingItem::new(
-                            "Digest",
-                            SettingField::dropdown(
-                                vec![
-                                    ("immediate".into(), "Immediately".into()),
-                                    ("daily".into(), "Daily summary".into()),
-                                    ("weekly".into(), "Weekly summary".into()),
-                                ],
-                                |cx: &App| AppSettings::global(cx).digest.clone(),
-                                |val: SharedString, cx: &mut App| {
-                                    AppSettings::global_mut(cx).digest = val;
-                                },
-                            )
-                            .default_value(defaults.digest.clone()),
-                        )
-                        .description("How often notifications are delivered."),
+                        .description(tr("item.notifications.desc", &lang)),
                     ]),
-                    SettingGroup::new().title("Actions").item(
+                    SettingGroup::new().title(tr("group.actions", &lang)).item(
                         SettingItem::new(
-                            "Test Notification",
-                            SettingField::render(|options, _window, _cx| {
+                            tr("item.test_notification", &lang),
+                            SettingField::render(|options, _window, cx| {
+                                let settings = AppSettings::global(cx);
+                                let enabled = settings.notifications_enabled;
+                                let lang = settings.language.clone();
                                 Button::new("send-test-notification")
                                     .outline()
                                     .with_size(options.size())
                                     .icon(IconName::Bell)
-                                    .label("Send")
+                                    .label(tr("action.send", &lang))
+                                    .disabled(!enabled)
                                     .on_click(|_, window, cx| {
+                                        let settings = AppSettings::global(cx);
+                                        if !settings.notifications_enabled {
+                                            return;
+                                        }
                                         window.push_notification(
-                                            Notification::success("Hello from settings-demo!"),
+                                            Notification::success(tr(
+                                                "notify.test_message",
+                                                &settings.language,
+                                            )),
                                             cx,
                                         );
                                     })
                             }),
                         )
-                        .description("Push a sample in-app notification."),
+                        .description(tr("item.test_notification.desc", &lang)),
                     ),
                 ]),
-            SettingPage::new("Profile")
+            SettingPage::new(tr("page.profile", &lang))
                 .icon(Icon::new(IconName::User))
                 .resettable(true)
-                .group(SettingGroup::new().title("Account").items(vec![
+                .group(SettingGroup::new().title(tr("group.account", &lang)).items(vec![
                         SettingItem::new(
-                            "Username",
+                            tr("item.username", &lang),
                             SettingField::input(
                                 |cx: &App| AppSettings::global(cx).username.clone(),
                                 |val: SharedString, cx: &mut App| {
                                     AppSettings::global_mut(cx).username = val;
+                                    save_settings(cx);
+                                    cx.refresh_windows();
                                 },
                             )
                             .default_value(defaults.username.clone()),
                         )
-                        .description("Your unique handle."),
+                        .description(tr("item.username.desc", &lang)),
                         SettingItem::new(
-                            "Display Name",
+                            tr("item.display_name", &lang),
                             SettingField::input(
                                 |cx: &App| AppSettings::global(cx).display_name.clone(),
                                 |val: SharedString, cx: &mut App| {
                                     AppSettings::global_mut(cx).display_name = val;
+                                    save_settings(cx);
+                                    cx.refresh_windows();
                                 },
                             )
                             .default_value(defaults.display_name.clone()),
                         )
-                        .description("Shown instead of your username."),
+                        .description(tr("item.display_name.desc", &lang)),
+                        SettingItem::new(
+                            tr("item.preview", &lang),
+                            SettingField::render(|_options, _window, cx| {
+                                let settings = AppSettings::global(cx);
+                                div().text_color(cx.theme().muted_foreground).child(
+                                    SharedString::from(format!(
+                                        "{} (@{})",
+                                        settings.display_name, settings.username
+                                    )),
+                                )
+                            }),
+                        )
+                        .description(tr("item.preview.desc", &lang)),
                     ])),
-            SettingPage::new("About")
+            SettingPage::new(tr("page.about", &lang))
                 .icon(Icon::new(IconName::Info))
                 .groups(vec![
                     SettingGroup::new().item(SettingItem::render(|_options, _window, cx| {
@@ -254,48 +309,58 @@ impl SettingsWindow {
                                     .child("settings-demo"),
                             )
                             .child(
-                                Label::new("A settings-style demo app built with GPUI Kit.")
+                                Label::new(tr("about.tagline", &AppSettings::global(cx).language))
                                     .text_sm()
                                     .text_color(cx.theme().muted_foreground),
                             )
                     })),
-                    SettingGroup::new().title("Links").items(vec![
+                    SettingGroup::new().title(tr("group.links", &lang)).items(vec![
                         SettingItem::new(
-                            "Website",
-                            SettingField::render(|options, _window, _cx| {
+                            tr("item.website", &lang),
+                            SettingField::render(|options, _window, cx| {
                                 Button::new("open-website")
                                     .outline()
                                     .with_size(options.size())
                                     .icon(IconName::ExternalLink)
-                                    .label("gpui-kit.com")
+                                    .label(tr("action.website_label", &AppSettings::global(cx).language))
                                     .on_click(|_, _window, cx| {
                                         cx.open_url("https://gpui-kit.com/");
                                     })
                             }),
                         )
-                        .description("Framework website and documentation."),
+                        .description(tr("item.website.desc", &lang)),
                         SettingItem::new(
-                            "About",
-                            SettingField::render(|options, _window, _cx| {
+                            tr("item.about", &lang),
+                            SettingField::render(|options, _window, cx| {
                                 Button::new("open-about")
                                     .outline()
                                     .with_size(options.size())
                                     .icon(IconName::Info)
-                                    .label("About…")
+                                    .label(tr("action.about_label", &AppSettings::global(cx).language))
                                     .on_click(|_, window, cx| {
-                                        window.open_dialog(cx, |dialog, _, _| {
-                                            dialog.title("About settings-demo").child(
-                                                "Built with GPUI Kit — the Rust desktop \
-                                                 framework from Longbridge.",
+                                        window.open_dialog(cx, |dialog, _, cx| {
+                                            let lang = &AppSettings::global(cx).language;
+                                            dialog.title(tr("dialog.about_title", lang)).child(
+                                                tr("dialog.about_body", lang),
                                             )
                                         });
                                     })
                             }),
                         )
-                        .description("Show the about dialog."),
+                        .description(tr("item.about.desc", &lang)),
                     ]),
                 ]),
         ]
+    }
+}
+
+/// Maps app language codes to gpui-component locale codes: the component
+/// ships `zh-CN` translations, so `"zh"` maps to `"zh-CN"`; other codes
+/// pass through and rust_i18n falls back to English for missing locales.
+fn component_locale(lang: &str) -> &str {
+    match lang {
+        "zh" => "zh-CN",
+        other => other,
     }
 }
 
@@ -330,15 +395,18 @@ fn rail_brand() -> impl IntoElement {
                 .child("settings-demo"),
         )
 }
-
-/// Rail footer: light/dark toggle, mirroring the kumo-desk sidebar footer.
 fn rail_footer(cx: &App) -> impl IntoElement {
     let dark = cx.theme().mode.is_dark();
+    let lang = AppSettings::global(cx).language.clone();
     Button::new("rail-theme-toggle")
         .primary()
         .w_full()
         .icon(if dark { IconName::Sun } else { IconName::Moon })
-        .label(if dark { "Light mode" } else { "Dark mode" })
+        .label(if dark {
+            tr("rail.light_mode", &lang)
+        } else {
+            tr("rail.dark_mode", &lang)
+        })
         .on_click(|_, window, cx| {
             let next = if cx.theme().mode.is_dark() {
                 ThemeMode::Light
@@ -346,8 +414,31 @@ fn rail_footer(cx: &App) -> impl IntoElement {
                 ThemeMode::Dark
             };
             Theme::change(next, Some(window), cx);
+            AppSettings::global_mut(cx).dark_mode = next.is_dark();
+            apply_font_size(cx);
+            save_settings(cx);
         })
 }
+
+/// Re-applies the user's font size after `Theme::change`, which resets
+/// `font_size` from the active `ThemeConfig` (`mono.json` pins it at 14).
+/// `Root::render` pushes `Theme.font_size` into `window.set_rem_size`, so
+/// the whole UI scales from this one value.
+fn apply_font_size(cx: &mut App) {
+    let size = AppSettings::global(cx).font_size;
+    Theme::global_mut(cx).font_size = px(size as f32);
+    Theme::sync_base(cx);
+}
+
+/// Guards the font-size boundary: the vendored `NumberField` parses
+/// `"NaN"`/`"inf"` to non-finite `f64` and its clamp passes NaN through,
+/// which would poison `px()`/`set_rem_size`. Non-finite input is rejected
+/// (setter keeps the previous value); finite input passes through — the
+/// field already clamps to 8–32.
+fn normalize_font_size(val: f64) -> Option<f64> {
+    val.is_finite().then_some(val)
+}
+
 
 impl Render for SettingsWindow {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -408,6 +499,17 @@ fn main() {
                 Menu::new("mono-desk").items([MenuItem::action("Quit", Quit)]),
             ]);
             cx.on_action(|_: &Quit, cx: &mut App| cx.quit());
+            cx.set_global(AppSettings::from_stored(persist::load()));
+            let settings = AppSettings::global(cx);
+            let dark_mode = settings.dark_mode;
+            let language = settings.language.clone();
+            let launch_at_login = settings.launch_at_login;
+            if dark_mode {
+                Theme::change(ThemeMode::Dark, None, cx);
+            }
+            apply_font_size(cx);
+            gpui_kit::component::set_locale(component_locale(&language));
+            persist::autostart_converge(launch_at_login);
             // Native titlebar: gpui only calls `setTitle` when a title is set,
             // so `WindowOptions::default()` leaves the window title empty.
             let window_options = WindowOptions {
@@ -428,4 +530,19 @@ fn main() {
             })
             .detach();
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_font_size;
+
+    #[test]
+    fn font_size_rejects_non_finite_input() {
+        assert_eq!(normalize_font_size(f64::NAN), None);
+        assert_eq!(normalize_font_size(f64::INFINITY), None);
+        assert_eq!(normalize_font_size(f64::NEG_INFINITY), None);
+        assert_eq!(normalize_font_size(14.0), Some(14.0));
+        assert_eq!(normalize_font_size(8.0), Some(8.0));
+        assert_eq!(normalize_font_size(32.0), Some(32.0));
+    }
 }
