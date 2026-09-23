@@ -12,8 +12,10 @@
   real desktop apps.
 
 ## Non-goals
-- Not a production settings/productivity app; no persistence backend, no
-  i18n implementation, no multi-window or multi-view product surface.
+- Not a production settings/productivity app; no multi-window or
+  multi-view product surface. (Persistence and i18n were non-goals
+  until 2026-09-23 — now in scope under
+  docs/plans/active/real-settings.md.)
 
 ## What are the gate commands?
 - run from: repository root (host-local: `/Users/tinhtute/Lab/mono-desk`,
@@ -40,7 +42,8 @@
   → `Root::new(SettingsWindow)` with dialog/sheet/notification layers
 
 ## What are we working on right now?
-- plan: docs/plans/active/mono-design-port.md (active) — refined
-  2026-09-18 with requirements 8–14 (rail chrome: brand block, footer
-  theme toggle, vendored `gpui-component` patch); next stage `to-plan`
-  authors their phases, the three checked phases stay as recorded.
+- plan: docs/plans/active/real-settings.md (active) — locked
+  2026-09-23; makes every settings control produce a real effect
+  (repaint, rem-scale, gated send, OS autostart, live locale, profile
+  preview) and persists values to platform config JSON. Next stage
+  `to-plan` authors phases.
