@@ -96,6 +96,7 @@ pub struct SidebarMenuItem {
     label: SharedString,
     label_style: StyleRefinement,
     style: StyleRefinement,
+    active_style: StyleRefinement,
     handler: Rc<dyn Fn(&ClickEvent, &mut Window, &mut App)>,
     active: bool,
     default_open: bool,
@@ -116,6 +117,7 @@ impl SidebarMenuItem {
             label: label.into(),
             label_style: StyleRefinement::default(),
             style: StyleRefinement::default(),
+            active_style: StyleRefinement::default(),
             handler: Rc::new(|_, _, _| {}),
             active: false,
             collapsed: false,
@@ -144,6 +146,15 @@ impl SidebarMenuItem {
     /// Set the active state of the menu item
     pub fn active(mut self, active: bool) -> Self {
         self.active = active;
+        self
+    }
+
+    /// Set the style refinement applied on top of the built-in active
+    /// styling when the item is active.
+    ///
+    /// Applied after the default accent background, so it wins.
+    pub fn active_style(mut self, style: StyleRefinement) -> Self {
+        self.active_style = style;
         self
     }
 
@@ -304,6 +315,9 @@ impl SidebarItem for SidebarMenuItem {
                                 .text_color(cx.theme().sidebar_accent_foreground)
                         })
                     })
+                    // Refined last so a custom active style wins over the
+                    // built-in accent background in both modes.
+                    .when(is_active, |this| this.refine_style(&self.active_style))
                     .when(!is_collapsed, |this| {
                         this.h_7()
                             .child(

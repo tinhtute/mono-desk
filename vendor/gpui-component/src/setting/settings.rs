@@ -1,4 +1,5 @@
 use std::ops::Range;
+use std::rc::Rc;
 
 use crate::{
     IconName, Sizable, Size, StyledExt,
@@ -7,7 +8,7 @@ use crate::{
     input::{Input, InputState},
     resizable_panel,
     setting::{SettingGroup, SettingPage},
-    sidebar::{Sidebar, SidebarMenu, SidebarMenuItem},
+    sidebar::{Sidebar, SidebarCollapsible, SidebarMenu, SidebarMenuItem},
     v_flex,
 };
 use gpui::{
@@ -39,6 +40,10 @@ pub struct Settings {
     size: Size,
     sidebar_width: Pixels,
     sidebar_size_range: Range<Pixels>,
+    /// Style refinement applied to active sidebar menu items.
+    active_item_style: StyleRefinement,
+    /// Style refinement applied to the content panel.
+    content_panel_style: StyleRefinement,
     sidebar_style: StyleRefinement,
     default_selected_index: SelectIndex,
     header_style: StyleRefinement,
@@ -46,6 +51,10 @@ pub struct Settings {
     sidebar_header: Option<AnyElement>,
     /// Custom content rendered at the bottom of the sidebar.
     sidebar_footer: Option<AnyElement>,
+    /// Collapse the sidebar to icon width.
+    sidebar_collapsed: bool,
+    /// Whether to paint the resize handle between the panels.
+    show_handle: bool,
 }
 
 impl Settings {
@@ -58,11 +67,15 @@ impl Settings {
             size: Size::default(),
             sidebar_width: px(250.0),
             sidebar_size_range: px(160.0)..px(360.0),
+            active_item_style: StyleRefinement::default(),
+            content_panel_style: StyleRefinement::default(),
             sidebar_style: StyleRefinement::default(),
             default_selected_index: SelectIndex::default(),
             header_style: StyleRefinement::default(),
             sidebar_header: None,
             sidebar_footer: None,
+            sidebar_collapsed: false,
+            show_handle: true,
         }
     }
 
@@ -104,6 +117,21 @@ impl Settings {
         self
     }
 
+    /// Set the style refinement applied to active sidebar menu items.
+    ///
+    /// Applied after the built-in active styling, so it wins over the
+    /// default accent background.
+    pub fn active_item_style(mut self, style: &StyleRefinement) -> Self {
+        self.active_item_style = style.clone();
+        self
+    }
+
+    /// Set the style refinement for the content panel.
+    pub fn content_panel_style(mut self, style: &StyleRefinement) -> Self {
+        self.content_panel_style = style.clone();
+        self
+    }
+
     /// Set the default index of the page to be selected.
     pub fn default_selected_index(mut self, index: SelectIndex) -> Self {
         self.default_selected_index = index;
@@ -125,6 +153,24 @@ impl Settings {
     /// Set custom content rendered at the bottom of the sidebar.
     pub fn sidebar_footer(mut self, footer: impl IntoElement) -> Self {
         self.sidebar_footer = Some(footer.into_any_element());
+        self
+    }
+
+    /// Collapse the sidebar to icon width.
+    ///
+    /// When collapsed the header (brand and search) is hidden and menu
+    /// items render as centered icons.
+    pub fn sidebar_collapsed(mut self, collapsed: bool) -> Self {
+        self.sidebar_collapsed = collapsed;
+        self
+    }
+
+    /// Whether to paint the resize handle between the panels, default is `true`.
+    ///
+    /// When `false`, the handle keeps its hit area and drag behavior but
+    /// paints nothing.
+    pub fn show_handle(mut self, show: bool) -> Self {
+        self.show_handle = show;
         self
     }
 
@@ -196,22 +242,24 @@ impl Settings {
             .w(relative(1.))
             .border_0()
             .refine_style(&self.sidebar_style)
-            .collapsible(false)
-            .collapsed(false)
-            .header(
-                v_flex()
-                    .w_full()
-                    .gap_2()
-                    .when_some(self.sidebar_header.take(), |this, header| {
-                        this.child(header)
-                    })
-                    .child(
-                        div()
-                            .w_full()
-                            .refine_style(&self.header_style)
-                            .child(Input::new(&search_input).prefix(IconName::Search)),
-                    ),
-            )
+            .collapsible(SidebarCollapsible::Icon)
+            .collapsed(self.sidebar_collapsed)
+            .when(!self.sidebar_collapsed, |this| {
+                this.header(
+                    v_flex()
+                        .w_full()
+                        .gap_2()
+                        .when_some(self.sidebar_header.take(), |this, header| {
+                            this.child(header)
+                        })
+                        .child(
+                            div()
+                                .w_full()
+                                .refine_style(&self.header_style)
+                                .child(Input::new(&search_input).prefix(IconName::Search)),
+                        ),
+                )
+            })
             .when_some(self.sidebar_footer.take(), |this, footer| {
                 this.footer(footer)
             })
@@ -224,6 +272,7 @@ impl Settings {
                         .when_some(page.icon.clone(), |this, icon| this.icon(icon))
                         .default_open(page.default_open)
                         .active(is_page_active)
+                        .active_style(self.active_item_style.clone())
                         .on_click({
                             let state = state.clone();
                             move |_, _, cx| {
@@ -247,19 +296,26 @@ impl Settings {
                                             && selected_index.group_ix == Some(group_ix);
                                         let title = group.title.clone().unwrap_or_default();
 
-                                        SidebarMenuItem::new(title).active(is_active).on_click({
-                                            let state = state.clone();
-                                            move |_, _, cx| {
-                                                state.update(cx, |state, cx| {
-                                                    state.selected_index = SelectIndex {
-                                                        page_ix,
-                                                        group_ix: Some(group_ix),
-                                                    };
-                                                    state.deferred_scroll_group_ix = Some(group_ix);
-                                                    cx.notify();
-                                                })
-                                            }
-                                        })
+                                        SidebarMenuItem::new(title)
+                                            .when_some(group.icon.clone(), |this, icon| {
+                                                this.icon(icon)
+                                            })
+                                            .active(is_active)
+                                            .active_style(self.active_item_style.clone())
+                                            .on_click({
+                                                let state = state.clone();
+                                                move |_, _, cx| {
+                                                    state.update(cx, |state, cx| {
+                                                        state.selected_index = SelectIndex {
+                                                            page_ix,
+                                                            group_ix: Some(group_ix),
+                                                        };
+                                                        state.deferred_scroll_group_ix =
+                                                            Some(group_ix);
+                                                        cx.notify();
+                                                    })
+                                                }
+                                            })
                                     }),
                             )
                         })
@@ -418,6 +474,11 @@ impl RenderOnce for Settings {
             .into_any_element();
 
         h_resizable(self.id.clone())
+            .when(!self.show_handle, |this| {
+                this.with_handle_appearance(Rc::new(|_, _, _| {
+                    Some(div().into_any_element())
+                }))
+            })
             .child(
                 resizable_panel()
                     .size(self.sidebar_width)
@@ -425,14 +486,17 @@ impl RenderOnce for Settings {
                     .child(sidebar),
             )
             .child(
-                resizable_panel().child(container_query(move |size, window, cx| {
-                    let options = options.with_layout(if size.width <= STACKED_LAYOUT_MAX_WIDTH {
-                        Axis::Vertical
-                    } else {
-                        Axis::Horizontal
-                    });
-                    self.render_active_page(&state, &filtered_pages, &options, window, cx)
-                })),
+                resizable_panel()
+                    .refine_style(&self.content_panel_style)
+                    .child(container_query(move |size, window, cx| {
+                        let options =
+                            options.with_layout(if size.width <= STACKED_LAYOUT_MAX_WIDTH {
+                                Axis::Vertical
+                            } else {
+                                Axis::Horizontal
+                            });
+                        self.render_active_page(&state, &filtered_pages, &options, window, cx)
+                    })),
             )
     }
 }

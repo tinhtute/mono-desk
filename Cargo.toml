@@ -9,8 +9,13 @@ gpui-kit = "0.6"
 [dev-dependencies]
 serde_json = "1.0.151"
 
-# Vendored gpui-component 0.6.1: two additive Settings rail slots
-# (sidebar_header / sidebar_footer) + pointer cursor on rail items.
-# Deltas: vendor/patches/sidebar-slots.patch, vendor/patches/sidebar-cursor.patch
+# Vendored gpui-component 0.6.1 — deltas in vendor/patches/
+# (apply inside vendor/gpui-component):
+# - sidebar-cursor.patch: pointer cursor on Settings rail items.
+# - sidebar-slots.patch: Settings::sidebar_header/sidebar_footer element slots.
+# - settings-content-style.patch: Settings::content_panel_style → ResizablePanel style.
+# - settings-group-icon.patch: SettingGroup::icon → sidebar menu item icon.
+# - settings-collapse.patch: Settings::sidebar_collapsed (icon rail, hides header) + show_handle.
+# - settings-item-style.patch: Settings::active_item_style + SidebarMenuItem::active_style.
 [patch.crates-io]
 gpui-component = { path = "vendor/gpui-component" }

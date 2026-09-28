@@ -4,7 +4,7 @@ use gpui::{
 };
 
 use crate::{
-    ActiveTheme, StyledExt,
+    ActiveTheme, Icon, StyledExt,
     group_box::{GroupBox, GroupBoxVariants},
     label::Label,
     setting::{RenderOptions, SettingItem},
@@ -16,6 +16,7 @@ use crate::{
 pub struct SettingGroup {
     style: StyleRefinement,
 
+    pub(super) icon: Option<Icon>,
     pub(super) title: Option<SharedString>,
     pub(super) description: Option<SharedString>,
     pub(super) items: Vec<SettingItem>,
@@ -32,6 +33,7 @@ impl SettingGroup {
     pub fn new() -> Self {
         Self {
             style: StyleRefinement::default(),
+            icon: None,
             title: None,
             description: None,
             items: Vec::new(),
@@ -41,6 +43,14 @@ impl SettingGroup {
     /// Set the label of the setting group, default is None.
     pub fn title(mut self, title: impl Into<SharedString>) -> Self {
         self.title = Some(title.into());
+        self
+    }
+
+    /// Set the icon of the setting group.
+    ///
+    /// The icon is used when the group is rendered as a sidebar menu item.
+    pub fn icon(mut self, icon: impl Into<Icon>) -> Self {
+        self.icon = Some(icon.into());
         self
     }
 

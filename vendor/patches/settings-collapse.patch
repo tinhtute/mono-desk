@@ -1,0 +1,116 @@
+diff --git a/src/setting/settings.rs b/src/setting/settings.rs
+--- a/src/setting/settings.rs
++++ b/src/setting/settings.rs
+@@ -1,4 +1,5 @@
+ use std::ops::Range;
++use std::rc::Rc;
+ 
+ use crate::{
+     IconName, Sizable, Size, StyledExt,
+@@ -7,7 +8,7 @@ use crate::{
+     input::{Input, InputState},
+     resizable_panel,
+     setting::{SettingGroup, SettingPage},
+-    sidebar::{Sidebar, SidebarMenu, SidebarMenuItem},
++    sidebar::{Sidebar, SidebarCollapsible, SidebarMenu, SidebarMenuItem},
+     v_flex,
+ };
+ use gpui::{
+@@ -50,6 +51,10 @@ pub struct Settings {
+     sidebar_header: Option<AnyElement>,
+     /// Custom content rendered at the bottom of the sidebar.
+     sidebar_footer: Option<AnyElement>,
++    /// Collapse the sidebar to icon width.
++    sidebar_collapsed: bool,
++    /// Whether to paint the resize handle between the panels.
++    show_handle: bool,
+ }
+ 
+ impl Settings {
+@@ -69,6 +74,8 @@ impl Settings {
+             header_style: StyleRefinement::default(),
+             sidebar_header: None,
+             sidebar_footer: None,
++            sidebar_collapsed: false,
++            show_handle: true,
+         }
+     }
+ 
+@@ -149,6 +156,24 @@ impl Settings {
+         self
+     }
+ 
++    /// Collapse the sidebar to icon width.
++    ///
++    /// When collapsed the header (brand and search) is hidden and menu
++    /// items render as centered icons.
++    pub fn sidebar_collapsed(mut self, collapsed: bool) -> Self {
++        self.sidebar_collapsed = collapsed;
++        self
++    }
++
++    /// Whether to paint the resize handle between the panels, default is `true`.
++    ///
++    /// When `false`, the handle keeps its hit area and drag behavior but
++    /// paints nothing.
++    pub fn show_handle(mut self, show: bool) -> Self {
++        self.show_handle = show;
++        self
++    }
++
+     fn filtered_pages(&self, query: &str, cx: &App) -> Vec<SettingPage> {
+         self.pages
+             .iter()
+@@ -217,22 +242,24 @@ impl Settings {
+             .w(relative(1.))
+             .border_0()
+             .refine_style(&self.sidebar_style)
+-            .collapsible(false)
+-            .collapsed(false)
+-            .header(
+-                v_flex()
+-                    .w_full()
+-                    .gap_2()
+-                    .when_some(self.sidebar_header.take(), |this, header| {
+-                        this.child(header)
+-                    })
+-                    .child(
+-                        div()
+-                            .w_full()
+-                            .refine_style(&self.header_style)
+-                            .child(Input::new(&search_input).prefix(IconName::Search)),
+-                    ),
+-            )
++            .collapsible(SidebarCollapsible::Icon)
++            .collapsed(self.sidebar_collapsed)
++            .when(!self.sidebar_collapsed, |this| {
++                this.header(
++                    v_flex()
++                        .w_full()
++                        .gap_2()
++                        .when_some(self.sidebar_header.take(), |this, header| {
++                            this.child(header)
++                        })
++                        .child(
++                            div()
++                                .w_full()
++                                .refine_style(&self.header_style)
++                                .child(Input::new(&search_input).prefix(IconName::Search)),
++                        ),
++                )
++            })
+             .when_some(self.sidebar_footer.take(), |this, footer| {
+                 this.footer(footer)
+             })
+@@ -447,6 +474,11 @@ impl RenderOnce for Settings {
+             .into_any_element();
+ 
+         h_resizable(self.id.clone())
++            .when(!self.show_handle, |this| {
++                this.with_handle_appearance(Rc::new(|_, _, _| {
++                    Some(div().into_any_element())
++                }))
++            })
+             .child(
+                 resizable_panel()
+                     .size(self.sidebar_width)

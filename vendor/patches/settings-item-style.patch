@@ -1,0 +1,97 @@
+diff --git a/src/setting/settings.rs b/src/setting/settings.rs
+--- a/src/setting/settings.rs
++++ b/src/setting/settings.rs
+@@ -40,6 +40,8 @@ pub struct Settings {
+     size: Size,
+     sidebar_width: Pixels,
+     sidebar_size_range: Range<Pixels>,
++    /// Style refinement applied to active sidebar menu items.
++    active_item_style: StyleRefinement,
+     /// Style refinement applied to the content panel.
+     content_panel_style: StyleRefinement,
+     sidebar_style: StyleRefinement,
+@@ -65,6 +67,7 @@ impl Settings {
+             size: Size::default(),
+             sidebar_width: px(250.0),
+             sidebar_size_range: px(160.0)..px(360.0),
++            active_item_style: StyleRefinement::default(),
+             content_panel_style: StyleRefinement::default(),
+             sidebar_style: StyleRefinement::default(),
+             default_selected_index: SelectIndex::default(),
+@@ -114,6 +117,15 @@ impl Settings {
+         self
+     }
+ 
++    /// Set the style refinement applied to active sidebar menu items.
++    ///
++    /// Applied after the built-in active styling, so it wins over the
++    /// default accent background.
++    pub fn active_item_style(mut self, style: &StyleRefinement) -> Self {
++        self.active_item_style = style.clone();
++        self
++    }
++
+     /// Set the style refinement for the content panel.
+     pub fn content_panel_style(mut self, style: &StyleRefinement) -> Self {
+         self.content_panel_style = style.clone();
+@@ -260,6 +272,7 @@ impl Settings {
+                         .when_some(page.icon.clone(), |this, icon| this.icon(icon))
+                         .default_open(page.default_open)
+                         .active(is_page_active)
++                        .active_style(self.active_item_style.clone())
+                         .on_click({
+                             let state = state.clone();
+                             move |_, _, cx| {
+@@ -288,6 +301,7 @@ impl Settings {
+                                                 this.icon(icon)
+                                             })
+                                             .active(is_active)
++                                            .active_style(self.active_item_style.clone())
+                                             .on_click({
+                                                 let state = state.clone();
+                                                 move |_, _, cx| {
+diff --git a/src/sidebar/menu.rs b/src/sidebar/menu.rs
+--- a/src/sidebar/menu.rs
++++ b/src/sidebar/menu.rs
+@@ -96,6 +96,7 @@ pub struct SidebarMenuItem {
+     label: SharedString,
+     label_style: StyleRefinement,
+     style: StyleRefinement,
++    active_style: StyleRefinement,
+     handler: Rc<dyn Fn(&ClickEvent, &mut Window, &mut App)>,
+     active: bool,
+     default_open: bool,
+@@ -116,6 +117,7 @@ impl SidebarMenuItem {
+             label: label.into(),
+             label_style: StyleRefinement::default(),
+             style: StyleRefinement::default(),
++            active_style: StyleRefinement::default(),
+             handler: Rc::new(|_, _, _| {}),
+             active: false,
+             collapsed: false,
+@@ -147,6 +149,15 @@ impl SidebarMenuItem {
+         self
+     }
+ 
++    /// Set the style refinement applied on top of the built-in active
++    /// styling when the item is active.
++    ///
++    /// Applied after the default accent background, so it wins.
++    pub fn active_style(mut self, style: StyleRefinement) -> Self {
++        self.active_style = style;
++        self
++    }
++
+     /// Add a click handler to the menu item
+     pub fn on_click(
+         mut self,
+@@ -304,6 +315,9 @@ impl SidebarItem for SidebarMenuItem {
+                                 .text_color(cx.theme().sidebar_accent_foreground)
+                         })
+                     })
++                    // Refined last so a custom active style wins over the
++                    // built-in accent background in both modes.
++                    .when(is_active, |this| this.refine_style(&self.active_style))
+                     .when(!is_collapsed, |this| {
+                         this.h_7()
+                             .child(
