@@ -268,9 +268,10 @@ impl Settings {
                     let is_page_active =
                         selected_index.page_ix == page_ix && selected_index.group_ix.is_none();
                     SidebarMenuItem::new(page.title.clone())
-                        .click_to_open(true)
+                        // Page labels read bold; the label refinement beats the
+                        // medium weight the row sets in its active state.
+                        .label_style(StyleRefinement::default().font_bold())
                         .when_some(page.icon.clone(), |this, icon| this.icon(icon))
-                        .default_open(page.default_open)
                         .active(is_page_active)
                         .active_style(self.active_item_style.clone())
                         .on_click({
@@ -285,42 +286,96 @@ impl Settings {
                                 })
                             }
                         })
-                        .when(page.groups.len() > 1, |this| {
-                            this.children(
-                                page.groups
-                                    .iter()
-                                    .filter(|g| g.title.is_some())
-                                    .enumerate()
-                                    .map(|(group_ix, group)| {
-                                        let is_active = selected_index.page_ix == page_ix
-                                            && selected_index.group_ix == Some(group_ix);
-                                        let title = group.title.clone().unwrap_or_default();
+                        .children(sidebar_child_group_ixs(page).into_iter().map(|group_ix| {
+                            let group = &page.groups[group_ix];
+                            let is_active = selected_index.page_ix == page_ix
+                                && selected_index.group_ix == Some(group_ix);
+                            let title = group.title.clone().unwrap_or_default();
 
-                                        SidebarMenuItem::new(title)
-                                            .when_some(group.icon.clone(), |this, icon| {
-                                                this.icon(icon)
-                                            })
-                                            .active(is_active)
-                                            .active_style(self.active_item_style.clone())
-                                            .on_click({
-                                                let state = state.clone();
-                                                move |_, _, cx| {
-                                                    state.update(cx, |state, cx| {
-                                                        state.selected_index = SelectIndex {
-                                                            page_ix,
-                                                            group_ix: Some(group_ix),
-                                                        };
-                                                        state.deferred_scroll_group_ix =
-                                                            Some(group_ix);
-                                                        cx.notify();
-                                                    })
-                                                }
-                                            })
-                                    }),
-                            )
-                        })
+                            SidebarMenuItem::new(title)
+                                .when_some(group.icon.clone(), |this, icon| this.icon(icon))
+                                .active(is_active)
+                                .active_style(self.active_item_style.clone())
+                                .on_click({
+                                    let state = state.clone();
+                                    move |_, _, cx| {
+                                        state.update(cx, |state, cx| {
+                                            state.selected_index = SelectIndex {
+                                                page_ix,
+                                                group_ix: Some(group_ix),
+                                            };
+                                            state.deferred_scroll_group_ix = Some(group_ix);
+                                            cx.notify();
+                                        })
+                                    }
+                                })
+                        }))
                 })),
             )
+    }
+}
+
+/// Indices of the groups that appear as child items under `page` in the
+/// sidebar tree.
+///
+/// A page gets child items only when it has at least two titled groups — a
+/// single titled group duplicates the page label, so the page renders as one
+/// flat item. The returned indices address `page.groups`, the same indexing
+/// `SelectIndex::group_ix` and `deferred_scroll_group_ix` use, so untitled
+/// groups keep their slots.
+#[doc(hidden)]
+pub fn sidebar_child_group_ixs(page: &SettingPage) -> Vec<usize> {
+    let titled_count = page.groups.iter().filter(|g| g.title.is_some()).count();
+    if titled_count < 2 {
+        return Vec::new();
+    }
+    page.groups
+        .iter()
+        .enumerate()
+        .filter_map(|(ix, group)| group.title.is_some().then_some(ix))
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn titled_group(title: &str) -> SettingGroup {
+        SettingGroup::new().title(title)
+    }
+
+    #[test]
+    fn page_with_at_least_two_titled_groups_gets_children() {
+        let page = SettingPage::new("General")
+            .groups([titled_group("Appearance"), titled_group("Startup")]);
+
+        assert_eq!(sidebar_child_group_ixs(&page), vec![0, 1]);
+    }
+
+    #[test]
+    fn page_with_one_titled_group_renders_flat() {
+        // "Profile": one titled group → no children, bold leaf item.
+        let one_titled = SettingPage::new("Profile").groups([titled_group("Account")]);
+        // "About": an untitled group does not count toward the two-group
+        // threshold, so this page stays flat too.
+        let about = SettingPage::new("About").groups([SettingGroup::new(), titled_group("Links")]);
+
+        assert!(sidebar_child_group_ixs(&one_titled).is_empty());
+        assert!(sidebar_child_group_ixs(&about).is_empty());
+    }
+
+    #[test]
+    fn child_indices_address_all_groups() {
+        // Untitled groups keep their slot: the child indices match the list
+        // order in `page.groups`, which is what `deferred_scroll_group_ix`
+        // scrolls to.
+        let page = SettingPage::new("Page").groups([
+            SettingGroup::new(),
+            titled_group("First"),
+            titled_group("Second"),
+        ]);
+
+        assert_eq!(sidebar_child_group_ixs(&page), vec![1, 2]);
     }
 }
 

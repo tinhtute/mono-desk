@@ -26,5 +26,7 @@ ttf-parser = "0.25"
 # - settings-search-placeholder-locale.patch: re-apply the cached search placeholder when the locale changes.
 # - controls-cursor.patch: pointer cursor on interactive Button/Checkbox/Select/Switch.
 # - settings-collapsed-header.patch: keep the header slot (brand) when collapsed; hide only the search.
+# - settings-static-tree.patch: always-expanded settings tree — no caret/toggle, bold page labels,
+#   children only for pages with >=2 titled groups.
 [patch.crates-io]
 gpui-component = { path = "vendor/gpui-component" }

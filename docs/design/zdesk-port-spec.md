@@ -185,8 +185,8 @@ remains registered but is no longer the theme family.
 
 ## Vendored patch state
 
-`vendor/gpui-component` is stock 0.6.1 plus exactly nine patches
-(`Cargo.toml:15-25`):
+`vendor/gpui-component` is stock 0.6.1 plus exactly ten patches
+(`Cargo.toml:18-30`):
 
 | Patch | Lines | State | What it does |
 |---|---|---|---|
@@ -199,10 +199,11 @@ remains registered but is no longer the theme family.
 | `vendor/patches/settings-search-placeholder-locale.patch` | 34 | **NEW** (i18n) | `SettingsState::placeholder_locale` + a re-apply of `Settings.search_placeholder` in `render` when the active locale changes — the search input is created once per keyed state, so its placeholder would otherwise stay in the first-render locale |
 | `vendor/patches/controls-cursor.patch` | 37 | **NEW** (WIP port) | `cursor_pointer()` on every interactive `Button` (was link/text variants only) and on enabled `Checkbox`/`Select`/`Switch` |
 | `vendor/patches/settings-collapsed-header.patch` | 44 | **NEW** (WIP port) | The sidebar header is always rendered; only the search `Input` is gated on `!sidebar_collapsed`, so the `sidebar_header` slot (brand mark) stays visible on the 48px rail |
+| `vendor/patches/settings-static-tree.patch` | 394 | **NEW** (mdtree) | Static sidebar tree (`src/sidebar/menu.rs`, `src/setting/{settings,page}.rs`): no caret/toggle (`SidebarMenuItem::{default_open,click_to_open,click_to_toggle}` + `SettingPage::default_open` removed), children always render when the rail is expanded, page labels bold via `label_style`, child items only for pages with >=2 titled groups — indices address `page.groups` so untitled groups keep their slots |
 
-Upgrade rule: re-copy the upstream crate, re-apply all nine patches.
+Upgrade rule: re-copy the upstream crate, re-apply all ten patches.
 **Reversal order** (the hunks stack — `git apply -R` in:
-`settings-collapsed-header` → `controls-cursor` →
+`settings-static-tree` → `settings-collapsed-header` → `controls-cursor` →
 `settings-search-placeholder-locale` → `settings-item-style` →
 `settings-collapse` → `settings-group-icon` → `settings-content-style` →
 `sidebar-slots` → `sidebar-cursor`; apply forward in the reverse

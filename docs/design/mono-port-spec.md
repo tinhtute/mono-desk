@@ -115,9 +115,9 @@ Applied in mono-desk `Settings`:
     `sidebar-slots.patch` but is dormant — no call site by owner
     decision.
   - How the slots exist: `vendor/gpui-component/` is the 0.6.1 crate
-    carrying four patches, resolved via
-    `[patch.crates-io] gpui-component = { path = "vendor/gpui-component" }`
-    (`Cargo.toml:12-19`):
+    resolved via `[patch.crates-io] gpui-component = { path =
+    "vendor/gpui-component" }` (`Cargo.toml`). It carried four patches at
+    this doc's writing —
     `vendor/patches/sidebar-slots.patch` (101 lines, restored —
     `sidebar_header`/`sidebar_footer` on `src/setting/settings.rs`),
     `vendor/patches/sidebar-cursor.patch` (14 lines,
@@ -128,7 +128,9 @@ Applied in mono-desk `Settings`:
     `resizable_panel`), and
     `vendor/patches/settings-group-icon.patch` (86 lines, new —
     `SettingGroup::icon` → `.icon()` on the group's `SidebarMenuItem`).
-    Upgrade = re-copy upstream + re-apply all four patches.
+    The stack has since grown; the current set and apply order is the
+    `Cargo.toml` comment (see also `zdesk-port-spec.md`, "Vendored patch
+    state"). Upgrade = re-copy upstream + re-apply every patch in order.
   - Rail item cursor: upstream `SidebarMenuItem` sets hover colors but no
     cursor, so the rail items showed the default arrow — patched to
     `cursor_pointer()`.

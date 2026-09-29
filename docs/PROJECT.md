@@ -31,8 +31,8 @@
 - runtime shape: single binary crate, Rust 2024, direct deps `gpui-kit` 0.6
   and `rust-i18n` 4.2 (the same i18n stack the vendored component uses), plus
   `[patch.crates-io] gpui-component = { path = "vendor/gpui-component" }` —
-  upstream 0.6.1 carrying two additive `Settings` rail slots and a pointer
-  cursor on rail items (deltas in `vendor/patches/`)
+  upstream 0.6.1 carrying the full rail/cursor/tree patch set (deltas in
+  `vendor/patches/`, apply order listed in `Cargo.toml`)
 - i18n: `locales/app.yml` (en/vi/zh/ja) loaded by `rust_i18n::i18n!` in
   `src/main.rs`; the Language setting calls `rust_i18n::set_locale`, which
   switches the app strings and the component-internal strings together

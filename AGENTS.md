@@ -5,9 +5,10 @@
 `mono-desk` — a settings-style desktop demo app. Single binary crate, Rust
 edition 2024, one direct dependency: `gpui-kit = "0.6"` (re-exports `gpui`,
 `gpui-base`, `gpui-component`, assets/icons — no other GPUI crates needed),
-plus a vendored `gpui-component` 0.6.1 carrying two additive `Settings` rail
-slots and a pointer cursor on rail items (`[patch.crates-io]`; deltas in
-`vendor/patches/` — re-apply both when upgrading).
+plus a vendored `gpui-component` 0.6.1 carrying the full rail/cursor/tree
+patch set (`[patch.crates-io]`; deltas in `vendor/patches/` applied in the
+order listed above `[patch.crates-io]` in `Cargo.toml` — re-apply all when
+upgrading).
 
 ## Commands
 

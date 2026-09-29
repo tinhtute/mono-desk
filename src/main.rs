@@ -120,7 +120,6 @@ impl SettingsWindow {
         vec![
             SettingPage::new(tr!("Page.general"))
                 .icon(Icon::new(IconName::Settings2))
-                .default_open(true)
                 .resettable(true)
                 .groups(vec![
                     SettingGroup::new()
@@ -606,6 +605,40 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeSet;
+
+    /// The sidebar tree shows children only for pages with at least two
+    /// titled groups — that's exactly what keeps About (untitled brand
+    /// group + one titled "Links" group) and Profile (one titled group)
+    /// rendered as flat bold items.
+    #[test]
+    fn sidebar_children_require_two_titled_groups() {
+        use gpui_kit::component::setting::{SettingGroup, SettingPage, sidebar_child_group_ixs};
+
+        let titled = |t: &str| SettingGroup::new().title(t);
+
+        // General / Notifications shape: every group titled.
+        let two_titled =
+            SettingPage::new("General").groups([titled("Appearance"), titled("Startup")]);
+        assert_eq!(sidebar_child_group_ixs(&two_titled), vec![0, 1]);
+
+        // About: an untitled group doesn't count toward the threshold.
+        let about = SettingPage::new("About").groups([SettingGroup::new(), titled("Links")]);
+        assert!(sidebar_child_group_ixs(&about).is_empty());
+
+        // Profile: a single titled group renders flat.
+        let profile = SettingPage::new("Profile").groups([titled("Account")]);
+        assert!(sidebar_child_group_ixs(&profile).is_empty());
+
+        // Untitled groups keep their slots — child indices address the
+        // group's position in `page.groups`, which is the index the scroll-
+        // to-group action consumes.
+        let mixed = SettingPage::new("Mixed").groups([
+            SettingGroup::new(),
+            titled("First"),
+            titled("Second"),
+        ]);
+        assert_eq!(sidebar_child_group_ixs(&mixed), vec![1, 2]);
+    }
 
     /// Every key in `locales/app.yml` must carry a value for every language the
     /// Language dropdown offers, so switching never silently falls back to
