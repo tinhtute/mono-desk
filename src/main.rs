@@ -619,7 +619,7 @@ fn main() {
             let window_options = WindowOptions {
                 window_bounds: Some(default_window_bounds(cx)),
                 titlebar: Some(TitlebarOptions {
-                    traffic_light_position: Some(point(px(16.), px(18.))),
+                    traffic_light_position: Some(shell::traffic_light_origin()),
                     ..TitleBar::title_bar_options()
                 }),
                 window_decorations,
