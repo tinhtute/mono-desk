@@ -293,7 +293,6 @@ impl Settings {
                             let title = group.title.clone().unwrap_or_default();
 
                             SidebarMenuItem::new(title)
-                                .when_some(group.icon.clone(), |this, icon| this.icon(icon))
                                 .active(is_active)
                                 .active_style(self.active_item_style.clone())
                                 .on_click({

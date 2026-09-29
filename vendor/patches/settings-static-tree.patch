@@ -1,4 +1,4 @@
-diff --git a/src/sidebar/menu.rs bsrc/sidebar/menu.rs
+diff --git a/src/sidebar/menu.rs b/src/sidebar/menu.rs
 index fbc6fa8..fd048f7 100644
 --- a/src/sidebar/menu.rs
 +++ b/src/sidebar/menu.rs
@@ -208,8 +208,8 @@ index fbc6fa8..fd048f7 100644
                  this.child(
                      v_flex()
                          .id("submenu")
-diff --git a/src/setting/settings.rs bsrc/setting/settings.rs
-index 32cd103..9e341ee 100644
+diff --git a/src/setting/settings.rs b/src/setting/settings.rs
+index 32cd103..2ddba55 100644
 --- a/src/setting/settings.rs
 +++ b/src/setting/settings.rs
 @@ -268,9 +268,10 @@ impl Settings {
@@ -225,7 +225,7 @@ index 32cd103..9e341ee 100644
                          .active(is_page_active)
                          .active_style(self.active_item_style.clone())
                          .on_click({
-@@ -285,45 +286,99 @@ impl Settings {
+@@ -285,45 +286,98 @@ impl Settings {
                                  })
                              }
                          })
@@ -270,7 +270,6 @@ index 32cd103..9e341ee 100644
 +                            let title = group.title.clone().unwrap_or_default();
 +
 +                            SidebarMenuItem::new(title)
-+                                .when_some(group.icon.clone(), |this, icon| this.icon(icon))
 +                                .active(is_active)
 +                                .active_style(self.active_item_style.clone())
 +                                .on_click({
@@ -359,7 +358,7 @@ index 32cd103..9e341ee 100644
  impl Sizable for Settings {
      fn with_size(mut self, size: impl Into<Size>) -> Self {
          self.size = size.into();
-diff --git a/src/setting/page.rs bsrc/setting/page.rs
+diff --git a/src/setting/page.rs b/src/setting/page.rs
 index 34a10f8..9ebd6d7 100644
 --- a/src/setting/page.rs
 +++ b/src/setting/page.rs
@@ -392,3 +391,47 @@ index 34a10f8..9ebd6d7 100644
      /// Set whether the setting page is resettable, default is true.
      ///
      /// If true and the items in this page has changed, the reset button will appear.
+diff --git a/src/setting/group.rs b/src/setting/group.rs
+index a52d4bf..3a0fc17 100644
+--- a/src/setting/group.rs
++++ b/src/setting/group.rs
+@@ -4,7 +4,7 @@ use gpui::{
+ };
+ 
+ use crate::{
+-    ActiveTheme, Icon, StyledExt,
++    ActiveTheme, StyledExt,
+     group_box::{GroupBox, GroupBoxVariants},
+     label::Label,
+     setting::{RenderOptions, SettingItem},
+@@ -16,7 +16,6 @@ use crate::{
+ pub struct SettingGroup {
+     style: StyleRefinement,
+ 
+-    pub(super) icon: Option<Icon>,
+     pub(super) title: Option<SharedString>,
+     pub(super) description: Option<SharedString>,
+     pub(super) items: Vec<SettingItem>,
+@@ -33,7 +32,6 @@ impl SettingGroup {
+     pub fn new() -> Self {
+         Self {
+             style: StyleRefinement::default(),
+-            icon: None,
+             title: None,
+             description: None,
+             items: Vec::new(),
+@@ -46,14 +44,6 @@ impl SettingGroup {
+         self
+     }
+ 
+-    /// Set the icon of the setting group.
+-    ///
+-    /// The icon is used when the group is rendered as a sidebar menu item.
+-    pub fn icon(mut self, icon: impl Into<Icon>) -> Self {
+-        self.icon = Some(icon.into());
+-        self
+-    }
+-
+     /// Set the description of the setting group, default is None.
+     pub fn description(mut self, description: impl Into<SharedString>) -> Self {
+         self.description = Some(description.into());

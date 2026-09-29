@@ -124,7 +124,6 @@ impl SettingsWindow {
                 .groups(vec![
                     SettingGroup::new()
                         .title(tr!("Group.appearance"))
-                        .icon(IconName::Palette)
                         .items(vec![
                             SettingItem::new(
                                 tr!("Item.dark_mode"),
@@ -187,147 +186,133 @@ impl SettingsWindow {
                             )
                             .description(tr!("Item.font_size_desc")),
                         ]),
-                    SettingGroup::new()
-                        .title(tr!("Group.startup"))
-                        .icon(IconName::Play)
-                        .items(vec![
-                            SettingItem::new(
-                                tr!("Item.launch_at_login"),
-                                SettingField::checkbox(
-                                    |cx: &App| AppSettings::global(cx).launch_at_login,
-                                    |val: bool, cx: &mut App| {
-                                        AppSettings::global_mut(cx).launch_at_login = val;
-                                    },
+                    SettingGroup::new().title(tr!("Group.startup")).items(vec![
+                        SettingItem::new(
+                            tr!("Item.launch_at_login"),
+                            SettingField::checkbox(
+                                |cx: &App| AppSettings::global(cx).launch_at_login,
+                                |val: bool, cx: &mut App| {
+                                    AppSettings::global_mut(cx).launch_at_login = val;
+                                },
+                            )
+                            .default_value(defaults.launch_at_login),
+                        )
+                        .description(tr!("Item.launch_at_login_desc")),
+                        SettingItem::new(
+                            tr!("Item.auto_update"),
+                            SettingField::render(|options, _window, cx| {
+                                let enabled = AppSettings::global(cx).auto_update;
+                                // Auto update is either up to date or held
+                                // back, so the chip carries the tone's own
+                                // status name ("Ready" / "Paused").
+                                let tone = if enabled {
+                                    StatusTone::Ready
+                                } else {
+                                    StatusTone::Paused
+                                };
+                                h_flex().gap_2().child(StatusChip::new(tone)).child(
+                                    Switch::new("auto-update")
+                                        .checked(enabled)
+                                        .with_size(options.size())
+                                        .on_click(|checked: &bool, _, cx: &mut App| {
+                                            AppSettings::global_mut(cx).auto_update = *checked;
+                                        }),
                                 )
-                                .default_value(defaults.launch_at_login),
-                            )
-                            .description(tr!("Item.launch_at_login_desc")),
-                            SettingItem::new(
-                                tr!("Item.auto_update"),
-                                SettingField::render(|options, _window, cx| {
-                                    let enabled = AppSettings::global(cx).auto_update;
-                                    // Auto update is either up to date or held
-                                    // back, so the chip carries the tone's own
-                                    // status name ("Ready" / "Paused").
-                                    let tone = if enabled {
-                                        StatusTone::Ready
-                                    } else {
-                                        StatusTone::Paused
-                                    };
-                                    h_flex().gap_2().child(StatusChip::new(tone)).child(
-                                        Switch::new("auto-update")
-                                            .checked(enabled)
-                                            .with_size(options.size())
-                                            .on_click(|checked: &bool, _, cx: &mut App| {
-                                                AppSettings::global_mut(cx).auto_update = *checked;
-                                            }),
-                                    )
-                                })
-                                // An element field carries no typed value, so
-                                // the page reset needs the handler explicitly.
-                                .on_reset(
-                                    move |cx: &App| {
-                                        AppSettings::global(cx).auto_update != auto_update_default
-                                    },
-                                    move |_window, cx: &mut App| {
-                                        AppSettings::global_mut(cx).auto_update =
-                                            auto_update_default;
-                                    },
-                                ),
-                            )
-                            .description(tr!("Item.auto_update_desc")),
-                        ]),
+                            })
+                            // An element field carries no typed value, so
+                            // the page reset needs the handler explicitly.
+                            .on_reset(
+                                move |cx: &App| {
+                                    AppSettings::global(cx).auto_update != auto_update_default
+                                },
+                                move |_window, cx: &mut App| {
+                                    AppSettings::global_mut(cx).auto_update = auto_update_default;
+                                },
+                            ),
+                        )
+                        .description(tr!("Item.auto_update_desc")),
+                    ]),
                 ]),
             SettingPage::new(tr!("Page.notifications"))
                 .icon(Icon::new(IconName::Bell))
                 .resettable(true)
                 .groups(vec![
-                    SettingGroup::new()
-                        .title(tr!("Group.delivery"))
-                        .icon(IconName::Bell)
-                        .items(vec![
-                            SettingItem::new(
-                                tr!("Item.notifications_enabled"),
-                                SettingField::render(|options, _window, cx| {
-                                    let enabled = AppSettings::global(cx).notifications_enabled;
-                                    let (tone, label) = if enabled {
-                                        (StatusTone::Ready, tr!("Status.enabled"))
-                                    } else {
-                                        (StatusTone::Paused, tr!("Status.disabled"))
-                                    };
-                                    h_flex()
-                                        .gap_2()
-                                        .child(StatusChip::labelled(tone, label))
-                                        .child(
-                                            Switch::new("notifications-enabled")
-                                                .checked(enabled)
-                                                .with_size(options.size())
-                                                .on_click(|checked: &bool, _, cx: &mut App| {
-                                                    AppSettings::global_mut(cx)
-                                                        .notifications_enabled = *checked;
-                                                }),
-                                        )
-                                })
-                                .on_reset(
-                                    move |cx: &App| {
-                                        AppSettings::global(cx).notifications_enabled
-                                            != notifications_default
-                                    },
-                                    move |_window, cx: &mut App| {
-                                        AppSettings::global_mut(cx).notifications_enabled =
-                                            notifications_default;
-                                    },
-                                ),
+                    SettingGroup::new().title(tr!("Group.delivery")).items(vec![
+                        SettingItem::new(
+                            tr!("Item.notifications_enabled"),
+                            SettingField::render(|options, _window, cx| {
+                                let enabled = AppSettings::global(cx).notifications_enabled;
+                                let (tone, label) = if enabled {
+                                    (StatusTone::Ready, tr!("Status.enabled"))
+                                } else {
+                                    (StatusTone::Paused, tr!("Status.disabled"))
+                                };
+                                h_flex()
+                                    .gap_2()
+                                    .child(StatusChip::labelled(tone, label))
+                                    .child(
+                                        Switch::new("notifications-enabled")
+                                            .checked(enabled)
+                                            .with_size(options.size())
+                                            .on_click(|checked: &bool, _, cx: &mut App| {
+                                                AppSettings::global_mut(cx).notifications_enabled =
+                                                    *checked;
+                                            }),
+                                    )
+                            })
+                            .on_reset(
+                                move |cx: &App| {
+                                    AppSettings::global(cx).notifications_enabled
+                                        != notifications_default
+                                },
+                                move |_window, cx: &mut App| {
+                                    AppSettings::global_mut(cx).notifications_enabled =
+                                        notifications_default;
+                                },
+                            ),
+                        )
+                        .description(tr!("Item.notifications_enabled_desc")),
+                        SettingItem::new(
+                            tr!("Item.digest"),
+                            SettingField::dropdown(
+                                vec![
+                                    ("immediate".into(), tr!("Digest.immediate").into()),
+                                    ("daily".into(), tr!("Digest.daily").into()),
+                                    ("weekly".into(), tr!("Digest.weekly").into()),
+                                ],
+                                |cx: &App| AppSettings::global(cx).digest.clone(),
+                                |val: SharedString, cx: &mut App| {
+                                    AppSettings::global_mut(cx).digest = val;
+                                },
                             )
-                            .description(tr!("Item.notifications_enabled_desc")),
-                            SettingItem::new(
-                                tr!("Item.digest"),
-                                SettingField::dropdown(
-                                    vec![
-                                        ("immediate".into(), tr!("Digest.immediate").into()),
-                                        ("daily".into(), tr!("Digest.daily").into()),
-                                        ("weekly".into(), tr!("Digest.weekly").into()),
-                                    ],
-                                    |cx: &App| AppSettings::global(cx).digest.clone(),
-                                    |val: SharedString, cx: &mut App| {
-                                        AppSettings::global_mut(cx).digest = val;
-                                    },
-                                )
-                                .default_value(defaults.digest.clone()),
-                            )
-                            .description(tr!("Item.digest_desc")),
-                        ]),
-                    SettingGroup::new()
-                        .title(tr!("Group.actions"))
-                        .icon(IconName::SquareTerminal)
-                        .item(
-                            SettingItem::new(
-                                tr!("Item.test_notification"),
-                                SettingField::render(|options, _window, _cx| {
-                                    Button::new("send-test-notification")
-                                        .outline()
-                                        .with_size(options.size())
-                                        .icon(IconName::Bell)
-                                        .label(tr!("Action.send"))
-                                        .on_click(|_, window, cx| {
-                                            window.push_notification(
-                                                Notification::success(tr!("Notification.test")),
-                                                cx,
-                                            );
-                                        })
-                                }),
-                            )
-                            .description(tr!("Item.test_notification_desc")),
-                        ),
+                            .default_value(defaults.digest.clone()),
+                        )
+                        .description(tr!("Item.digest_desc")),
+                    ]),
+                    SettingGroup::new().title(tr!("Group.actions")).item(
+                        SettingItem::new(
+                            tr!("Item.test_notification"),
+                            SettingField::render(|options, _window, _cx| {
+                                Button::new("send-test-notification")
+                                    .outline()
+                                    .with_size(options.size())
+                                    .icon(IconName::Bell)
+                                    .label(tr!("Action.send"))
+                                    .on_click(|_, window, cx| {
+                                        window.push_notification(
+                                            Notification::success(tr!("Notification.test")),
+                                            cx,
+                                        );
+                                    })
+                            }),
+                        )
+                        .description(tr!("Item.test_notification_desc")),
+                    ),
                 ]),
             SettingPage::new(tr!("Page.profile"))
                 .icon(Icon::new(IconName::User))
                 .resettable(true)
-                .group(
-                    SettingGroup::new()
-                        .title(tr!("Group.account"))
-                        .icon(IconName::CircleUser)
-                        .items(vec![
+                .group(SettingGroup::new().title(tr!("Group.account")).items(vec![
                             SettingItem::new(
                                 tr!("Item.username"),
                                 SettingField::input(
@@ -350,8 +335,7 @@ impl SettingsWindow {
                                 .default_value(defaults.display_name.clone()),
                             )
                             .description(tr!("Item.display_name_desc")),
-                        ]),
-                ),
+                        ])),
             SettingPage::new(tr!("Page.about"))
                 .icon(Icon::new(IconName::Info))
                 .groups(vec![
@@ -393,43 +377,40 @@ impl SettingsWindow {
                                 .icon(StatusIcon::Tag),
                             )
                     })),
-                    SettingGroup::new()
-                        .title(tr!("Group.links"))
-                        .icon(IconName::ExternalLink)
-                        .items(vec![
-                            SettingItem::new(
-                                tr!("Item.website"),
-                                SettingField::render(|options, _window, _cx| {
-                                    Button::new("open-website")
-                                        .outline()
-                                        .with_size(options.size())
-                                        .icon(IconName::ExternalLink)
-                                        .label("gpui-kit.com")
-                                        .on_click(|_, _window, cx| {
-                                            cx.open_url("https://gpui-kit.com/");
-                                        })
-                                }),
-                            )
-                            .description(tr!("Item.website_desc")),
-                            SettingItem::new(
-                                tr!("Item.about"),
-                                SettingField::render(|options, _window, _cx| {
-                                    Button::new("open-about")
-                                        .outline()
-                                        .with_size(options.size())
-                                        .icon(IconName::Info)
-                                        .label(tr!("Action.about"))
-                                        .on_click(|_, window, cx| {
-                                            window.open_dialog(cx, |dialog, _, _| {
-                                                dialog
-                                                    .title(tr!("About.dialog_title"))
-                                                    .child(tr!("About.dialog_body"))
-                                            });
-                                        })
-                                }),
-                            )
-                            .description(tr!("Item.about_desc")),
-                        ]),
+                    SettingGroup::new().title(tr!("Group.links")).items(vec![
+                        SettingItem::new(
+                            tr!("Item.website"),
+                            SettingField::render(|options, _window, _cx| {
+                                Button::new("open-website")
+                                    .outline()
+                                    .with_size(options.size())
+                                    .icon(IconName::ExternalLink)
+                                    .label("gpui-kit.com")
+                                    .on_click(|_, _window, cx| {
+                                        cx.open_url("https://gpui-kit.com/");
+                                    })
+                            }),
+                        )
+                        .description(tr!("Item.website_desc")),
+                        SettingItem::new(
+                            tr!("Item.about"),
+                            SettingField::render(|options, _window, _cx| {
+                                Button::new("open-about")
+                                    .outline()
+                                    .with_size(options.size())
+                                    .icon(IconName::Info)
+                                    .label(tr!("Action.about"))
+                                    .on_click(|_, window, cx| {
+                                        window.open_dialog(cx, |dialog, _, _| {
+                                            dialog
+                                                .title(tr!("About.dialog_title"))
+                                                .child(tr!("About.dialog_body"))
+                                        });
+                                    })
+                            }),
+                        )
+                        .description(tr!("Item.about_desc")),
+                    ]),
                 ]),
         ]
     }

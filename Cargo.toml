@@ -20,13 +20,14 @@ ttf-parser = "0.25"
 # - sidebar-cursor.patch: pointer cursor on Settings rail items.
 # - sidebar-slots.patch: Settings::sidebar_header/sidebar_footer element slots.
 # - settings-content-style.patch: Settings::content_panel_style → ResizablePanel style.
-# - settings-group-icon.patch: SettingGroup::icon → sidebar menu item icon.
+# - settings-group-icon.patch: SettingGroup::icon → sidebar menu item icon (API later removed by settings-static-tree).
 # - settings-collapse.patch: Settings::sidebar_collapsed (icon rail) + show_handle.
 # - settings-item-style.patch: Settings::active_item_style + SidebarMenuItem::active_style.
 # - settings-search-placeholder-locale.patch: re-apply the cached search placeholder when the locale changes.
 # - controls-cursor.patch: pointer cursor on interactive Button/Checkbox/Select/Switch.
 # - settings-collapsed-header.patch: keep the header slot (brand) when collapsed; hide only the search.
 # - settings-static-tree.patch: always-expanded settings tree — no caret/toggle, bold page labels,
-#   children only for pages with >=2 titled groups.
+#   children only for pages with >=2 titled groups; children are iconless, so SettingGroup::icon
+#   (added above) is removed again here.
 [patch.crates-io]
 gpui-component = { path = "vendor/gpui-component" }
