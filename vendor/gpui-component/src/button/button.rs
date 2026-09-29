@@ -584,7 +584,7 @@ impl RenderOnce for Button {
             .justify_center()
             .cursor_default()
             .when(
-                interactive && (self.variant.is_link() || self.variant.is_text()),
+                interactive,
                 |this| this.cursor_pointer(),
             )
             .when(

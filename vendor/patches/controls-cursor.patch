@@ -1,0 +1,51 @@
+diff --git a/src/button/button.rs b/src/button/button.rs
+index 0591cda..3ef07ec 100644
+--- a/src/button/button.rs
++++ b/src/button/button.rs
+@@ -584,7 +584,7 @@ impl RenderOnce for Button {
+             .justify_center()
+             .cursor_default()
+             .when(
+-                interactive && (self.variant.is_link() || self.variant.is_text()),
++                interactive,
+                 |this| this.cursor_pointer(),
+             )
+             .when(
+diff --git a/src/checkbox.rs b/src/checkbox.rs
+index f353615..f5ca84a 100644
+--- a/src/checkbox.rs
++++ b/src/checkbox.rs
+@@ -241,6 +241,7 @@ impl RenderOnce for Checkbox {
+         base.role(self.role)
+             .checked(checked)
+             .disabled(self.disabled)
++            .when(!self.disabled, |this| this.cursor_pointer())
+             .styles(|styles| {
+                 styles.disabled(|style| {
+                     style
+diff --git a/src/select.rs b/src/select.rs
+index 4e35edd..f02b317 100644
+--- a/src/select.rs
++++ b/src/select.rs
+@@ -514,7 +514,8 @@ where
+                             |this| this.focus_ring_style(window, cx),
+                         )
+                         .when(allow_open, |this| {
+-                            this.on_click(cx.listener(Self::toggle_menu))
++                            this.cursor_pointer()
++                                .on_click(cx.listener(Self::toggle_menu))
+                         })
+                         .child(
+                             h_flex()
+diff --git a/src/switch.rs b/src/switch.rs
+index ff9b213..2f87169 100644
+--- a/src/switch.rs
++++ b/src/switch.rs
+@@ -182,6 +182,7 @@ impl RenderOnce for Switch {
+             BaseSwitch::new(self.id.clone())
+                 .checked(checked)
+                 .disabled(self.disabled)
++                .when(!self.disabled, |this| this.cursor_pointer())
+                 .styles(|styles| {
+                     styles.disabled(|style| {
+                         style.text_color(disabled_label_color).cursor_not_allowed()

@@ -157,8 +157,8 @@ remains registered but is no longer the theme family.
 
 ## Vendored patch state
 
-`vendor/gpui-component` is stock 0.6.1 plus exactly seven patches
-(`Cargo.toml:14-23`):
+`vendor/gpui-component` is stock 0.6.1 plus exactly nine patches
+(`Cargo.toml:15-25`):
 
 | Patch | Lines | State | What it does |
 |---|---|---|---|
@@ -166,12 +166,15 @@ remains registered but is no longer the theme family.
 | `vendor/patches/sidebar-slots.patch` | 101 | **RESTORED** (phase `zdesk-correction`) | `Settings::sidebar_header`/`sidebar_footer` element slots on `src/setting/settings.rs`; `sidebar_header` carries `shell::sidebar_brand()`, `sidebar_footer` is dormant (no call site by owner decision) |
 | `vendor/patches/settings-content-style.patch` | 59 | **KEPT** | `Settings::content_panel_style(&StyleRefinement)` → `refine_style` on the content `resizable_panel` — carries the raised zdesk card chrome |
 | `vendor/patches/settings-group-icon.patch` | 86 | **KEPT** | `SettingGroup::icon(impl Into<Icon>)` (`src/setting/group.rs`) → `.icon()` on the group's `SidebarMenuItem` (`src/setting/settings.rs`) |
-| `vendor/patches/settings-collapse.patch` | 116 | **NEW** (`zdesk-layout-fix`) | `Settings::sidebar_collapsed` + `show_handle`; `Sidebar` gets `.collapsible(SidebarCollapsible::Icon)` + `.collapsed(sidebar_collapsed)`, and the header (brand + search input) is gated behind `when(!sidebar_collapsed)` |
+| `vendor/patches/settings-collapse.patch` | 116 | **NEW** (`zdesk-layout-fix`) | `Settings::sidebar_collapsed` + `show_handle`; `Sidebar` gets `.collapsible(SidebarCollapsible::Icon)` + `.collapsed(sidebar_collapsed)`; the header gating it introduced is refined by `settings-collapsed-header.patch` |
 | `vendor/patches/settings-item-style.patch` | 97 | **NEW** (`zdesk-layout-fix`) | `Settings::active_item_style` → `SidebarMenuItem::active_style`; the refinement is applied **after** the built-in `is_active` accent styling (`menu.rs`), so the custom pill wins in both modes |
 | `vendor/patches/settings-search-placeholder-locale.patch` | 34 | **NEW** (i18n) | `SettingsState::placeholder_locale` + a re-apply of `Settings.search_placeholder` in `render` when the active locale changes — the search input is created once per keyed state, so its placeholder would otherwise stay in the first-render locale |
+| `vendor/patches/controls-cursor.patch` | 37 | **NEW** (WIP port) | `cursor_pointer()` on every interactive `Button` (was link/text variants only) and on enabled `Checkbox`/`Select`/`Switch` |
+| `vendor/patches/settings-collapsed-header.patch` | 44 | **NEW** (WIP port) | The sidebar header is always rendered; only the search `Input` is gated on `!sidebar_collapsed`, so the `sidebar_header` slot (brand mark) stays visible on the 48px rail |
 
-Upgrade rule: re-copy the upstream crate, re-apply all seven patches.
+Upgrade rule: re-copy the upstream crate, re-apply all nine patches.
 **Reversal order** (the hunks stack — `git apply -R` in:
+`settings-collapsed-header` → `controls-cursor` →
 `settings-search-placeholder-locale` → `settings-item-style` →
 `settings-collapse` → `settings-group-icon` → `settings-content-style` →
 `sidebar-slots` → `sidebar-cursor`; apply forward in the reverse

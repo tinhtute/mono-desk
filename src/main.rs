@@ -389,7 +389,7 @@ impl Render for SettingsWindow {
                         // and card (hit area stays but the pin prevents drag).
                         .show_handle(false)
                         // Brand row above the search input (`sidebar_header`
-                        // slot); hidden entirely when collapsed.
+                        // slot); collapses to the mark alone, search hides.
                         .sidebar_header(shell::sidebar_brand(collapsed))
                         // zdesk rail: borderless, inactive items at 70%
                         // foreground. The opacity lands as the inherited text

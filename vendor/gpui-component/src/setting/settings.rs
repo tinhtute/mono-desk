@@ -158,8 +158,8 @@ impl Settings {
 
     /// Collapse the sidebar to icon width.
     ///
-    /// When collapsed the header (brand and search) is hidden and menu
-    /// items render as centered icons.
+    /// When collapsed the search is hidden, the header slot (brand) stays,
+    /// and menu items render as centered icons.
     pub fn sidebar_collapsed(mut self, collapsed: bool) -> Self {
         self.sidebar_collapsed = collapsed;
         self
@@ -244,22 +244,22 @@ impl Settings {
             .refine_style(&self.sidebar_style)
             .collapsible(SidebarCollapsible::Icon)
             .collapsed(self.sidebar_collapsed)
-            .when(!self.sidebar_collapsed, |this| {
-                this.header(
-                    v_flex()
-                        .w_full()
-                        .gap_2()
-                        .when_some(self.sidebar_header.take(), |this, header| {
-                            this.child(header)
-                        })
-                        .child(
+            .header(
+                v_flex()
+                    .w_full()
+                    .gap_2()
+                    .when_some(self.sidebar_header.take(), |this, header| {
+                        this.child(header)
+                    })
+                    .when(!self.sidebar_collapsed, |this| {
+                        this.child(
                             div()
                                 .w_full()
                                 .refine_style(&self.header_style)
                                 .child(Input::new(&search_input).prefix(IconName::Search)),
-                        ),
-                )
-            })
+                        )
+                    }),
+            )
             .when_some(self.sidebar_footer.take(), |this, footer| {
                 this.footer(footer)
             })
