@@ -5,6 +5,17 @@ use gpui_kit::{App, px};
 
 const MONO_THEMES: &str = include_str!("../assets/themes/mono.json");
 
+/// Emboldened Xanh Mono italic (weight 600), derived from
+/// `XanhMono-Italic.ttf` by `scripts/embolden-xanh-mono.py`.
+///
+/// The wordmarks request `Xanh Mono` at `FontWeight::SEMIBOLD`, but the family
+/// ships only 400 faces and GPUI never synthesizes bold — without this face the
+/// request silently resolved to the 400 italic and the 17px wordmark read thin
+/// and blurry. Same family name, distinct `SemiBold Italic` subfamily, so the
+/// weight request is what selects it.
+const XANH_MONO_SEMIBOLD_ITALIC: &[u8] =
+    include_bytes!("../assets/fonts/XanhMono-SemiBoldItalic.ttf");
+
 /// Lower bound of the Font Size setting, in px.
 pub const FONT_SIZE_MIN: f64 = 12.0;
 /// Upper bound of the Font Size setting, in px.
@@ -74,6 +85,7 @@ pub fn install(cx: &mut App, font_size: f64) {
             Cow::Borrowed(&include_bytes!("../assets/fonts/GoogleSansCode-Medium.ttf")[..]),
             Cow::Borrowed(&include_bytes!("../assets/fonts/XanhMono-Regular.ttf")[..]),
             Cow::Borrowed(&include_bytes!("../assets/fonts/XanhMono-Italic.ttf")[..]),
+            Cow::Borrowed(XANH_MONO_SEMIBOLD_ITALIC),
         ])
         .expect("failed to register embedded fonts");
 
@@ -85,9 +97,51 @@ pub fn install(cx: &mut App, font_size: f64) {
 #[cfg(test)]
 mod tests {
     use super::MONO_THEMES;
-    use super::{FONT_SIZE_MAX, FONT_SIZE_MIN, clamp_font_size, write_overrides};
+    use super::{
+        FONT_SIZE_MAX, FONT_SIZE_MIN, XANH_MONO_SEMIBOLD_ITALIC, clamp_font_size, write_overrides,
+    };
     use gpui_kit::component::{Theme, ThemeSet};
     use gpui_kit::px;
+
+    /// The wordmarks ask for `Xanh Mono` at `FontWeight::SEMIBOLD`, and GPUI
+    /// never synthesizes bold — so the request only reads as SemiBold if the
+    /// embedded face really carries that weight. Parsing the registered bytes
+    /// with the same parser the font stack uses (`fontdb` → `ttf-parser`)
+    /// catches a missing, stale, or mis-tagged face.
+    #[test]
+    fn embedded_wordmark_face_is_semibold_italic() {
+        let face = ttf_parser::Face::parse(XANH_MONO_SEMIBOLD_ITALIC, 0)
+            .expect("embedded XanhMono-SemiBoldItalic.ttf must parse");
+        assert!(
+            face.weight().to_number() >= 600,
+            "wordmark face is weight {}, need >= 600",
+            face.weight().to_number()
+        );
+        assert!(face.is_italic(), "wordmark face must stay italic");
+
+        // fontdb matches on the family name, so it has to stay `Xanh Mono` —
+        // that is what `sidebar_brand` and the About page request.
+        let families: Vec<String> = face
+            .names()
+            .into_iter()
+            .filter(|name| name.name_id == ttf_parser::name_id::FAMILY)
+            .filter_map(|name| name.to_string())
+            .collect();
+        assert!(
+            families.iter().any(|family| family == "Xanh Mono"),
+            "expected family `Xanh Mono`, got {families:?}"
+        );
+
+        // The 400 italic must stay lighter, or the weight request would have
+        // nothing to select between.
+        let regular =
+            ttf_parser::Face::parse(include_bytes!("../assets/fonts/XanhMono-Italic.ttf"), 0)
+                .expect("embedded XanhMono-Italic.ttf must parse");
+        assert!(
+            regular.weight().to_number() < face.weight().to_number(),
+            "the 400 italic and the wordmark face must differ in weight"
+        );
+    }
 
     /// The app turns the framework's outer focus ring off and clamps the font
     /// size; both are written by the same override pass that runs after every

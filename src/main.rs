@@ -7,10 +7,10 @@ use gpui_kit::component::{
     v_flex,
 };
 use gpui_kit::{
-    App, AppContext as _, Bounds, Context, FocusHandle, Focusable, Global, IntoElement, KeyBinding,
-    Menu, MenuItem, ParentElement as _, Render, SharedString, StyleRefinement, Styled as _,
-    TitlebarOptions, Window, WindowBounds, WindowDecorations, WindowOptions, div, img, point, px,
-    size,
+    App, AppContext as _, Bounds, Context, FocusHandle, Focusable, FontWeight, Global, IntoElement,
+    KeyBinding, Menu, MenuItem, ParentElement as _, Render, SharedString, StyleRefinement,
+    Styled as _, TitlebarOptions, Window, WindowBounds, WindowDecorations, WindowOptions, div, img,
+    point, px, size,
 };
 use rust_i18n::t;
 use shell::{AppShell, ShellState};
@@ -313,6 +313,9 @@ impl SettingsWindow {
                                 div()
                                     .font_family("Xanh Mono")
                                     .italic()
+                                    // Same derived 600 face as the sidebar
+                                    // wordmark; the family's own italic is 400.
+                                    .font_weight(FontWeight::SEMIBOLD)
                                     .text_size(px(17.))
                                     .text_color(cx.theme().foreground)
                                     .child("settings-demo"),

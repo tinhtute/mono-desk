@@ -27,11 +27,13 @@ impl Global for ShellState {}
 ///
 /// Metrics mirror the zdesk `NavView` brand row: h-8, `size-brand` (20px)
 /// mark, gap-2, px-2. The wordmark is 17px in the full-contrast
-/// `theme.foreground`: Xanh Mono ships only a 400 face (Regular/Italic), so
-/// the requested weight resolves to Regular and the wordmark's presence comes
-/// from size and colour rather than stroke weight. When `collapsed`, the row
-/// shrinks to a centered 20px mark on a 32px box so it stays in the icon
-/// column above the rail's items.
+/// `theme.foreground`, set in the derived Xanh Mono SemiBold Italic face
+/// (`assets/fonts/XanhMono-SemiBoldItalic.ttf`, weight 600 — see
+/// `theme::XANH_MONO_SEMIBOLD_ITALIC`): the family's own 400 italic is too
+/// thin to hold up at 17px on a 1.0-scale display, and GPUI does not
+/// synthesize bold, so the weight has to come from a real face. When
+/// `collapsed`, the row shrinks to a centered 20px mark on a 32px box so it
+/// stays in the icon column above the rail's items.
 pub(crate) fn sidebar_brand(collapsed: bool, foreground: Hsla) -> impl IntoElement {
     let row = div()
         .h(px(32.))
@@ -47,6 +49,7 @@ pub(crate) fn sidebar_brand(collapsed: bool, foreground: Hsla) -> impl IntoEleme
             div()
                 .font_family("Xanh Mono")
                 .italic()
+                // Selects the derived 600 face; the family's own italic is 400.
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_size(px(17.))
                 .text_color(foreground)
