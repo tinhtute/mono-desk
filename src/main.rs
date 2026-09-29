@@ -313,6 +313,8 @@ impl SettingsWindow {
                                 div()
                                     .font_family("Xanh Mono")
                                     .italic()
+                                    .text_size(px(17.))
+                                    .text_color(cx.theme().foreground)
                                     .child("settings-demo"),
                             )
                             .child(
@@ -391,16 +393,18 @@ impl Render for SettingsWindow {
                         .show_handle(false)
                         // Brand row above the search input (`sidebar_header`
                         // slot); collapses to the mark alone, search hides.
-                        .sidebar_header(shell::sidebar_brand(collapsed))
-                        // zdesk rail: borderless, inactive items at 70%
-                        // foreground. The opacity lands as the inherited text
+                        .sidebar_header(shell::sidebar_brand(collapsed, cx.theme().foreground))
+                        // zdesk rail: borderless, inactive items in the muted
+                        // foreground. The colour lands as the inherited text
                         // color on the sidebar root — active/hover items set
-                        // their own full-opacity colors.
+                        // their own full-contrast colors. (zdesk's 70%-opacity
+                        // variant resolved to 3.7:1 in light mode, below WCAG
+                        // AA; `muted.foreground` is 5.9:1 / 6.1:1.)
                         .sidebar_style(
                             &StyleRefinement::default()
                                 .w(sidebar_w)
                                 .border_0()
-                                .text_color(cx.theme().sidebar_foreground.opacity(0.7)),
+                                .text_color(cx.theme().muted_foreground),
                         )
                         // Raised pill on the active sidebar item.
                         .active_item_style(

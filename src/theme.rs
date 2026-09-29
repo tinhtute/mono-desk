@@ -106,6 +106,101 @@ mod tests {
         assert_eq!(theme.font_size, px(FONT_SIZE_MIN as f32));
     }
 
+    /// sRGB channel (0–255) → linear-light value, per WCAG 2.x.
+    fn srgb_to_linear(channel: u8) -> f64 {
+        let c = f64::from(channel) / 255.0;
+        if c <= 0.03928 {
+            c / 12.92
+        } else {
+            ((c + 0.055) / 1.055).powf(2.4)
+        }
+    }
+
+    /// WCAG 2.x relative luminance of a `#rrggbb` string.
+    fn relative_luminance(hex: &str) -> f64 {
+        let hex = hex.trim_start_matches('#');
+        let channel = |i: usize| {
+            let byte = u8::from_str_radix(&hex[i..i + 2], 16)
+                .unwrap_or_else(|_| panic!("`{hex}` is not a #rrggbb colour"));
+            srgb_to_linear(byte)
+        };
+        0.2126 * channel(0) + 0.7152 * channel(2) + 0.0722 * channel(4)
+    }
+
+    /// WCAG 2.x contrast ratio between two `#rrggbb` strings.
+    fn contrast_ratio(a: &str, b: &str) -> f64 {
+        let (la, lb) = (relative_luminance(a), relative_luminance(b));
+        let (hi, lo) = if la > lb { (la, lb) } else { (lb, la) };
+        (hi + 0.05) / (lo + 0.05)
+    }
+
+    /// Every token pair the UI actually renders must clear WCAG AA: 4.5:1 for
+    /// text, 3:1 for the boundaries of interactive components (1.4.11).
+    ///
+    /// The zdesk palette resolves several of these below the thresholds; the
+    /// values in `mono.json` are the WCAG-adjusted ones (see the port spec).
+    #[test]
+    fn theme_tokens_meet_wcag_contrast() {
+        let set: serde_json::Value =
+            serde_json::from_str(MONO_THEMES).expect("embedded mono.json must deserialize");
+
+        // (foreground, background) pairs rendered as text.
+        const TEXT: &[(&str, &str)] = &[
+            ("foreground", "background"),
+            ("foreground", "group_box.background"),
+            ("muted.foreground", "background"),
+            ("muted.foreground", "group_box.background"),
+            ("sidebar.foreground", "sidebar.background"),
+            ("group_box.title.foreground", "group_box.background"),
+            ("description_list.label.foreground", "group_box.background"),
+            ("tab.foreground", "tab.background"),
+            ("table.head.foreground", "table.head.background"),
+            ("button.foreground", "button.background"),
+            ("secondary.foreground", "secondary.background"),
+            ("sidebar.accent.foreground", "sidebar.accent.background"),
+            ("accent.foreground", "background"),
+            ("primary.foreground", "primary.background"),
+        ];
+        // Component boundaries / state indicators.
+        const UI: &[(&str, &str)] = &[
+            ("input.border", "group_box.background"),
+            ("input.border", "background"),
+            ("switch.background", "group_box.background"),
+            ("switch.thumb.background", "switch.background"),
+            ("scrollbar.thumb.background", "group_box.background"),
+            ("scrollbar.thumb.background", "background"),
+            ("scrollbar.thumb.hover.background", "group_box.background"),
+            ("scrollbar.thumb.hover.background", "background"),
+            ("ring", "group_box.background"),
+        ];
+
+        for theme in set["themes"].as_array().expect("themes array") {
+            let name = theme["name"].as_str().expect("theme name");
+            let colors = &theme["colors"];
+            let hex = |key: &str| -> &str {
+                colors
+                    .get(key)
+                    .and_then(|value| value.as_str())
+                    .unwrap_or_else(|| panic!("{name}: missing colour token `{key}`"))
+            };
+
+            for (fg, bg) in TEXT {
+                let ratio = contrast_ratio(hex(fg), hex(bg));
+                assert!(
+                    ratio >= 4.5,
+                    "{name}: {fg} on {bg} is {ratio:.2}:1, need 4.5:1"
+                );
+            }
+            for (fg, bg) in UI {
+                let ratio = contrast_ratio(hex(fg), hex(bg));
+                assert!(
+                    ratio >= 3.0,
+                    "{name}: {fg} on {bg} is {ratio:.2}:1, need 3:1"
+                );
+            }
+        }
+    }
+
     #[test]
     fn font_size_clamps_to_supported_range() {
         assert_eq!(clamp_font_size(0.0), FONT_SIZE_MIN);

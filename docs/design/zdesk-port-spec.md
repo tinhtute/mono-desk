@@ -53,9 +53,9 @@ hex by compositing over the mode's base/raised surface (GPUI has no
 | `background-raised` | +4% lightness | `#ffffff` | `#212121` | `group_box.background`, `popover.background`, `list.background`, `tab.active.background`, `tab_bar.background`, `accordion.background`, `table.background` |
 | `content` | hsl 240 0% 18% / 92% | `#2e2e2e` | `#ebebeb` | `foreground`, `group_box.foreground`, `popover.foreground`, `button.foreground`, `secondary.foreground`, `tab.active.foreground`, `switch.thumb.background` (dark), `sidebar.accent.foreground` |
 | `content-muted` (75% / 60%) | mix | `#606060` | `#969696` | `muted.foreground`, `tab.foreground`, `table.head/foot.foreground` |
-| `content-subtle` (70% / 50%) | mix | `#6a6a6a` | `#818181` | `description_list.label.foreground`, `scrollbar.thumb.hover.background` (dark variant) |
-| `stroke` (content 7%) | mix | `#e9e9e9` | `#262626` | `border`, `input.border`, `drag.border`, `window.border`, `sidebar.border`, `status_bar.border`, `title_bar.border`, `list.active.border`, `table.active.border`, `table.row.border`, `button.active.background` (light), `slider.background` |
-| `selection-subtle` (5% / 8%) | mix | `#ededed` | `#282828` | `muted.background`, `secondary.background`, `button.background`, `skeleton.background`, `switch.background`, `tiles.background`, `list.even/head.background`, `table.even/foot/head.background`, `tab_bar.segmented.background`, `button.secondary.background`, `sidebar…` surface steps |
+| `content-subtle` (70% / 50%) | mix | `#6a6a6a` | `#888888` | `description_list.label.foreground` (dark raised from zdesk's `#818181` — 4.13:1 → 4.54:1), `scrollbar.thumb.hover.background` (dark variant) |
+| `stroke` (content 7%) | mix | `#e9e9e9` | `#262626` | `border`, `drag.border`, `window.border`, `sidebar.border`, `status_bar.border`, `title_bar.border`, `list.active.border`, `table.active.border`, `table.row.border`, `button.active.background` (light), `slider.background` — **`input.border` is WCAG-adjusted** to `#8f8f8f` / `#6d6d6d` (see below) |
+| `selection-subtle` (5% / 8%) | mix | `#ededed` | `#282828` | `muted.background`, `secondary.background`, `button.background`, `skeleton.background`, `tiles.background`, `list.even/head.background`, `table.even/foot/head.background`, `tab_bar.segmented.background`, `button.secondary.background`, `sidebar…` surface steps — **`switch.background` is WCAG-adjusted** to `#949494` / `#6b6b6b` (see below) |
 | `selection` (6% / 10%) | mix | `#ebebeb` | `#2c2c2c` | `list.active.background`, `table.active.background`, `button.hover.background`, `secondary.hover.background`, `overlay` |
 | `selection-hover` (10% / 15%) | mix | `#e3e3e3` | `#373737` | `list.hover.background`, `table.hover.background`, `accent.background`, `sidebar.accent.background` |
 | `accent` | hsl 200 70% 24% / hsl 193 100% 29% | `#124b68` | `#007494` | `primary.background`, `button.primary/info.background`, `link`, `ring`, `caret`, `progress.bar.background`, `slider.thumb.background`, `sidebar.primary.background`, `info.foreground` (light) |
@@ -69,8 +69,8 @@ hex by compositing over the mode's base/raised surface (GPUI has no
 | `danger` | hsl 0 75% 42% / 60% | `#bb1b1b` | `#e64c4c` | `danger.foreground`, `danger.active.background`, `button.danger.*`, `chart_bearish`, `base.red` |
 | `danger-tint` (15%) | mix | `#eed6d6` | `#361f1f` | `danger.background` |
 | `scrim` (content 10%) | mix | `#e9e9e9` | `#2c2c2c` | `overlay` (shared with `selection` step where equal) |
-| `scrollbar-thumb` (content 25%) | mix | `#c5c5c5` | `#4c4c4c` | `scrollbar.thumb.background` |
-| `scrollbar-thumb-hover` (content 50%) | mix | `#939393` | `#818181` | `scrollbar.thumb.hover.background` |
+| `scrollbar-thumb` (content 25%) | mix | `#8f8f8f` | `#6b6b6b` | `scrollbar.thumb.background` — WCAG-adjusted (see below) |
+| `scrollbar-thumb-hover` (content 50%) | mix | `#7a7a7a` | `#818181` | `scrollbar.thumb.hover.background` — light WCAG-adjusted (see below) |
 | `accent-foreground` | hsl 0 0% 100% | `#ffffff` | `#ffffff` | `primary.foreground`, `sidebar.primary.foreground`, `button.primary/info.foreground` |
 
 Charts (`chart.1–5`) keep the prior mono palette (`#e5a14b`, `#3fb785`,
@@ -83,6 +83,34 @@ Theme-level keys in both configs (`mono.json`): `"radius": 6`,
 `"font.size": 13`, `"mono_font.family": "Google Sans Code"`,
 `"mono_font.size": 12`.
 
+### Accessibility (WCAG) adjustments
+
+The zdesk palette resolves several token pairs below WCAG AA. The applied
+values in `mono.json` are adjusted; the ratios are asserted by
+`theme::tests::theme_tokens_meet_wcag_contrast` (4.5:1 text, 3:1 component
+boundaries per 1.4.11).
+
+| Token | zdesk | Applied light | Applied dark | Pair | Before → after |
+|---|---|---|---|---|---|
+| `input.border` | `stroke` `#e9e9e9` / `#262626` | `#8f8f8f` | `#6d6d6d` | vs `group_box.background` (the card controls sit on) | 1.21 → 3.23 / 1.06 → 3.11 |
+| `switch.background` | `selection-subtle` `#ededed` / `#282828` | `#949494` | `#6b6b6b` | vs `group_box.background` | 1.17 → 3.03 / 1.09 → 3.02 |
+| `description_list.label.foreground` | `content-subtle` `#6a6a6a` / `#818181` | `#6a6a6a` (unchanged) | `#888888` | vs `group_box.background` | 5.41 / 4.13 → 4.54 |
+| `scrollbar.thumb.background` | `scrollbar-thumb` `#c5c5c5` / `#4c4c4c` | `#8f8f8f` | `#6b6b6b` | vs `group_box.background` and `background` | 1.73 → 3.23 / 1.88 → 3.02 |
+| `scrollbar.thumb.hover.background` | `scrollbar-thumb-hover` `#939393` / `#818181` | `#7a7a7a` | `#818181` (unchanged) | vs `group_box.background` and `background` | 3.07 → 4.29 / 4.13 |
+
+`input.border` is the unchecked-checkbox outline and the text-input / select
+frame; `switch.background` is the switch's off track; the scrollbar pair is
+the scroll-position indicator. All were below 3:1 before — the checkbox and
+switch effectively invisible (≈1.1:1). `border` (the card frame and dividers)
+is left at the zdesk value: it bounds containers, not interactive components,
+so 1.4.11 does not apply. The scrollbar is not rendered by the app's current
+pages (they are short), so its adjustment is token-level only.
+
+App-side (not token) fixes: the sidebar wordmark and the About wordmark now
+use `theme.foreground` at 17px (12.7:1 / 15.0:1 and 13.6:1 / 13.5:1), and
+inactive sidebar labels use `muted.foreground` instead of
+`sidebar_foreground.opacity(0.7)` (3.74 → 5.87 light, 5.40 → 6.06 dark).
+
 ## Shell metrics
 
 | Element | zdesk source | Applied |
@@ -90,10 +118,10 @@ Theme-level keys in both configs (`mono.json`): `"radius": 6`,
 | Title bar | 36px (`--spacing-titlebar: 2.25rem`, `spacing.css:8`) | vendored `TitleBar` at `TITLE_BAR_HEIGHT = 34px` (`vendor/gpui-component/src/title_bar.rs:15`) — **deviation**; bottom border removed via `refine_style(border_0)` which lands after the component's own `.border_b_1()` (`title_bar.rs:336-337`), so the zeroed border wins (`src/shell.rs:82-98`) |
 | Traffic lights | macOS overlay at (16, 18), 72px reserved (`--spacing-traffic-lights: 4.5rem`) | `traffic_light_position: point(px(16.), px(18.))` over `TitleBar::title_bar_options()` (`src/main.rs:426-429`) |
 | Sidebar | `--spacing-nav: 15rem` = 240px (`NavView.tsx:40`) | `sidebar_width(sidebar_w)` + `sidebar_size_range(sidebar_w..sidebar_w)` where `sidebar_w` = 240 expanded / 48 collapsed — the dynamic pin keeps the `resizable_panel` seam from dragging; `show_handle(false)` (settings-collapse.patch) suppresses the painted 1px line via an empty `ResizeHandleRenderer` but the hit area remains — **deviation (residual invisible hit area)** (`src/main.rs:340-349`) |
-| Brand row | 20px mark (`--spacing-brand: 1.25rem`) + wordmark | `Settings::sidebar_header` slot (gated `when(!sidebar_collapsed)` inside the collapse patch — the whole header, brand + search, disappears on the rail): expanded = `h(32px)` row, 20px PNG mark (raster `img` — `svg()` would flatten the gradient), Xanh Mono italic semibold `text_size(15px)` wordmark "mono-desk", `gap_2 px_2`; collapsed = centered 20px mark on a `w_8 justify_center` box (`src/shell.rs:32-52`) |
+| Brand row | 20px mark (`--spacing-brand: 1.25rem`) + wordmark | `Settings::sidebar_header` slot (the header always renders; only the search input is gated on `!sidebar_collapsed` by `settings-collapsed-header.patch`, so the mark stays on the rail): expanded = `h(32px)` row, 20px PNG mark (raster `img` — `svg()` would flatten the gradient), Xanh Mono italic `text_size(17px)` wordmark "mono-desk" in `theme.foreground` (12.7:1 / 15.0:1), `gap_2 px_2`; collapsed = centered 20px mark on a 32px box (`src/shell.rs:35-57`) |
 | Sidebar item | `SidebarItem` `h-7` = 28px, `rounded-md`, `px-2 gap-2` (`SidebarItem.tsx:39`) | vendored `SidebarMenuItem`: `h_7`, `p_2`, `gap_x_2`, `text_sm`, `rounded(theme.radius)` = 6px; collapsed items render as centered icons (`SidebarCollapsible::Icon`); group icons via `SettingGroup::icon` — Appearance→`Palette`, Startup→`Play`, Delivery→`Bell`, Actions→`SquareTerminal`, Account→`CircleUser`, Links→`ExternalLink` (`src/main.rs`) |
 | Selected state | `border-stroke` + `bg-background-raised` + `shadow-raised` (`SidebarItem.tsx:42`) | `active_item_style` patch: `bg(group_box)` + `border_1` `border_color(theme.border)` — the raised pill. `SidebarMenuItem::active_style` is refined **after** the built-in active styling (`when(is_active)` lands last, `settings-item-style.patch`), so the custom style wins in both modes; still no `shadow-raised` (`theme.shadow = false`) — partial deviation (`src/main.rs:364-369`) |
-| Inactive items | muted foreground | `sidebar_style` `.w(sidebar_w)` + `.border_0()` (rail's right border removed) + `text_color(sidebar_foreground.opacity(0.7))` — inherited by inactive labels only (active/hover set `sidebar.accent.foreground` explicitly) (`src/main.rs:357-362`) |
+| Inactive items | muted foreground | `sidebar_style` `.w(sidebar_w)` + `.border_0()` (rail's right border removed) + `text_color(muted_foreground)` — inherited by inactive labels only (active/hover set `sidebar.accent.foreground` explicitly). zdesk's `sidebar_foreground.opacity(0.7)` resolved to 3.7:1 in light mode, below WCAG AA; `muted.foreground` is 5.9:1 / 6.1:1 (`src/main.rs:398-409`) |
 | Hover | `bg-selection-hover` | native hover: `sidebar.accent` at 0.8 opacity + `sidebar.accent.foreground` (`sidebar/menu.rs:288-293`) |
 | Content card | `rounded-lg border border-stroke bg-background-raised` + inset margins (`AppShell.tsx:40`) | `content_panel_style` on the `resizable_panel` content panel: `rounded_lg()` (10px), `border_1` `border_color(theme.border)`, `bg(theme.group_box)`, `m(6px)` — equal 4-side inset — `overflow_hidden` (`src/main.rs:374-382`) |
 
@@ -103,7 +131,7 @@ Theme-level keys in both configs (`mono.json`): `"radius": 6`,
 |---|---|---|---|
 | UI sans (body, labels, controls) | Inclusive Sans | 400 / 500 / 600 / 700 | `font.family`, `font.size` = 13 (zdesk `text-body`); sidebar labels are native `SidebarMenuItem` `text_sm` |
 | Mono (code, telemetry) | Google Sans Code | 400 / 500 | `mono_font.family`, `mono_font.size` = 12 (zdesk `text-code`) |
-| Wordmark | Xanh Mono | 400 regular + 400 italic | `sidebar_brand()` wordmark — 15px semibold italic (`src/shell.rs:32-52`); zdesk specifies a 15px semibold sans wordmark — locked deviation per owner decision |
+| Wordmark | Xanh Mono | 400 regular + 400 italic | `sidebar_brand()` wordmark — 17px italic in `theme.foreground` (`src/shell.rs:35-57`); zdesk specifies a 15px semibold sans wordmark — locked deviation per owner decision. Xanh Mono ships no 600 face, so the requested `SEMIBOLD` resolves to Regular; presence comes from size + colour |
 
 Vendoring: Inclusive Sans was copied as static TTFs from
 `~/Library/Fonts` (installed upstream statics — no instancer pass

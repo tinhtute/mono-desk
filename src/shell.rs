@@ -5,7 +5,7 @@ use gpui_kit::component::{
     v_flex,
 };
 use gpui_kit::{
-    App, FontWeight, Global, IntoElement, ParentElement as _, RenderOnce, StyleRefinement,
+    App, FontWeight, Global, Hsla, IntoElement, ParentElement as _, RenderOnce, StyleRefinement,
     Styled as _, Window, div, img, px,
 };
 
@@ -26,10 +26,13 @@ impl Global for ShellState {}
 /// search input.
 ///
 /// Metrics mirror the zdesk `NavView` brand row: h-8, `size-brand` (20px)
-/// mark, 15px semibold wordmark, gap-2, px-2. When `collapsed`, the row
-/// shrinks to a centered 20px mark on an 8px-wide (w-8) box so it stays
-/// in the icon column above the rail's items.
-pub(crate) fn sidebar_brand(collapsed: bool) -> impl IntoElement {
+/// mark, gap-2, px-2. The wordmark is 17px in the full-contrast
+/// `theme.foreground`: Xanh Mono ships only a 400 face (Regular/Italic), so
+/// the requested weight resolves to Regular and the wordmark's presence comes
+/// from size and colour rather than stroke weight. When `collapsed`, the row
+/// shrinks to a centered 20px mark on a 32px box so it stays in the icon
+/// column above the rail's items.
+pub(crate) fn sidebar_brand(collapsed: bool, foreground: Hsla) -> impl IntoElement {
     let row = div()
         .h(px(32.))
         .flex_shrink_0()
@@ -45,7 +48,8 @@ pub(crate) fn sidebar_brand(collapsed: bool) -> impl IntoElement {
                 .font_family("Xanh Mono")
                 .italic()
                 .font_weight(FontWeight::SEMIBOLD)
-                .text_size(px(15.))
+                .text_size(px(17.))
+                .text_color(foreground)
                 .child("mono-desk"),
         )
     }
