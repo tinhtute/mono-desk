@@ -12,10 +12,17 @@
   real desktop apps.
 
 ## Non-goals
+<<<<<<< HEAD
 - Not a production settings/productivity app; no persistence backend, no
   multi-window or multi-view product surface. UI strings switch live across
   the four offered languages (en/vi/zh/ja), but there is no OS-locale
   negotiation, no pluralization, and no RTL support.
+=======
+- Not a production settings/productivity app; no multi-window or
+  multi-view product surface. (Persistence and i18n were non-goals
+  until 2026-09-23 — shipped under
+  docs/plans/completed/real-settings.md.)
+>>>>>>> origin/main
 
 ## What are the gate commands?
 - run from: repository root (host-local: `/Users/tinhtute/Lab/mono-desk`,
@@ -40,13 +47,14 @@
   (8 static TTFs registered at startup), `assets/brand/` (SVG + PNG mark +
   `icon.icns`) served by an app `AssetSource` that delegates other paths
   to `gpui_kit::assets::Assets`
-- where state lives: `AppSettings` in a GPUI `Global` set inside the view
-  constructor (`cx.set_global`)
+- where state lives: `AppSettings` in a GPUI `Global` set in `main()`
+  before window creation (`cx.set_global`, loaded from persisted config)
 - entrypoints: `src/main.rs` — `gpui_kit::application()` → `gpui_kit::init`
   → `Root::new(SettingsWindow)` with dialog/sheet/notification layers
 
 ## What are we working on right now?
-- plan: docs/plans/active/mono-design-port.md (active) — refined
-  2026-09-18 with requirements 8–14 (rail chrome: brand block, footer
-  theme toggle, vendored `gpui-component` patch); next stage `to-plan`
-  authors their phases, the three checked phases stay as recorded.
+- plan: docs/plans/completed/real-settings.md — completed 2026-09-23;
+  every settings control produces a real effect (repaint, rem-scale,
+  gated send, OS autostart, live locale, profile preview) and values
+  persist to a platform config file (`key=value` with an ownership
+  marker, atomic write). No active plan.
