@@ -8,7 +8,7 @@ ifneq ($(wildcard $(SHIM_DIR)),)
 export RUSTFLAGS += -L $(SHIM_DIR)
 endif
 
-.PHONY: help run build release run-release check test lint fmt fmt-check clean deps shim app open-app
+.PHONY: help run build release run-release check test lint fmt fmt-check hooks clean deps shim app open-app
 
 APP_NAME ?= mono-desk
 APP_BUNDLE ?= target/macos/$(APP_NAME).app
@@ -43,6 +43,9 @@ fmt: ## Format code
 
 fmt-check: ## Check formatting (CI)
 	$(CARGO) fmt --check
+
+hooks: ## Install the pre-commit hook (fmt-check + lint)
+	ln -sf ../../scripts/pre-commit .git/hooks/pre-commit
 
 clean: ## Remove build artifacts
 	$(CARGO) clean

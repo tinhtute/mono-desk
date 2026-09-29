@@ -8,9 +8,23 @@ gpui-kit = "0.6"
 
 [dev-dependencies]
 serde_json = "1.0.151"
+# Same parser the font stack uses (`fontdb` → `ttf-parser`), so the wordmark
+# face test loads the embedded bytes exactly as the app does.
+ttf-parser = "0.25"
 
-# Vendored gpui-component 0.6.1: two additive Settings rail slots
-# (sidebar_header / sidebar_footer) + pointer cursor on rail items.
-# Deltas: vendor/patches/sidebar-slots.patch, vendor/patches/sidebar-cursor.patch
+# Vendored gpui-component 0.6.1 — deltas in vendor/patches/
+# (apply inside vendor/gpui-component):
+# - sidebar-cursor.patch: pointer cursor on Settings rail items.
+# - sidebar-slots.patch: Settings::sidebar_header/sidebar_footer element slots.
+# - settings-content-style.patch: Settings::content_panel_style → ResizablePanel style.
+# - settings-group-icon.patch: SettingGroup::icon → sidebar menu item icon (API later removed by settings-static-tree).
+# - settings-collapse.patch: Settings::sidebar_collapsed (icon rail) + show_handle.
+# - settings-item-style.patch: Settings::active_item_style + SidebarMenuItem::active_style.
+# - settings-search-placeholder-locale.patch: re-apply the cached search placeholder when the locale changes.
+# - controls-cursor.patch: pointer cursor on interactive Button/Checkbox/Select/Switch.
+# - settings-collapsed-header.patch: keep the header slot (brand) when collapsed; hide only the search.
+# - settings-static-tree.patch: always-expanded settings tree — no caret/toggle, bold page labels,
+#   children only for pages with >=2 titled groups; children are iconless, so SettingGroup::icon
+#   (added above) is removed again here.
 [patch.crates-io]
 gpui-component = { path = "vendor/gpui-component" }

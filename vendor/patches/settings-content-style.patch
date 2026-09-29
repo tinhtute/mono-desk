@@ -1,0 +1,59 @@
+diff --git a/src/setting/settings.rs b/src/setting/settings.rs
+--- a/src/setting/settings.rs
++++ b/src/setting/settings.rs
+@@ -39,6 +39,8 @@ pub struct Settings {
+     size: Size,
+     sidebar_width: Pixels,
+     sidebar_size_range: Range<Pixels>,
++    /// Style refinement applied to the content panel.
++    content_panel_style: StyleRefinement,
+     sidebar_style: StyleRefinement,
+     default_selected_index: SelectIndex,
+     header_style: StyleRefinement,
+@@ -58,6 +60,7 @@ impl Settings {
+             size: Size::default(),
+             sidebar_width: px(250.0),
+             sidebar_size_range: px(160.0)..px(360.0),
++            content_panel_style: StyleRefinement::default(),
+             sidebar_style: StyleRefinement::default(),
+             default_selected_index: SelectIndex::default(),
+             header_style: StyleRefinement::default(),
+@@ -104,6 +107,12 @@ impl Settings {
+         self
+     }
+ 
++    /// Set the style refinement for the content panel.
++    pub fn content_panel_style(mut self, style: &StyleRefinement) -> Self {
++        self.content_panel_style = style.clone();
++        self
++    }
++
+     /// Set the default index of the page to be selected.
+     pub fn default_selected_index(mut self, index: SelectIndex) -> Self {
+         self.default_selected_index = index;
+@@ -425,14 +440,17 @@ impl RenderOnce for Settings {
+                     .child(sidebar),
+             )
+             .child(
+-                resizable_panel().child(container_query(move |size, window, cx| {
+-                    let options = options.with_layout(if size.width <= STACKED_LAYOUT_MAX_WIDTH {
+-                        Axis::Vertical
+-                    } else {
+-                        Axis::Horizontal
+-                    });
+-                    self.render_active_page(&state, &filtered_pages, &options, window, cx)
+-                })),
++                resizable_panel()
++                    .refine_style(&self.content_panel_style)
++                    .child(container_query(move |size, window, cx| {
++                        let options =
++                            options.with_layout(if size.width <= STACKED_LAYOUT_MAX_WIDTH {
++                                Axis::Vertical
++                            } else {
++                                Axis::Horizontal
++                            });
++                        self.render_active_page(&state, &filtered_pages, &options, window, cx)
++                    })),
+             )
+     }
+ }

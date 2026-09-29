@@ -74,7 +74,11 @@ fn home_dir() -> Option<PathBuf> {
 pub fn config_dir() -> Option<PathBuf> {
     #[cfg(target_os = "macos")]
     {
-        home_dir().map(|h| h.join("Library").join("Application Support").join("mono-desk"))
+        home_dir().map(|h| {
+            h.join("Library")
+                .join("Application Support")
+                .join("mono-desk")
+        })
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -487,7 +491,6 @@ fn remove_at(path: &Path) -> bool {
     remove_guarded(path, AUTOSTART_MARKER)
 }
 
-
 /// Install the autostart entry for `current_exe`; guarded: a foreign
 /// file at the target path is logged and left (`false`). Errors log and
 /// return `false`. No-op (`true`) on unsupported platforms.
@@ -620,10 +623,7 @@ mod tests {
         assert_eq!(parse("dark_mode=true\n"), None);
         assert_eq!(parse("# managed-by: other\ndark_mode=true"), None);
         // Marker not on the first line is still foreign.
-        assert_eq!(
-            parse("dark_mode=true\n# managed-by: mono-desk\n"),
-            None
-        );
+        assert_eq!(parse("dark_mode=true\n# managed-by: mono-desk\n"), None);
     }
 
     #[test]
@@ -675,10 +675,7 @@ mod tests {
 
         assert!(!save_to(&path, &StoredSettings::default()));
         // Untouched.
-        assert_eq!(
-            fs::read_to_string(&path).unwrap(),
-            "somebody else's file\n"
-        );
+        assert_eq!(fs::read_to_string(&path).unwrap(), "somebody else's file\n");
     }
 
     #[test]
@@ -767,7 +764,9 @@ mod tests {
     fn plist_has_marker_and_exe() {
         let p = plist("/Applications/Mono Desk.app/Contents/MacOS/mono-desk");
         assert!(p.contains(AUTOSTART_MARKER));
-        assert!(p.contains("<string>/Applications/Mono Desk.app/Contents/MacOS/mono-desk</string>"));
+        assert!(
+            p.contains("<string>/Applications/Mono Desk.app/Contents/MacOS/mono-desk</string>")
+        );
         assert!(p.contains("<key>RunAtLoad</key>"));
     }
 

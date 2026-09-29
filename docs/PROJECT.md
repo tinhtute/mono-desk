@@ -20,18 +20,22 @@
 ## What are the gate commands?
 - run from: repository root (host-local: `/Users/tinhtute/Lab/mono-desk`,
   Linux sessions `/home/tinhpt/Lab/mono-desk`)
-- tests: `cargo test` (embedded theme/font assertions in `src/theme.rs`)
+- tests: `cargo test` (embedded theme + font-size clamp in `src/theme.rs`,
+  locale table in `src/i18n.rs`, persistence in `src/persist.rs`)
 - types: `make check`
 - lint: `make lint`
 - build: `make run` (compiles; window needs a GUI session)
 - format: `make fmt`
 
 ## Architecture in one breath
-- runtime shape: single binary crate, Rust 2024, one direct dep `gpui-kit`
-  0.6, plus `[patch.crates-io] gpui-component = { path =
-  "vendor/gpui-component" }` — upstream 0.6.1 carrying two additive
-  `Settings` rail slots and a pointer cursor on rail items (deltas in
-  `vendor/patches/`)
+- runtime shape: single binary crate, Rust 2024, direct dep `gpui-kit` 0.6,
+  plus
+  `[patch.crates-io] gpui-component = { path = "vendor/gpui-component" }` —
+  upstream 0.6.1 carrying the full rail/cursor/tree patch set (deltas in
+  `vendor/patches/`, apply order listed in `Cargo.toml`)
+- i18n: zero-dependency table in `src/i18n.rs` (en/vi/zh-CN/ja); the
+  Language setting also calls `gpui_kit::component::set_locale` for the
+  component-internal strings
 - assets: `assets/themes/mono.json` (embedded ThemeSet), `assets/fonts/`
   (8 static TTFs registered at startup), `assets/brand/` (SVG + PNG mark +
   `icon.icns`) served by an app `AssetSource` that delegates other paths

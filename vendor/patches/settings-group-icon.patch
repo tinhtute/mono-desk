@@ -1,0 +1,86 @@
+diff --git a/src/setting/settings.rs b/src/setting/settings.rs
+--- a/src/setting/settings.rs
++++ b/src/setting/settings.rs
+@@ -247,19 +256,25 @@ impl Settings {
+                                             && selected_index.group_ix == Some(group_ix);
+                                         let title = group.title.clone().unwrap_or_default();
+ 
+-                                        SidebarMenuItem::new(title).active(is_active).on_click({
+-                                            let state = state.clone();
+-                                            move |_, _, cx| {
+-                                                state.update(cx, |state, cx| {
+-                                                    state.selected_index = SelectIndex {
+-                                                        page_ix,
+-                                                        group_ix: Some(group_ix),
+-                                                    };
+-                                                    state.deferred_scroll_group_ix = Some(group_ix);
+-                                                    cx.notify();
+-                                                })
+-                                            }
+-                                        })
++                                        SidebarMenuItem::new(title)
++                                            .when_some(group.icon.clone(), |this, icon| {
++                                                this.icon(icon)
++                                            })
++                                            .active(is_active)
++                                            .on_click({
++                                                let state = state.clone();
++                                                move |_, _, cx| {
++                                                    state.update(cx, |state, cx| {
++                                                        state.selected_index = SelectIndex {
++                                                            page_ix,
++                                                            group_ix: Some(group_ix),
++                                                        };
++                                                        state.deferred_scroll_group_ix =
++                                                            Some(group_ix);
++                                                        cx.notify();
++                                                    })
++                                                }
++                                            })
+                                     }),
+                             )
+                         })
+diff --git a/src/setting/group.rs b/src/setting/group.rs
+index 3a0fc17..a52d4bf 100644
+--- a/src/setting/group.rs
++++ b/src/setting/group.rs
+@@ -4,7 +4,7 @@ use gpui::{
+ };
+ 
+ use crate::{
+-    ActiveTheme, StyledExt,
++    ActiveTheme, Icon, StyledExt,
+     group_box::{GroupBox, GroupBoxVariants},
+     label::Label,
+     setting::{RenderOptions, SettingItem},
+@@ -16,6 +16,7 @@ use crate::{
+ pub struct SettingGroup {
+     style: StyleRefinement,
+ 
++    pub(super) icon: Option<Icon>,
+     pub(super) title: Option<SharedString>,
+     pub(super) description: Option<SharedString>,
+     pub(super) items: Vec<SettingItem>,
+@@ -32,6 +33,7 @@ impl SettingGroup {
+     pub fn new() -> Self {
+         Self {
+             style: StyleRefinement::default(),
++            icon: None,
+             title: None,
+             description: None,
+             items: Vec::new(),
+@@ -44,6 +46,14 @@ impl SettingGroup {
+         self
+     }
+ 
++    /// Set the icon of the setting group.
++    ///
++    /// The icon is used when the group is rendered as a sidebar menu item.
++    pub fn icon(mut self, icon: impl Into<Icon>) -> Self {
++        self.icon = Some(icon.into());
++        self
++    }
++
+     /// Set the description of the setting group, default is None.
+     pub fn description(mut self, description: impl Into<SharedString>) -> Self {
+         self.description = Some(description.into());

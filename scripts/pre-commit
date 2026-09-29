@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Enforces AGENTS.md: "make fmt before committing", "make lint before committing".
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+make fmt-check || { echo "pre-commit: formatting rule (AGENTS.md Commands) broken — run 'make fmt'" >&2; exit 1; }
+make lint || { echo "pre-commit: lint rule (AGENTS.md Commands) broken — fix clippy warnings" >&2; exit 1; }

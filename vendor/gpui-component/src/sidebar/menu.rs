@@ -1,7 +1,5 @@
 use crate::{
-    ActiveTheme as _, Collapsible, Icon, IconName, Placement, Sizable as _, StyledExt,
-    button::{Button, ButtonVariants as _},
-    h_flex,
+    ActiveTheme as _, Collapsible, Icon, Placement, StyledExt, h_flex,
     menu::{ContextMenuExt, PopupMenu},
     sidebar::SidebarItem,
     tooltip::{ManagedTooltipExt as _, Tooltip},
@@ -10,7 +8,7 @@ use crate::{
 use gpui::{
     AnyElement, App, ClickEvent, ElementId, InteractiveElement as _, IntoElement,
     ParentElement as _, SharedString, StatefulInteractiveElement as _, StyleRefinement, Styled,
-    Window, div, percentage, prelude::FluentBuilder,
+    Window, div, prelude::FluentBuilder,
 };
 use gpui_base::TestSupportExt as _;
 use std::rc::Rc;
@@ -96,12 +94,10 @@ pub struct SidebarMenuItem {
     label: SharedString,
     label_style: StyleRefinement,
     style: StyleRefinement,
+    active_style: StyleRefinement,
     handler: Rc<dyn Fn(&ClickEvent, &mut Window, &mut App)>,
     active: bool,
-    default_open: bool,
-    click_to_open: bool,
     collapsed: bool,
-    click_to_toggle: bool,
     children: Vec<Self>,
     suffix: Option<Rc<dyn Fn(&mut Window, &mut App) -> AnyElement + 'static>>,
     disabled: bool,
@@ -116,12 +112,10 @@ impl SidebarMenuItem {
             label: label.into(),
             label_style: StyleRefinement::default(),
             style: StyleRefinement::default(),
+            active_style: StyleRefinement::default(),
             handler: Rc::new(|_, _, _| {}),
             active: false,
             collapsed: false,
-            default_open: false,
-            click_to_open: false,
-            click_to_toggle: false,
             children: Vec::new(),
             suffix: None,
             disabled: false,
@@ -147,6 +141,15 @@ impl SidebarMenuItem {
         self
     }
 
+    /// Set the style refinement applied on top of the built-in active
+    /// styling when the item is active.
+    ///
+    /// Applied after the default accent background, so it wins.
+    pub fn active_style(mut self, style: StyleRefinement) -> Self {
+        self.active_style = style;
+        self
+    }
+
     /// Add a click handler to the menu item
     pub fn on_click(
         mut self,
@@ -159,34 +162,6 @@ impl SidebarMenuItem {
     /// Set the collapsed state of the menu item
     pub fn collapsed(mut self, collapsed: bool) -> Self {
         self.collapsed = collapsed;
-        self
-    }
-
-    /// Set the default open state of the Submenu, default is `false`.
-    ///
-    /// This only used on initial render, the internal state will be used afterwards.
-    pub fn default_open(mut self, open: bool) -> Self {
-        self.default_open = open;
-        self
-    }
-
-    /// Set whether clicking the menu item open the submenu.
-    ///
-    /// Default is `false`.
-    ///
-    /// If `false` we only handle open/close via the caret button.
-    pub fn click_to_open(mut self, click_to_open: bool) -> Self {
-        self.click_to_open = click_to_open;
-        self
-    }
-
-    /// Set whether clicking the menu item toggles the submenu.
-    ///
-    /// If click_to_open is `true`, this has no effect.
-    ///
-    /// Default is `false`.
-    pub fn click_to_toggle(mut self, click_to_toggle: bool) -> Self {
-        self.click_to_toggle = click_to_toggle;
         self
     }
 
@@ -251,25 +226,17 @@ impl SidebarItem for SidebarMenuItem {
         window: &mut Window,
         cx: &mut App,
     ) -> impl IntoElement {
-        let click_to_open = self.click_to_open;
-        let click_to_toggle = self.click_to_toggle;
-        let default_open = self.default_open;
         let collapsed_tooltip = self.collapsed_tooltip();
         let id = id.into();
         let is_submenu = self.is_submenu();
-        let open_state = if is_submenu {
-            Some(window.use_keyed_state(id.clone(), cx, |_, _| default_open))
-        } else {
-            None
-        };
         let handler = self.handler.clone();
         let is_collapsed = self.collapsed;
         let is_active = self.active;
         let is_hoverable = !is_active && !self.disabled;
         let is_disabled = self.disabled;
-        let is_open = open_state
-            .as_ref()
-            .map_or(false, |s| !is_collapsed && *s.read(cx));
+        // Submenus have no expand/collapse affordance: children render
+        // whenever the sidebar itself is not collapsed to the icon rail.
+        let show_submenu = is_submenu && !is_collapsed;
 
         div()
             .id(id.clone())
@@ -304,76 +271,35 @@ impl SidebarItem for SidebarMenuItem {
                                 .text_color(cx.theme().sidebar_accent_foreground)
                         })
                     })
+                    // Refined last so a custom active style wins over the
+                    // built-in accent background in both modes.
+                    .when(is_active, |this| this.refine_style(&self.active_style))
                     .when(!is_collapsed, |this| {
-                        this.h_7()
-                            .child(
-                                h_flex()
-                                    .flex_1()
-                                    .gap_x_2()
-                                    .justify_between()
-                                    .overflow_x_hidden()
-                                    .child(
-                                        h_flex()
-                                            .flex_1()
-                                            .overflow_x_hidden()
-                                            .refine_style(&self.label_style)
-                                            .child(self.label.clone()),
-                                    )
-                                    .when_some(self.suffix.clone(), |this, suffix| {
-                                        this.child(suffix(window, cx).into_any_element())
-                                    }),
-                            )
-                            .when_some(open_state.clone(), |this, open_state| {
-                                this.child(
-                                    Button::new("caret")
-                                        .xsmall()
-                                        .ghost()
-                                        .icon(
-                                            Icon::new(IconName::ChevronRight)
-                                                .size_4()
-                                                .when(is_open, |this| {
-                                                    this.rotate(percentage(90. / 360.))
-                                                }),
-                                        )
-                                        .on_click({
-                                            move |_, _, cx| {
-                                                // Avoid trigger item click, just expand/collapse submenu
-                                                cx.stop_propagation();
-                                                open_state.update(cx, |is_open, cx| {
-                                                    *is_open = !*is_open;
-                                                    cx.notify();
-                                                })
-                                            }
-                                        }),
+                        this.h_7().child(
+                            h_flex()
+                                .flex_1()
+                                .gap_x_2()
+                                .justify_between()
+                                .overflow_x_hidden()
+                                .child(
+                                    h_flex()
+                                        .flex_1()
+                                        .overflow_x_hidden()
+                                        .refine_style(&self.label_style)
+                                        .child(self.label.clone()),
                                 )
-                            })
+                                .when_some(self.suffix.clone(), |this, suffix| {
+                                    this.child(suffix(window, cx).into_any_element())
+                                }),
+                        )
                     })
                     .when(is_disabled, |this| {
                         this.text_color(cx.theme().muted_foreground)
                             .cursor_default()
                     })
                     .when(!is_disabled, |this| {
-                        this.cursor_pointer().on_click({
-                            let open_state = open_state.clone();
-                            move |ev, window, cx| {
-                                if click_to_open {
-                                    if let Some(ref s) = open_state {
-                                        s.update(cx, |is_open: &mut bool, cx| {
-                                            *is_open = true;
-                                            cx.notify();
-                                        });
-                                    }
-                                } else if click_to_toggle {
-                                    if let Some(ref s) = open_state {
-                                        s.update(cx, |is_open: &mut bool, cx| {
-                                            *is_open = !*is_open;
-                                            cx.notify();
-                                        });
-                                    }
-                                }
-                                handler(ev, window, cx)
-                            }
-                        })
+                        this.cursor_pointer()
+                            .on_click(move |ev, window, cx| handler(ev, window, cx))
                     })
                     .map(|this| {
                         if let Some(tooltip) = collapsed_tooltip {
@@ -395,7 +321,7 @@ impl SidebarItem for SidebarMenuItem {
                         }
                     }),
             )
-            .when(is_open, |this| {
+            .when(show_submenu, |this| {
                 this.child(
                     v_flex()
                         .id("submenu")

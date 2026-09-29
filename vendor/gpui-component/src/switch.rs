@@ -182,6 +182,7 @@ impl RenderOnce for Switch {
             BaseSwitch::new(self.id.clone())
                 .checked(checked)
                 .disabled(self.disabled)
+                .when(!self.disabled, |this| this.cursor_pointer())
                 .styles(|styles| {
                     styles.disabled(|style| {
                         style.text_color(disabled_label_color).cursor_not_allowed()

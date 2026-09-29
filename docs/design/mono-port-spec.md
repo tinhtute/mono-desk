@@ -76,48 +76,67 @@ text-kumo-default/60`.
 
 Applied in mono-desk `Settings`:
 
-- `sidebar_width(px(240.))`; `sidebar_size_range` kept at defaults
-  (`160..360`).
+- `sidebar_width(px(240.))` + `sidebar_size_range(px(240.)..px(240.))` —
+  fixed 240px rail; the pinned range keeps the `resizable_panel` seam
+  from dragging, but the drag handle still renders (residual chrome).
 - Active item look is native `SidebarMenuItem` behavior:
   `font_medium` + `sidebar.accent.background` +
   `sidebar.accent.foreground`; hover uses `sidebar.accent.*` at 0.8
   opacity — matches the source active/hover pair; `sidebar_style`
   refinement therefore not added.
-- **Gaps (recorded, not styled):** inactive-item 70% foreground opacity,
-  `text-[10px] uppercase` group labels, and per-item density are
-  component-internal and not expressible via `sidebar_style` without
-  inventing new surface — left as documented deviation.
-- **Rail chrome (applied, requirements 8–14):** the rail renders, top to
-  bottom: brand block, search input, page/group item list, footer toggle.
-  - Brand block: `brand-mark.svg` copied verbatim from the source
-    (`assets/brand/brand-mark.svg`, 1254×1254, gradient `#0789B2` /
-    `#0BA8C8` @55% / `#18C6E1`) drawn at 32px, beside the wordmark
-    `settings-demo` in Xanh Mono italic at `text_xl` — source `h-8 w-8` +
-    `font-serif text-xl italic tracking-tight`.
-  - Asset path: `brand/brand-mark.svg` is served by `AppAssets`
-    (`src/assets.rs`), which embeds the SVG and delegates every other path
-    to `gpui_kit::assets::Assets`; `main()` registers it with a single
-    `.with_assets` call. The mark is not in the Lucide `IconName` set, so
-    it needs this app-level source.
-  - Footer toggle: `Button::new("rail-theme-toggle")`, primary variant,
-    full width, Sun icon + "Light mode" while dark and Moon + "Dark mode"
-    while light; the click calls
-    `Theme::change(next, Some(window), cx)` — the `None` form refreshes no
-    window, so icon and palette would not repaint.
-  - How the slots exist: `Settings` exposes no content hook upstream, so
-    `vendor/gpui-component/` is the 0.6.1 crate carrying two additive
-    builder methods — `sidebar_header(impl IntoElement)` (content above
-    the search input) and `sidebar_footer(impl IntoElement)` (passed to
-    `Sidebar::footer`) — resolved via
-    `[patch.crates-io] gpui-component = { path = "vendor/gpui-component" }`.
-    The vendored deltas are `vendor/patches/sidebar-slots.patch` (101
-    lines, `src/setting/settings.rs`) and `vendor/patches/sidebar-cursor.patch`
-    (14 lines, `src/sidebar/menu.rs` — `cursor_pointer()` on rail items,
-    `cursor_default()` when disabled, matching the `Button` convention);
-    upgrade = re-copy upstream + re-apply both patches.
+- **Gaps (recorded):** inactive-item 70% foreground opacity **closed
+  2026-09-28** via `Settings::sidebar_style(text_color(sidebar_foreground
+  .opacity(0.7)))` — the refined container color inherits into inactive
+  `SidebarMenuItem` labels only (active/hover set
+  `sidebar.accent.foreground` explicitly). Still not expressible:
+  `text-[10px] uppercase` group labels and per-item density — both are
+  component-internal (`sidebar/menu.rs` hardcodes
+  `p_2`/`gap_x_2`/`text_sm`/`h_7`; the `SettingGroup::icon` per-item
+  hook added via `settings-group-icon.patch` was later removed by
+  `settings-static-tree.patch` — child rows are now iconless text).
+- **Rail chrome:** this section now describes the corrected zdesk-era
+  layout — see `zdesk-port-spec.md` for the full applied state; this doc
+  remains the source-of-truth record for the kumo port above.
+  The rail renders, top to bottom: brand row (restored `sidebar_header`
+  slot), search input, page/group item list. There is **no footer
+  toggle** — locked decision: the theme toggle is Settings-only (Dark
+  Mode switch, General page).
+  - Brand row: `shell::sidebar_brand()` mounts a 32px-high row above the
+    search input — `img("brand/brand-mark.png")` at 20px (raster `img`,
+    not `svg()`: the icon pipeline would flatten the gradient into a
+    monochrome mask) beside the wordmark `mono-desk` in Xanh Mono italic
+    semibold at `text_base` (`src/shell.rs:10-28`,
+    `src/main.rs:341-343`).
+  - Asset path: `brand/brand-mark.png` (and `.svg`, kept for other uses)
+    is served by `AppAssets` (`src/assets.rs`), which embeds both and
+    delegates every other path to `gpui_kit::assets::Assets`; `main()`
+    registers it with a single `.with_assets` call. The mark is not in
+    the Lucide `IconName` set, so it needs this app-level source.
+  - Footer slot: `Settings::sidebar_footer` exists via the restored
+    `sidebar-slots.patch` but is dormant — no call site by owner
+    decision.
+  - How the slots exist: `vendor/gpui-component/` is the 0.6.1 crate
+    resolved via `[patch.crates-io] gpui-component = { path =
+    "vendor/gpui-component" }` (`Cargo.toml`). It carried four patches at
+    this doc's writing —
+    `vendor/patches/sidebar-slots.patch` (101 lines, restored —
+    `sidebar_header`/`sidebar_footer` on `src/setting/settings.rs`),
+    `vendor/patches/sidebar-cursor.patch` (14 lines,
+    `src/sidebar/menu.rs` — `cursor_pointer()` on rail items,
+    `cursor_default()` when disabled, matching the `Button` convention),
+    `vendor/patches/settings-content-style.patch` (59 lines, new —
+    `content_panel_style` → `refine_style` on the content
+    `resizable_panel`), and
+    `vendor/patches/settings-group-icon.patch` (86 lines, new —
+    `SettingGroup::icon` → `.icon()` on the group's `SidebarMenuItem`;
+    superseded by `settings-static-tree.patch`, which removed the API
+    when child icons were dropped).
+    The stack has since grown; the current set and apply order is the
+    `Cargo.toml` comment (see also `zdesk-port-spec.md`, "Vendored patch
+    state"). Upgrade = re-copy upstream + re-apply every patch in order.
   - Rail item cursor: upstream `SidebarMenuItem` sets hover colors but no
     cursor, so the rail items showed the default arrow — patched to
-    `cursor_pointer()` (footer toggle already inherits it from `Button`).
+    `cursor_pointer()`.
   - Rejected for this: an app-side `Sidebar` shell (page/group/item
     renderers are `pub(super)` and field renderers `pub(crate)`, so it
     would reimplement content, search, and reset) and the
@@ -133,7 +152,7 @@ Applied in mono-desk `Settings`:
 |---|---|---|---|
 | UI sans (body, labels, controls) | Hanken Grotesk | 400 / 500 / 600 / 700 | `font.family`, `font.size` = 14 (source body `0.875rem`) |
 | Mono (code, telemetry, kbd) | Google Sans Code | 400 / 500 | `mono_font.family`, `mono_font.size` = 13 (source code `0.8125rem`) |
-| Display / headings / wordmark | Xanh Mono | 400 regular + 400 italic | use-site styling (`font_family("Xanh Mono")` + `.italic()`); About-page `"settings-demo"` wordmark is the port's wordmark instance (source: `font-serif italic tracking-tight`) |
+| Display / headings / wordmark | Xanh Mono | 400 regular + 400 italic | use-site styling (`font_family("Xanh Mono")` + `.italic()`); instances: the sidebar brand row (`shell::sidebar_brand()` — the zdesk-era wordmark) and the About-page `"settings-demo"` wordmark (source: `font-serif italic tracking-tight`) |
 
 Vendoring note: `google/fonts` ships Hanken Grotesk and Google Sans Code
 variable-only; the vendored files are static instances produced via
@@ -156,10 +175,10 @@ are recorded as the design intent where components allow, not restyled.
 ## Known flags for owner review
 
 - `sidebar.border` dark `#ebebeb` — bright divider on dark rail.
-- Rail chrome (brand block, footer toggle) is not visually verified
-  headless — `make run` is the owner check; see Sidebar metrics.
+- Rail chrome (brand row, fixed-240px rail, page icons) is not visually
+  verified headless — `make run` is the owner check; see Sidebar metrics.
 - Variable→static instancing — rendering verified by name/weight tables,
   not yet by glyphs in a live window (`make run` pending).
 - Revert path: `git checkout -- assets src/theme.rs src/main.rs Cargo.toml
-  Cargo.lock` + `git clean -fd vendor assets/brand src/assets.rs` removes
-  the theme and the rail chrome.
+  Cargo.lock` + `git clean -fd vendor assets/brand src/assets.rs
+  src/shell.rs` removes the theme and the rail chrome.

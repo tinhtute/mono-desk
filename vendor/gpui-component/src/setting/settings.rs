@@ -1,4 +1,5 @@
 use std::ops::Range;
+use std::rc::Rc;
 
 use crate::{
     IconName, Sizable, Size, StyledExt,
@@ -7,7 +8,7 @@ use crate::{
     input::{Input, InputState},
     resizable_panel,
     setting::{SettingGroup, SettingPage},
-    sidebar::{Sidebar, SidebarMenu, SidebarMenuItem},
+    sidebar::{Sidebar, SidebarCollapsible, SidebarMenu, SidebarMenuItem},
     v_flex,
 };
 use gpui::{
@@ -39,6 +40,10 @@ pub struct Settings {
     size: Size,
     sidebar_width: Pixels,
     sidebar_size_range: Range<Pixels>,
+    /// Style refinement applied to active sidebar menu items.
+    active_item_style: StyleRefinement,
+    /// Style refinement applied to the content panel.
+    content_panel_style: StyleRefinement,
     sidebar_style: StyleRefinement,
     default_selected_index: SelectIndex,
     header_style: StyleRefinement,
@@ -46,6 +51,10 @@ pub struct Settings {
     sidebar_header: Option<AnyElement>,
     /// Custom content rendered at the bottom of the sidebar.
     sidebar_footer: Option<AnyElement>,
+    /// Collapse the sidebar to icon width.
+    sidebar_collapsed: bool,
+    /// Whether to paint the resize handle between the panels.
+    show_handle: bool,
 }
 
 impl Settings {
@@ -58,11 +67,15 @@ impl Settings {
             size: Size::default(),
             sidebar_width: px(250.0),
             sidebar_size_range: px(160.0)..px(360.0),
+            active_item_style: StyleRefinement::default(),
+            content_panel_style: StyleRefinement::default(),
             sidebar_style: StyleRefinement::default(),
             default_selected_index: SelectIndex::default(),
             header_style: StyleRefinement::default(),
             sidebar_header: None,
             sidebar_footer: None,
+            sidebar_collapsed: false,
+            show_handle: true,
         }
     }
 
@@ -104,6 +117,21 @@ impl Settings {
         self
     }
 
+    /// Set the style refinement applied to active sidebar menu items.
+    ///
+    /// Applied after the built-in active styling, so it wins over the
+    /// default accent background.
+    pub fn active_item_style(mut self, style: &StyleRefinement) -> Self {
+        self.active_item_style = style.clone();
+        self
+    }
+
+    /// Set the style refinement for the content panel.
+    pub fn content_panel_style(mut self, style: &StyleRefinement) -> Self {
+        self.content_panel_style = style.clone();
+        self
+    }
+
     /// Set the default index of the page to be selected.
     pub fn default_selected_index(mut self, index: SelectIndex) -> Self {
         self.default_selected_index = index;
@@ -125,6 +153,24 @@ impl Settings {
     /// Set custom content rendered at the bottom of the sidebar.
     pub fn sidebar_footer(mut self, footer: impl IntoElement) -> Self {
         self.sidebar_footer = Some(footer.into_any_element());
+        self
+    }
+
+    /// Collapse the sidebar to icon width.
+    ///
+    /// When collapsed the search is hidden, the header slot (brand) stays,
+    /// and menu items render as centered icons.
+    pub fn sidebar_collapsed(mut self, collapsed: bool) -> Self {
+        self.sidebar_collapsed = collapsed;
+        self
+    }
+
+    /// Whether to paint the resize handle between the panels, default is `true`.
+    ///
+    /// When `false`, the handle keeps its hit area and drag behavior but
+    /// paints nothing.
+    pub fn show_handle(mut self, show: bool) -> Self {
+        self.show_handle = show;
         self
     }
 
@@ -196,8 +242,8 @@ impl Settings {
             .w(relative(1.))
             .border_0()
             .refine_style(&self.sidebar_style)
-            .collapsible(false)
-            .collapsed(false)
+            .collapsible(SidebarCollapsible::Icon)
+            .collapsed(self.sidebar_collapsed)
             .header(
                 v_flex()
                     .w_full()
@@ -205,12 +251,14 @@ impl Settings {
                     .when_some(self.sidebar_header.take(), |this, header| {
                         this.child(header)
                     })
-                    .child(
-                        div()
-                            .w_full()
-                            .refine_style(&self.header_style)
-                            .child(Input::new(&search_input).prefix(IconName::Search)),
-                    ),
+                    .when(!self.sidebar_collapsed, |this| {
+                        this.child(
+                            div()
+                                .w_full()
+                                .refine_style(&self.header_style)
+                                .child(Input::new(&search_input).prefix(IconName::Search)),
+                        )
+                    }),
             )
             .when_some(self.sidebar_footer.take(), |this, footer| {
                 this.footer(footer)
@@ -220,10 +268,12 @@ impl Settings {
                     let is_page_active =
                         selected_index.page_ix == page_ix && selected_index.group_ix.is_none();
                     SidebarMenuItem::new(page.title.clone())
-                        .click_to_open(true)
+                        // Page labels read bold; the label refinement beats the
+                        // medium weight the row sets in its active state.
+                        .label_style(StyleRefinement::default().font_bold())
                         .when_some(page.icon.clone(), |this, icon| this.icon(icon))
-                        .default_open(page.default_open)
                         .active(is_page_active)
+                        .active_style(self.active_item_style.clone())
                         .on_click({
                             let state = state.clone();
                             move |_, _, cx| {
@@ -236,35 +286,95 @@ impl Settings {
                                 })
                             }
                         })
-                        .when(page.groups.len() > 1, |this| {
-                            this.children(
-                                page.groups
-                                    .iter()
-                                    .filter(|g| g.title.is_some())
-                                    .enumerate()
-                                    .map(|(group_ix, group)| {
-                                        let is_active = selected_index.page_ix == page_ix
-                                            && selected_index.group_ix == Some(group_ix);
-                                        let title = group.title.clone().unwrap_or_default();
+                        .children(sidebar_child_group_ixs(page).into_iter().map(|group_ix| {
+                            let group = &page.groups[group_ix];
+                            let is_active = selected_index.page_ix == page_ix
+                                && selected_index.group_ix == Some(group_ix);
+                            let title = group.title.clone().unwrap_or_default();
 
-                                        SidebarMenuItem::new(title).active(is_active).on_click({
-                                            let state = state.clone();
-                                            move |_, _, cx| {
-                                                state.update(cx, |state, cx| {
-                                                    state.selected_index = SelectIndex {
-                                                        page_ix,
-                                                        group_ix: Some(group_ix),
-                                                    };
-                                                    state.deferred_scroll_group_ix = Some(group_ix);
-                                                    cx.notify();
-                                                })
-                                            }
+                            SidebarMenuItem::new(title)
+                                .active(is_active)
+                                .active_style(self.active_item_style.clone())
+                                .on_click({
+                                    let state = state.clone();
+                                    move |_, _, cx| {
+                                        state.update(cx, |state, cx| {
+                                            state.selected_index = SelectIndex {
+                                                page_ix,
+                                                group_ix: Some(group_ix),
+                                            };
+                                            state.deferred_scroll_group_ix = Some(group_ix);
+                                            cx.notify();
                                         })
-                                    }),
-                            )
-                        })
+                                    }
+                                })
+                        }))
                 })),
             )
+    }
+}
+
+/// Indices of the groups that appear as child items under `page` in the
+/// sidebar tree.
+///
+/// A page gets child items only when it has at least two titled groups — a
+/// single titled group duplicates the page label, so the page renders as one
+/// flat item. The returned indices address `page.groups`, the same indexing
+/// `SelectIndex::group_ix` and `deferred_scroll_group_ix` use, so untitled
+/// groups keep their slots.
+#[doc(hidden)]
+pub fn sidebar_child_group_ixs(page: &SettingPage) -> Vec<usize> {
+    let titled_count = page.groups.iter().filter(|g| g.title.is_some()).count();
+    if titled_count < 2 {
+        return Vec::new();
+    }
+    page.groups
+        .iter()
+        .enumerate()
+        .filter_map(|(ix, group)| group.title.is_some().then_some(ix))
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn titled_group(title: &str) -> SettingGroup {
+        SettingGroup::new().title(title)
+    }
+
+    #[test]
+    fn page_with_at_least_two_titled_groups_gets_children() {
+        let page = SettingPage::new("General")
+            .groups([titled_group("Appearance"), titled_group("Startup")]);
+
+        assert_eq!(sidebar_child_group_ixs(&page), vec![0, 1]);
+    }
+
+    #[test]
+    fn page_with_one_titled_group_renders_flat() {
+        // "Profile": one titled group → no children, bold leaf item.
+        let one_titled = SettingPage::new("Profile").groups([titled_group("Account")]);
+        // "About": an untitled group does not count toward the two-group
+        // threshold, so this page stays flat too.
+        let about = SettingPage::new("About").groups([SettingGroup::new(), titled_group("Links")]);
+
+        assert!(sidebar_child_group_ixs(&one_titled).is_empty());
+        assert!(sidebar_child_group_ixs(&about).is_empty());
+    }
+
+    #[test]
+    fn child_indices_address_all_groups() {
+        // Untitled groups keep their slot: the child indices match the list
+        // order in `page.groups`, which is what `deferred_scroll_group_ix`
+        // scrolls to.
+        let page = SettingPage::new("Page").groups([
+            SettingGroup::new(),
+            titled_group("First"),
+            titled_group("Second"),
+        ]);
+
+        assert_eq!(sidebar_child_group_ixs(&page), vec![1, 2]);
     }
 }
 
@@ -280,6 +390,8 @@ pub(super) struct SettingsState {
     /// If set, defer scrolling to this group index after rendering.
     pub(super) deferred_scroll_group_ix: Option<usize>,
     pub(super) search_input: Entity<InputState>,
+    /// Locale the cached search placeholder was rendered for.
+    pub(super) placeholder_locale: String,
 }
 
 /// Options for rendering setting item.
@@ -393,6 +505,7 @@ pub struct SelectIndex {
 
 impl RenderOnce for Settings {
     fn render(mut self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let locale = rust_i18n::locale().to_string();
         let state = window.use_keyed_state(self.id.clone(), cx, |window, cx| {
             let search_input = cx.new(|cx| {
                 InputState::new(window, cx)
@@ -404,8 +517,21 @@ impl RenderOnce for Settings {
                 search_input,
                 selected_index: self.default_selected_index,
                 deferred_scroll_group_ix: None,
+                placeholder_locale: locale.clone(),
             }
         });
+
+        // The search input is created once per keyed state, so its placeholder
+        // would otherwise keep the locale that was active at first render.
+        // Re-apply it whenever the active locale changes.
+        if state.read(cx).placeholder_locale != locale {
+            let placeholder = t!("Settings.search_placeholder").to_string();
+            let search_input = state.read(cx).search_input.clone();
+            search_input.update(cx, |input, cx| {
+                input.set_placeholder(placeholder, window, cx);
+            });
+            state.update(cx, |state, _| state.placeholder_locale = locale);
+        }
 
         let query = state.read(cx).search_input.read(cx).value();
         let filtered_pages = self.filtered_pages(&query, cx);
@@ -418,6 +544,11 @@ impl RenderOnce for Settings {
             .into_any_element();
 
         h_resizable(self.id.clone())
+            .when(!self.show_handle, |this| {
+                this.with_handle_appearance(Rc::new(|_, _, _| {
+                    Some(div().into_any_element())
+                }))
+            })
             .child(
                 resizable_panel()
                     .size(self.sidebar_width)
@@ -425,14 +556,17 @@ impl RenderOnce for Settings {
                     .child(sidebar),
             )
             .child(
-                resizable_panel().child(container_query(move |size, window, cx| {
-                    let options = options.with_layout(if size.width <= STACKED_LAYOUT_MAX_WIDTH {
-                        Axis::Vertical
-                    } else {
-                        Axis::Horizontal
-                    });
-                    self.render_active_page(&state, &filtered_pages, &options, window, cx)
-                })),
+                resizable_panel()
+                    .refine_style(&self.content_panel_style)
+                    .child(container_query(move |size, window, cx| {
+                        let options =
+                            options.with_layout(if size.width <= STACKED_LAYOUT_MAX_WIDTH {
+                                Axis::Vertical
+                            } else {
+                                Axis::Horizontal
+                            });
+                        self.render_active_page(&state, &filtered_pages, &options, window, cx)
+                    })),
             )
     }
 }

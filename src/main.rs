@@ -1,27 +1,33 @@
 use gpui_kit::component::{
-    ActiveTheme, Disableable, Icon, IconName, Root, Sizable, Theme, ThemeMode, WindowExt,
-    button::{Button, ButtonVariants},
+    ActiveTheme, Disableable, Icon, IconName, Root, Sizable, Theme, ThemeMode, TitleBar, WindowExt,
+    button::Button,
     h_flex,
     label::Label,
     notification::Notification,
     setting::{NumberFieldOptions, SettingField, SettingGroup, SettingItem, SettingPage, Settings},
+    switch::Switch,
     v_flex,
 };
 use gpui_kit::{
-    App, AppContext as _, Bounds, Context, FocusHandle, Focusable, Global, IntoElement, KeyBinding,
-    Menu, MenuItem, ParentElement as _, Render, SharedString, Styled as _, TitlebarOptions, Window,
-    WindowBounds, WindowOptions, div, img, point, px, size,
+    App, AppContext as _, Bounds, Context, FocusHandle, Focusable, FontWeight, Global, IntoElement,
+    KeyBinding, Menu, MenuItem, ParentElement as _, Render, SharedString, StyleRefinement,
+    Styled as _, TitlebarOptions, Window, WindowBounds, WindowDecorations, WindowOptions, div, img,
+    point, px, size,
 };
+use shell::{AppShell, ShellState};
+use status_chip::{StatusChip, StatusIcon, StatusTone};
 
 mod assets;
 mod i18n;
 mod persist;
+mod shell;
+mod status_chip;
 mod theme;
 
 use i18n::tr;
 use persist::StoredSettings;
 
-gpui_kit::actions!(mono_desk, [Quit]);
+gpui_kit::actions!(mono_desk, [Quit, CloseWindow, ToggleSidebar]);
 
 /// Application state, stored as a GPUI global so `SettingField` closures can
 /// reach it through `&App` / `&mut App`.
@@ -40,7 +46,9 @@ impl Default for AppSettings {
         Self {
             dark_mode: false,
             language: "en".into(),
-            font_size: 14.0,
+            // Matches the theme's `font.size` (13px) so the applied default
+            // preserves the approved visual baseline.
+            font_size: 13.0,
             launch_at_login: false,
             notifications_enabled: true,
             username: "ninja".into(),
@@ -96,13 +104,13 @@ fn save_settings(cx: &App) {
     persist::save(&AppSettings::global(cx).to_stored());
 }
 
-
 struct SettingsWindow {
     focus_handle: FocusHandle,
 }
 
 impl SettingsWindow {
     fn new(_window: &mut Window, cx: &mut Context<Self>) -> Self {
+        cx.set_global(ShellState::default());
         Self {
             focus_handle: cx.focus_handle(),
         }
@@ -111,112 +119,153 @@ impl SettingsWindow {
     fn setting_pages(&self, cx: &mut Context<Self>) -> Vec<SettingPage> {
         let lang = AppSettings::global(cx).language.clone();
         let defaults = AppSettings::default();
+        // Copied out of `defaults` so the reset closure of the element field
+        // below can be `'static`.
+        let notifications_default = defaults.notifications_enabled;
 
         vec![
             SettingPage::new(tr("page.general", &lang))
                 .icon(Icon::new(IconName::Settings2))
-                .default_open(true)
                 .resettable(true)
                 .groups(vec![
-                    SettingGroup::new().title(tr("group.appearance", &lang)).items(vec![
-                        SettingItem::new(
-                            tr("item.dark_mode", &lang),
-                            SettingField::switch(
-                                |cx: &App| cx.theme().mode.is_dark(),
-                                |val: bool, cx: &mut App| {
-                                    let mode = if val {
-                                        ThemeMode::Dark
-                                    } else {
-                                        ThemeMode::Light
-                                    };
-                                    Theme::change(mode, None, cx);
-                                    AppSettings::global_mut(cx).dark_mode = val;
-                                    apply_font_size(cx);
-                                    save_settings(cx);
-                                    cx.refresh_windows();
-                                },
+                    SettingGroup::new()
+                        .title(tr("group.appearance", &lang))
+                        .items(vec![
+                            SettingItem::new(
+                                tr("item.dark_mode", &lang),
+                                SettingField::switch(
+                                    |cx: &App| cx.theme().mode.is_dark(),
+                                    |val: bool, cx: &mut App| {
+                                        let mode = if val {
+                                            ThemeMode::Dark
+                                        } else {
+                                            ThemeMode::Light
+                                        };
+                                        Theme::change(mode, None, cx);
+                                        AppSettings::global_mut(cx).dark_mode = val;
+                                        apply_font_size(cx);
+                                        save_settings(cx);
+                                        cx.refresh_windows();
+                                    },
+                                )
+                                .default_value(false),
                             )
-                            .default_value(false),
-                        )
-                        .description(tr("item.dark_mode.desc", &lang)),
-                        SettingItem::new(
-                            tr("item.language", &lang),
-                            SettingField::dropdown(
-                                vec![
-                                    ("en".into(), "English".into()),
-                                    ("vi".into(), "Tiếng Việt".into()),
-                                    ("zh-CN".into(), "简体中文".into()),
-                                    ("ja".into(), "日本語".into()),
-                                ],
-                                |cx: &App| AppSettings::global(cx).language.clone(),
-                                |val: SharedString, cx: &mut App| {
-                                    AppSettings::global_mut(cx).language = val.clone();
-                                    gpui_kit::component::set_locale(component_locale(&val));
-                                    save_settings(cx);
-                                    cx.refresh_windows();
-                                },
+                            .description(tr("item.dark_mode.desc", &lang)),
+                            SettingItem::new(
+                                tr("item.language", &lang),
+                                SettingField::dropdown(
+                                    vec![
+                                        ("en".into(), "English".into()),
+                                        ("vi".into(), "Tiếng Việt".into()),
+                                        ("zh-CN".into(), "简体中文".into()),
+                                        ("ja".into(), "日本語".into()),
+                                    ],
+                                    |cx: &App| AppSettings::global(cx).language.clone(),
+                                    |val: SharedString, cx: &mut App| {
+                                        AppSettings::global_mut(cx).language = val.clone();
+                                        gpui_kit::component::set_locale(component_locale(&val));
+                                        save_settings(cx);
+                                        cx.refresh_windows();
+                                    },
+                                )
+                                .default_value(defaults.language.clone()),
                             )
-                            .default_value(defaults.language.clone()),
-                        )
-                        .description(tr("item.language.desc", &lang)),
-                        SettingItem::new(
-                            tr("item.font_size", &lang),
-                            SettingField::number_input(
-                                NumberFieldOptions {
-                                    min: 8.0,
-                                    max: 32.0,
-                                    ..Default::default()
-                                },
-                                |cx: &App| AppSettings::global(cx).font_size,
-                                |val: f64, cx: &mut App| {
-                                    let Some(size) = normalize_font_size(val) else {
-                                        return;
-                                    };
-                                    AppSettings::global_mut(cx).font_size = size;
-                                    apply_font_size(cx);
-                                    save_settings(cx);
-                                    cx.refresh_windows();
-                                },
+                            .description(tr("item.language.desc", &lang)),
+                            SettingItem::new(
+                                tr("item.font_size", &lang),
+                                SettingField::number_input(
+                                    NumberFieldOptions {
+                                        min: theme::FONT_SIZE_MIN,
+                                        max: theme::FONT_SIZE_MAX,
+                                        ..Default::default()
+                                    },
+                                    |cx: &App| AppSettings::global(cx).font_size,
+                                    |val: f64, cx: &mut App| {
+                                        let Some(size) = normalize_font_size(val) else {
+                                            return;
+                                        };
+                                        AppSettings::global_mut(cx).font_size = size;
+                                        apply_font_size(cx);
+                                        save_settings(cx);
+                                        cx.refresh_windows();
+                                    },
+                                )
+                                .default_value(defaults.font_size),
                             )
-                            .default_value(defaults.font_size),
-                        )
-                        .description(tr("item.font_size.desc", &lang)),
-                    ]),
-                    SettingGroup::new().title(tr("group.startup", &lang)).items(vec![
-                        SettingItem::new(
-                            tr("item.launch_at_login", &lang),
-                            SettingField::checkbox(
-                                |cx: &App| AppSettings::global(cx).launch_at_login,
-                                |val: bool, cx: &mut App| {
-                                    AppSettings::global_mut(cx).launch_at_login = val;
-                                    persist::autostart_converge(val);
-                                    save_settings(cx);
-                                },
+                            .description(tr("item.font_size.desc", &lang)),
+                        ]),
+                    SettingGroup::new()
+                        .title(tr("group.startup", &lang))
+                        .items(vec![
+                            SettingItem::new(
+                                tr("item.launch_at_login", &lang),
+                                SettingField::checkbox(
+                                    |cx: &App| AppSettings::global(cx).launch_at_login,
+                                    |val: bool, cx: &mut App| {
+                                        AppSettings::global_mut(cx).launch_at_login = val;
+                                        persist::autostart_converge(val);
+                                        save_settings(cx);
+                                    },
+                                )
+                                .default_value(defaults.launch_at_login),
                             )
-                            .default_value(defaults.launch_at_login),
-                        )
-                        .description(tr("item.launch_at_login.desc", &lang)),
-                    ]),
+                            .description(tr("item.launch_at_login.desc", &lang)),
+                        ]),
                 ]),
             SettingPage::new(tr("page.notifications", &lang))
                 .icon(Icon::new(IconName::Bell))
                 .resettable(true)
                 .groups(vec![
-                    SettingGroup::new().title(tr("group.delivery", &lang)).items(vec![
-                        SettingItem::new(
-                            tr("item.notifications", &lang),
-                            SettingField::switch(
-                                |cx: &App| AppSettings::global(cx).notifications_enabled,
-                                |val: bool, cx: &mut App| {
-                                    AppSettings::global_mut(cx).notifications_enabled = val;
-                                    save_settings(cx);
-                                    cx.refresh_windows();
-                                },
+                    SettingGroup::new()
+                        .title(tr("group.delivery", &lang))
+                        .items(vec![
+                            SettingItem::new(
+                                tr("item.notifications", &lang),
+                                SettingField::render(|options, _window, cx| {
+                                    let settings = AppSettings::global(cx);
+                                    let enabled = settings.notifications_enabled;
+                                    let (tone, label) = if enabled {
+                                        (
+                                            StatusTone::Ready,
+                                            tr("status.enabled", &settings.language),
+                                        )
+                                    } else {
+                                        (
+                                            StatusTone::Paused,
+                                            tr("status.disabled", &settings.language),
+                                        )
+                                    };
+                                    h_flex()
+                                        .gap_2()
+                                        .child(StatusChip::labelled(tone, label))
+                                        .child(
+                                            Switch::new("notifications-enabled")
+                                                .checked(enabled)
+                                                .with_size(options.size())
+                                                .on_click(|checked: &bool, _, cx: &mut App| {
+                                                    AppSettings::global_mut(cx)
+                                                        .notifications_enabled = *checked;
+                                                    save_settings(cx);
+                                                    cx.refresh_windows();
+                                                }),
+                                        )
+                                })
+                                // An element field carries no typed value, so
+                                // the page reset needs the handler explicitly.
+                                .on_reset(
+                                    move |cx: &App| {
+                                        AppSettings::global(cx).notifications_enabled
+                                            != notifications_default
+                                    },
+                                    move |_window, cx: &mut App| {
+                                        AppSettings::global_mut(cx).notifications_enabled =
+                                            notifications_default;
+                                        save_settings(cx);
+                                    },
+                                ),
                             )
-                            .default_value(defaults.notifications_enabled),
-                        )
-                        .description(tr("item.notifications.desc", &lang)),
-                    ]),
+                            .description(tr("item.notifications.desc", &lang)),
+                        ]),
                     SettingGroup::new().title(tr("group.actions", &lang)).item(
                         SettingItem::new(
                             tr("item.test_notification", &lang),
@@ -251,47 +300,51 @@ impl SettingsWindow {
             SettingPage::new(tr("page.profile", &lang))
                 .icon(Icon::new(IconName::User))
                 .resettable(true)
-                .group(SettingGroup::new().title(tr("group.account", &lang)).items(vec![
-                        SettingItem::new(
-                            tr("item.username", &lang),
-                            SettingField::input(
-                                |cx: &App| AppSettings::global(cx).username.clone(),
-                                |val: SharedString, cx: &mut App| {
-                                    AppSettings::global_mut(cx).username = val;
-                                    save_settings(cx);
-                                    cx.refresh_windows();
-                                },
-                            )
-                            .default_value(defaults.username.clone()),
-                        )
-                        .description(tr("item.username.desc", &lang)),
-                        SettingItem::new(
-                            tr("item.display_name", &lang),
-                            SettingField::input(
-                                |cx: &App| AppSettings::global(cx).display_name.clone(),
-                                |val: SharedString, cx: &mut App| {
-                                    AppSettings::global_mut(cx).display_name = val;
-                                    save_settings(cx);
-                                    cx.refresh_windows();
-                                },
-                            )
-                            .default_value(defaults.display_name.clone()),
-                        )
-                        .description(tr("item.display_name.desc", &lang)),
-                        SettingItem::new(
-                            tr("item.preview", &lang),
-                            SettingField::render(|_options, _window, cx| {
-                                let settings = AppSettings::global(cx);
-                                div().text_color(cx.theme().muted_foreground).child(
-                                    SharedString::from(format!(
-                                        "{} (@{})",
-                                        settings.display_name, settings.username
-                                    )),
+                .group(
+                    SettingGroup::new()
+                        .title(tr("group.account", &lang))
+                        .items(vec![
+                            SettingItem::new(
+                                tr("item.username", &lang),
+                                SettingField::input(
+                                    |cx: &App| AppSettings::global(cx).username.clone(),
+                                    |val: SharedString, cx: &mut App| {
+                                        AppSettings::global_mut(cx).username = val;
+                                        save_settings(cx);
+                                        cx.refresh_windows();
+                                    },
                                 )
-                            }),
-                        )
-                        .description(tr("item.preview.desc", &lang)),
-                    ])),
+                                .default_value(defaults.username.clone()),
+                            )
+                            .description(tr("item.username.desc", &lang)),
+                            SettingItem::new(
+                                tr("item.display_name", &lang),
+                                SettingField::input(
+                                    |cx: &App| AppSettings::global(cx).display_name.clone(),
+                                    |val: SharedString, cx: &mut App| {
+                                        AppSettings::global_mut(cx).display_name = val;
+                                        save_settings(cx);
+                                        cx.refresh_windows();
+                                    },
+                                )
+                                .default_value(defaults.display_name.clone()),
+                            )
+                            .description(tr("item.display_name.desc", &lang)),
+                            SettingItem::new(
+                                tr("item.preview", &lang),
+                                SettingField::render(|_options, _window, cx| {
+                                    let settings = AppSettings::global(cx);
+                                    div().text_color(cx.theme().muted_foreground).child(
+                                        SharedString::from(format!(
+                                            "{} (@{})",
+                                            settings.display_name, settings.username
+                                        )),
+                                    )
+                                }),
+                            )
+                            .description(tr("item.preview.desc", &lang)),
+                        ]),
+                ),
             SettingPage::new(tr("page.about", &lang))
                 .icon(Icon::new(IconName::Info))
                 .groups(vec![
@@ -306,6 +359,11 @@ impl SettingsWindow {
                                 div()
                                     .font_family("Xanh Mono")
                                     .italic()
+                                    // Same derived 600 face as the sidebar
+                                    // wordmark; the family's own italic is 400.
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_size(px(17.))
+                                    .text_color(cx.theme().foreground)
                                     .child("settings-demo"),
                             )
                             .child(
@@ -313,42 +371,64 @@ impl SettingsWindow {
                                     .text_sm()
                                     .text_color(cx.theme().muted_foreground),
                             )
+                            // The version borrows the blue informational tone
+                            // with a release-tag glyph: a calendar would read as
+                            // a date, not a release.
+                            .child(
+                                StatusChip::labelled(
+                                    StatusTone::Scheduled,
+                                    format!(
+                                        "{} {}",
+                                        tr("status.version", &AppSettings::global(cx).language),
+                                        env!("CARGO_PKG_VERSION")
+                                    ),
+                                )
+                                .icon(StatusIcon::Tag),
+                            )
                     })),
-                    SettingGroup::new().title(tr("group.links", &lang)).items(vec![
-                        SettingItem::new(
-                            tr("item.website", &lang),
-                            SettingField::render(|options, _window, cx| {
-                                Button::new("open-website")
-                                    .outline()
-                                    .with_size(options.size())
-                                    .icon(IconName::ExternalLink)
-                                    .label(tr("action.website_label", &AppSettings::global(cx).language))
-                                    .on_click(|_, _window, cx| {
-                                        cx.open_url("https://gpui-kit.com/");
-                                    })
-                            }),
-                        )
-                        .description(tr("item.website.desc", &lang)),
-                        SettingItem::new(
-                            tr("item.about", &lang),
-                            SettingField::render(|options, _window, cx| {
-                                Button::new("open-about")
-                                    .outline()
-                                    .with_size(options.size())
-                                    .icon(IconName::Info)
-                                    .label(tr("action.about_label", &AppSettings::global(cx).language))
-                                    .on_click(|_, window, cx| {
-                                        window.open_dialog(cx, |dialog, _, cx| {
-                                            let lang = &AppSettings::global(cx).language;
-                                            dialog.title(tr("dialog.about_title", lang)).child(
-                                                tr("dialog.about_body", lang),
-                                            )
-                                        });
-                                    })
-                            }),
-                        )
-                        .description(tr("item.about.desc", &lang)),
-                    ]),
+                    SettingGroup::new()
+                        .title(tr("group.links", &lang))
+                        .items(vec![
+                            SettingItem::new(
+                                tr("item.website", &lang),
+                                SettingField::render(|options, _window, cx| {
+                                    Button::new("open-website")
+                                        .outline()
+                                        .with_size(options.size())
+                                        .icon(IconName::ExternalLink)
+                                        .label(tr(
+                                            "action.website_label",
+                                            &AppSettings::global(cx).language,
+                                        ))
+                                        .on_click(|_, _window, cx| {
+                                            cx.open_url("https://gpui-kit.com/");
+                                        })
+                                }),
+                            )
+                            .description(tr("item.website.desc", &lang)),
+                            SettingItem::new(
+                                tr("item.about", &lang),
+                                SettingField::render(|options, _window, cx| {
+                                    Button::new("open-about")
+                                        .outline()
+                                        .with_size(options.size())
+                                        .icon(IconName::Info)
+                                        .label(tr(
+                                            "action.about_label",
+                                            &AppSettings::global(cx).language,
+                                        ))
+                                        .on_click(|_, window, cx| {
+                                            window.open_dialog(cx, |dialog, _, cx| {
+                                                let lang = &AppSettings::global(cx).language;
+                                                dialog
+                                                    .title(tr("dialog.about_title", lang))
+                                                    .child(tr("dialog.about_body", lang))
+                                            });
+                                        })
+                                }),
+                            )
+                            .description(tr("item.about.desc", &lang)),
+                        ]),
                 ]),
         ]
     }
@@ -356,7 +436,7 @@ impl SettingsWindow {
 
 /// Maps app language codes to gpui-component locale codes: the component
 /// ships `zh-CN` translations, so `"zh"` maps to `"zh-CN"`; other codes
-/// pass through and rust_i18n falls back to English for missing locales.
+/// pass through and the component falls back to English for missing locales.
 fn component_locale(lang: &str) -> &str {
     match lang {
         "zh" => "zh-CN",
@@ -370,64 +450,12 @@ impl Focusable for SettingsWindow {
     }
 }
 
-/// Rail brand block: its own row above the search, left-aligned.
-///
-/// `img()` (not `svg()`): GPUI renders SVG as a monochrome alpha mask, which
-/// would flatten the mark's gradient into the rail's text color. The row adds
-/// its own vertical padding so the mark reads as a block of its own rather
-/// than part of the search field.
-fn rail_brand() -> impl IntoElement {
-    h_flex()
-        .w_full()
-        .gap_2()
-        .items_center()
-        .pt_1()
-        .pb_2()
-        .child(img("brand/brand-mark.png").size(px(48.)))
-        .child(
-            div()
-                .flex_1()
-                .min_w(px(0.))
-                .font_family("Xanh Mono")
-                .italic()
-                .text_xl()
-                .truncate()
-                .child("settings-demo"),
-        )
-}
-fn rail_footer(cx: &App) -> impl IntoElement {
-    let dark = cx.theme().mode.is_dark();
-    let lang = AppSettings::global(cx).language.clone();
-    Button::new("rail-theme-toggle")
-        .primary()
-        .w_full()
-        .icon(if dark { IconName::Sun } else { IconName::Moon })
-        .label(if dark {
-            tr("rail.light_mode", &lang)
-        } else {
-            tr("rail.dark_mode", &lang)
-        })
-        .on_click(|_, window, cx| {
-            let next = if cx.theme().mode.is_dark() {
-                ThemeMode::Light
-            } else {
-                ThemeMode::Dark
-            };
-            Theme::change(next, Some(window), cx);
-            AppSettings::global_mut(cx).dark_mode = next.is_dark();
-            apply_font_size(cx);
-            save_settings(cx);
-        })
-}
-
-/// Re-applies the user's font size after `Theme::change`, which resets
-/// `font_size` from the active `ThemeConfig` (`mono.json` pins it at 14).
-/// `Root::render` pushes `Theme.font_size` into `window.set_rem_size`, so
-/// the whole UI scales from this one value.
+/// Re-applies the user's font size (and the app's other theme overrides)
+/// after `Theme::change`, which resets `font_size` from the active
+/// `ThemeConfig`. `Root::render` pushes `Theme.font_size` into
+/// `window.set_rem_size`, so the whole UI scales from this one value.
 fn apply_font_size(cx: &mut App) {
-    let size = AppSettings::global(cx).font_size;
-    Theme::global_mut(cx).font_size = px(size as f32);
-    Theme::sync_base(cx);
+    theme::apply_overrides(AppSettings::global(cx).font_size, cx);
 }
 
 /// Guards the font-size boundary: the vendored `NumberField` parses
@@ -439,18 +467,63 @@ fn normalize_font_size(val: f64) -> Option<f64> {
     val.is_finite().then_some(val)
 }
 
-
 impl Render for SettingsWindow {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let collapsed = cx.global::<ShellState>().collapsed;
+        let sidebar_w = px(if collapsed { 48. } else { 240. });
         div()
             .size_full()
             .bg(cx.theme().background)
             .child(
-                Settings::new("settings-demo")
-                    .sidebar_width(px(240.))
-                    .sidebar_header(rail_brand())
-                    .sidebar_footer(rail_footer(cx))
-                    .pages(self.setting_pages(cx)),
+                AppShell::new().settings_view(
+                    Settings::new("settings-demo")
+                        .sidebar_width(sidebar_w)
+                        // Pin the resizable panel to the current sidebar width —
+                        // ResizablePanel min/max are authoritative, so a
+                        // collapsed-sized pin keeps the seam from dragging.
+                        .sidebar_size_range(sidebar_w..sidebar_w)
+                        // Icon-collapse (48px rail) vs expanded (240px) sidebar.
+                        .sidebar_collapsed(collapsed)
+                        // Suppress the painted 1px resize seam between sidebar
+                        // and card (hit area stays but the pin prevents drag).
+                        .show_handle(false)
+                        // Brand row above the search input (`sidebar_header`
+                        // slot); collapses to the mark alone, search hides.
+                        .sidebar_header(shell::sidebar_brand(collapsed, cx.theme().foreground))
+                        // zdesk rail: borderless, inactive items in the muted
+                        // foreground. The colour lands as the inherited text
+                        // color on the sidebar root — active/hover items set
+                        // their own full-contrast colors. (zdesk's 70%-opacity
+                        // variant resolved to 3.7:1 in light mode, below WCAG
+                        // AA; `muted.foreground` is 5.9:1 / 6.1:1.)
+                        .sidebar_style(
+                            &StyleRefinement::default()
+                                .w(sidebar_w)
+                                .border_0()
+                                .text_color(cx.theme().muted_foreground),
+                        )
+                        // Raised pill on the active sidebar item.
+                        .active_item_style(
+                            &StyleRefinement::default()
+                                .bg(cx.theme().group_box)
+                                .border_1()
+                                .border_color(cx.theme().border),
+                        )
+                        // Raised zdesk card around the settings content:
+                        // rounded, stroked, lighter than the window base, with
+                        // a 6px inset on all four sides, clipped so page
+                        // content can't bleed past the radius.
+                        .content_panel_style(
+                            &StyleRefinement::default()
+                                .rounded_lg()
+                                .border_1()
+                                .border_color(cx.theme().border)
+                                .bg(cx.theme().group_box)
+                                .m(px(6.))
+                                .overflow_hidden(),
+                        )
+                        .pages(self.setting_pages(cx)),
+                ),
             )
             .children(Root::render_dialog_layer(window, cx))
             .children(Root::render_sheet_layer(window, cx))
@@ -490,35 +563,67 @@ fn main() {
         .run(|cx| {
             // This must be called before using any GPUI Component features.
             gpui_kit::init(cx);
-            theme::install(cx);
+            cx.set_global(AppSettings::from_stored(persist::load()));
+            let settings = AppSettings::global(cx);
+            let dark_mode = settings.dark_mode;
+            let font_size = settings.font_size;
+            let language = settings.language.clone();
+            let launch_at_login = settings.launch_at_login;
+            // Theme set + overrides (font size, focus ring), then the stored
+            // mode, locale and autostart state.
+            theme::install(cx, font_size);
+            if dark_mode {
+                Theme::change(ThemeMode::Dark, None, cx);
+                apply_font_size(cx);
+            }
+            gpui_kit::component::set_locale(component_locale(&language));
+            persist::autostart_converge(launch_at_login);
             // ⌘Q: gpui ships no default Quit action or menu item, and macOS
             // uses `QuitMode::Explicit`, so both have to be registered here.
             // Bind first — `set_menus` reads the keymap for key equivalents.
-            cx.bind_keys([KeyBinding::new("cmd-q", Quit, None)]);
+            cx.bind_keys([
+                KeyBinding::new("cmd-q", Quit, None),
+                KeyBinding::new("cmd-w", CloseWindow, None),
+                KeyBinding::new("cmd-b", ToggleSidebar, None),
+            ]);
             cx.set_menus(vec![
                 Menu::new("mono-desk").items([MenuItem::action("Quit", Quit)]),
             ]);
             cx.on_action(|_: &Quit, cx: &mut App| cx.quit());
-            cx.set_global(AppSettings::from_stored(persist::load()));
-            let settings = AppSettings::global(cx);
-            let dark_mode = settings.dark_mode;
-            let language = settings.language.clone();
-            let launch_at_login = settings.launch_at_login;
-            if dark_mode {
-                Theme::change(ThemeMode::Dark, None, cx);
-            }
-            apply_font_size(cx);
-            gpui_kit::component::set_locale(component_locale(&language));
-            persist::autostart_converge(launch_at_login);
-            // Native titlebar: gpui only calls `setTitle` when a title is set,
-            // so `WindowOptions::default()` leaves the window title empty.
+            // ⌘W is close-window semantics; with a single window and no tabs
+            // to close, closing the window quits the app.
+            cx.on_action(|_: &CloseWindow, cx: &mut App| cx.quit());
+            // ⌘B toggles the settings sidebar between 240px and the 48px
+            // icon rail (same affordance as the titlebar collapse button).
+            cx.on_action(|_: &ToggleSidebar, cx: &mut App| {
+                let state = cx.global_mut::<ShellState>();
+                state.collapsed = !state.collapsed;
+                cx.refresh_windows();
+            });
+            // Frameless window driven by the vendored `TitleBar`: transparent
+            // titlebar with macOS traffic lights at zdesk's (16,18) and an
+            // app-owned drag region; only the bounds are customized.
+            //
+            // On Linux (GNOME/Wayland + XWayland) the compositor otherwise
+            // stacks its own GTK/system titlebar above the vendored one.
+            // Client-side decorations make the vendored `TitleBar` the only
+            // chrome: it draws minimize/maximize/close itself
+            // (`WindowControls`, gated on `Decorations::Client`) and owns
+            // dragging, and `Root` already renders `window_border()` for the
+            // resize edges. macOS keeps its native titlebar (traffic lights).
+            #[cfg(target_os = "linux")]
+            let window_decorations = Some(WindowDecorations::Client);
+            #[cfg(not(target_os = "linux"))]
+            let window_decorations: Option<WindowDecorations> = None;
+
             let window_options = WindowOptions {
                 window_bounds: Some(default_window_bounds(cx)),
                 titlebar: Some(TitlebarOptions {
-                    title: Some("mono-desk".into()),
-                    ..Default::default()
+                    traffic_light_position: Some(point(px(16.), px(18.))),
+                    ..TitleBar::title_bar_options()
                 }),
-                ..Default::default()
+                window_decorations,
+                ..TitleBar::window_options()
             };
             cx.spawn(async move |cx| {
                 cx.open_window(window_options, |window, cx| {
@@ -535,6 +640,40 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::normalize_font_size;
+
+    /// The sidebar tree shows children only for pages with at least two
+    /// titled groups — that's exactly what keeps About (untitled brand
+    /// group + one titled "Links" group) and Profile (one titled group)
+    /// rendered as flat bold items.
+    #[test]
+    fn sidebar_children_require_two_titled_groups() {
+        use gpui_kit::component::setting::{SettingGroup, SettingPage, sidebar_child_group_ixs};
+
+        let titled = |t: &str| SettingGroup::new().title(t);
+
+        // General / Notifications shape: every group titled.
+        let two_titled =
+            SettingPage::new("General").groups([titled("Appearance"), titled("Startup")]);
+        assert_eq!(sidebar_child_group_ixs(&two_titled), vec![0, 1]);
+
+        // About: an untitled group doesn't count toward the threshold.
+        let about = SettingPage::new("About").groups([SettingGroup::new(), titled("Links")]);
+        assert!(sidebar_child_group_ixs(&about).is_empty());
+
+        // Profile: a single titled group renders flat.
+        let profile = SettingPage::new("Profile").groups([titled("Account")]);
+        assert!(sidebar_child_group_ixs(&profile).is_empty());
+
+        // Untitled groups keep their slots — child indices address the
+        // group's position in `page.groups`, which is the index the scroll-
+        // to-group action consumes.
+        let mixed = SettingPage::new("Mixed").groups([
+            SettingGroup::new(),
+            titled("First"),
+            titled("Second"),
+        ]);
+        assert_eq!(sidebar_child_group_ixs(&mixed), vec![1, 2]);
+    }
 
     #[test]
     fn font_size_rejects_non_finite_input() {
