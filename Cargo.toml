@@ -5,6 +5,9 @@ edition = "2024"
 
 [dependencies]
 gpui-kit = "0.6"
+# Same i18n stack the vendored gpui-component uses, so `set_locale` switches
+# both the app's strings and the component-internal ones.
+rust-i18n = "4.2"
 
 [dev-dependencies]
 serde_json = "1.0.151"
@@ -17,5 +20,6 @@ serde_json = "1.0.151"
 # - settings-group-icon.patch: SettingGroup::icon → sidebar menu item icon.
 # - settings-collapse.patch: Settings::sidebar_collapsed (icon rail, hides header) + show_handle.
 # - settings-item-style.patch: Settings::active_item_style + SidebarMenuItem::active_style.
+# - settings-search-placeholder-locale.patch: re-apply the cached search placeholder when the locale changes.
 [patch.crates-io]
 gpui-component = { path = "vendor/gpui-component" }

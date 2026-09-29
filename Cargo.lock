@@ -3996,6 +3996,7 @@ name = "mono-desk"
 version = "0.1.0"
 dependencies = [
  "gpui-kit",
+ "rust-i18n",
  "serde_json",
 ]
 

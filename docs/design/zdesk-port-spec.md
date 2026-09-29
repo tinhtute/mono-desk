@@ -157,8 +157,8 @@ remains registered but is no longer the theme family.
 
 ## Vendored patch state
 
-`vendor/gpui-component` is stock 0.6.1 plus exactly six patches
-(`Cargo.toml:12-19`):
+`vendor/gpui-component` is stock 0.6.1 plus exactly seven patches
+(`Cargo.toml:14-23`):
 
 | Patch | Lines | State | What it does |
 |---|---|---|---|
@@ -168,12 +168,14 @@ remains registered but is no longer the theme family.
 | `vendor/patches/settings-group-icon.patch` | 86 | **KEPT** | `SettingGroup::icon(impl Into<Icon>)` (`src/setting/group.rs`) → `.icon()` on the group's `SidebarMenuItem` (`src/setting/settings.rs`) |
 | `vendor/patches/settings-collapse.patch` | 116 | **NEW** (`zdesk-layout-fix`) | `Settings::sidebar_collapsed` + `show_handle`; `Sidebar` gets `.collapsible(SidebarCollapsible::Icon)` + `.collapsed(sidebar_collapsed)`, and the header (brand + search input) is gated behind `when(!sidebar_collapsed)` |
 | `vendor/patches/settings-item-style.patch` | 97 | **NEW** (`zdesk-layout-fix`) | `Settings::active_item_style` → `SidebarMenuItem::active_style`; the refinement is applied **after** the built-in `is_active` accent styling (`menu.rs`), so the custom pill wins in both modes |
+| `vendor/patches/settings-search-placeholder-locale.patch` | 34 | **NEW** (i18n) | `SettingsState::placeholder_locale` + a re-apply of `Settings.search_placeholder` in `render` when the active locale changes — the search input is created once per keyed state, so its placeholder would otherwise stay in the first-render locale |
 
-Upgrade rule: re-copy the upstream crate, re-apply all six patches.
+Upgrade rule: re-copy the upstream crate, re-apply all seven patches.
 **Reversal order** (the hunks stack — `git apply -R` in:
-`settings-item-style` → `settings-collapse` → `settings-group-icon` →
-`settings-content-style` → `sidebar-slots` → `sidebar-cursor`; apply
-forward in the reverse sequence).
+`settings-search-placeholder-locale` → `settings-item-style` →
+`settings-collapse` → `settings-group-icon` → `settings-content-style` →
+`sidebar-slots` → `sidebar-cursor`; apply forward in the reverse
+sequence).
 
 ## Known flags for owner review
 

@@ -11,13 +11,43 @@ use gpui_kit::{
     Menu, MenuItem, ParentElement as _, Render, SharedString, StyleRefinement, Styled as _,
     TitlebarOptions, Window, WindowBounds, WindowOptions, div, img, point, px, size,
 };
+use rust_i18n::t;
 use shell::{AppShell, ShellState};
 
 mod assets;
 mod shell;
 mod theme;
 
+// App translations, loaded with the same stack the vendored gpui-component
+// uses (`rust_i18n`). `rust_i18n::set_locale` is global, so switching it
+// re-renders both these strings and the component-internal ones (search
+// placeholder, dialog buttons, …). `fallback = "en"` covers locales the
+// component ships no column for (vi, ja).
+rust_i18n::i18n!("locales", fallback = "en");
+
 gpui_kit::actions!(mono_desk, [Quit, CloseWindow, ToggleSidebar]);
+
+/// Translate `key` for the current locale into an owned `String`.
+///
+/// The component builders take `impl Into<SharedString>`, which `Cow<str>`
+/// does not satisfy directly, so the macro owns the result.
+macro_rules! tr {
+    ($key:literal) => {
+        t!($key).to_string()
+    };
+}
+
+/// Map the Language setting's value to a `rust_i18n` locale code.
+///
+/// The dropdown offers `zh`; the vendored component locale file keys Chinese
+/// as `zh-CN`, so the two are bridged here — otherwise component-internal
+/// strings would fall back to English for Chinese.
+fn locale_for(language: &str) -> &str {
+    match language {
+        "zh" => "zh-CN",
+        other => other,
+    }
+}
 
 /// Application state, stored as a GPUI global so `SettingField` closures can
 /// reach it through `&App` / `&mut App`.
@@ -36,7 +66,9 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             language: "en".into(),
-            font_size: 14.0,
+            // Matches the theme's `font.size` (13px) so the applied default
+            // preserves the approved visual baseline.
+            font_size: 13.0,
             launch_at_login: false,
             auto_update: true,
             notifications_enabled: true,
@@ -77,17 +109,17 @@ impl SettingsWindow {
         let defaults = AppSettings::default();
 
         vec![
-            SettingPage::new("General")
+            SettingPage::new(tr!("Page.general"))
                 .icon(Icon::new(IconName::Settings2))
                 .default_open(true)
                 .resettable(true)
                 .groups(vec![
                     SettingGroup::new()
-                        .title("Appearance")
+                        .title(tr!("Group.appearance"))
                         .icon(IconName::Palette)
                         .items(vec![
                             SettingItem::new(
-                                "Dark Mode",
+                                tr!("Item.dark_mode"),
                                 SettingField::switch(
                                     |cx: &App| cx.theme().mode.is_dark(),
                                     |val: bool, cx: &mut App| {
@@ -98,13 +130,19 @@ impl SettingsWindow {
                                         };
                                         Theme::global_mut(cx).mode = mode;
                                         Theme::change(mode, None, cx);
+                                        // `Theme::change` resets `font_size` from
+                                        // the theme config, so re-apply the setting.
+                                        theme::apply_font_size(
+                                            AppSettings::global(cx).font_size,
+                                            cx,
+                                        );
                                     },
                                 )
                                 .default_value(false),
                             )
-                            .description("Switch between light and dark themes."),
+                            .description(tr!("Item.dark_mode_desc")),
                             SettingItem::new(
-                                "Language",
+                                tr!("Item.language"),
                                 SettingField::dropdown(
                                     vec![
                                         ("en".into(), "English".into()),
@@ -114,35 +152,38 @@ impl SettingsWindow {
                                     ],
                                     |cx: &App| AppSettings::global(cx).language.clone(),
                                     |val: SharedString, cx: &mut App| {
+                                        rust_i18n::set_locale(locale_for(&val));
                                         AppSettings::global_mut(cx).language = val;
                                     },
                                 )
                                 .default_value(defaults.language.clone()),
                             )
-                            .description("Interface language (demo only, no i18n wired)."),
+                            .description(tr!("Item.language_desc")),
                             SettingItem::new(
-                                "Font Size",
+                                tr!("Item.font_size"),
                                 SettingField::number_input(
                                     NumberFieldOptions {
-                                        min: 8.0,
-                                        max: 32.0,
+                                        min: theme::FONT_SIZE_MIN,
+                                        max: theme::FONT_SIZE_MAX,
                                         ..Default::default()
                                     },
                                     |cx: &App| AppSettings::global(cx).font_size,
                                     |val: f64, cx: &mut App| {
+                                        let val = theme::clamp_font_size(val);
                                         AppSettings::global_mut(cx).font_size = val;
+                                        theme::apply_font_size(val, cx);
                                     },
                                 )
                                 .default_value(defaults.font_size),
                             )
-                            .description("Base UI font size, 8–32."),
+                            .description(tr!("Item.font_size_desc")),
                         ]),
                     SettingGroup::new()
-                        .title("Startup")
+                        .title(tr!("Group.startup"))
                         .icon(IconName::Play)
                         .items(vec![
                             SettingItem::new(
-                                "Launch at Login",
+                                tr!("Item.launch_at_login"),
                                 SettingField::checkbox(
                                     |cx: &App| AppSettings::global(cx).launch_at_login,
                                     |val: bool, cx: &mut App| {
@@ -151,9 +192,9 @@ impl SettingsWindow {
                                 )
                                 .default_value(defaults.launch_at_login),
                             )
-                            .description("Start the app when you sign in."),
+                            .description(tr!("Item.launch_at_login_desc")),
                             SettingItem::new(
-                                "Auto Update",
+                                tr!("Item.auto_update"),
                                 SettingField::switch(
                                     |cx: &App| AppSettings::global(cx).auto_update,
                                     |val: bool, cx: &mut App| {
@@ -162,19 +203,19 @@ impl SettingsWindow {
                                 )
                                 .default_value(defaults.auto_update),
                             )
-                            .description("Download and install updates automatically."),
+                            .description(tr!("Item.auto_update_desc")),
                         ]),
                 ]),
-            SettingPage::new("Notifications")
+            SettingPage::new(tr!("Page.notifications"))
                 .icon(Icon::new(IconName::Bell))
                 .resettable(true)
                 .groups(vec![
                     SettingGroup::new()
-                        .title("Delivery")
+                        .title(tr!("Group.delivery"))
                         .icon(IconName::Bell)
                         .items(vec![
                             SettingItem::new(
-                                "Enable Notifications",
+                                tr!("Item.notifications_enabled"),
                                 SettingField::switch(
                                     |cx: &App| AppSettings::global(cx).notifications_enabled,
                                     |val: bool, cx: &mut App| {
@@ -183,14 +224,14 @@ impl SettingsWindow {
                                 )
                                 .default_value(defaults.notifications_enabled),
                             )
-                            .description("Allow in-app notifications."),
+                            .description(tr!("Item.notifications_enabled_desc")),
                             SettingItem::new(
-                                "Digest",
+                                tr!("Item.digest"),
                                 SettingField::dropdown(
                                     vec![
-                                        ("immediate".into(), "Immediately".into()),
-                                        ("daily".into(), "Daily summary".into()),
-                                        ("weekly".into(), "Weekly summary".into()),
+                                        ("immediate".into(), tr!("Digest.immediate").into()),
+                                        ("daily".into(), tr!("Digest.daily").into()),
+                                        ("weekly".into(), tr!("Digest.weekly").into()),
                                     ],
                                     |cx: &App| AppSettings::global(cx).digest.clone(),
                                     |val: SharedString, cx: &mut App| {
@@ -199,41 +240,41 @@ impl SettingsWindow {
                                 )
                                 .default_value(defaults.digest.clone()),
                             )
-                            .description("How often notifications are delivered."),
+                            .description(tr!("Item.digest_desc")),
                         ]),
                     SettingGroup::new()
-                        .title("Actions")
+                        .title(tr!("Group.actions"))
                         .icon(IconName::SquareTerminal)
                         .item(
                             SettingItem::new(
-                                "Test Notification",
+                                tr!("Item.test_notification"),
                                 SettingField::render(|options, _window, _cx| {
                                     Button::new("send-test-notification")
                                         .outline()
                                         .with_size(options.size())
                                         .icon(IconName::Bell)
-                                        .label("Send")
+                                        .label(tr!("Action.send"))
                                         .on_click(|_, window, cx| {
                                             window.push_notification(
-                                                Notification::success("Hello from settings-demo!"),
+                                                Notification::success(tr!("Notification.test")),
                                                 cx,
                                             );
                                         })
                                 }),
                             )
-                            .description("Push a sample in-app notification."),
+                            .description(tr!("Item.test_notification_desc")),
                         ),
                 ]),
-            SettingPage::new("Profile")
+            SettingPage::new(tr!("Page.profile"))
                 .icon(Icon::new(IconName::User))
                 .resettable(true)
                 .group(
                     SettingGroup::new()
-                        .title("Account")
+                        .title(tr!("Group.account"))
                         .icon(IconName::CircleUser)
                         .items(vec![
                             SettingItem::new(
-                                "Username",
+                                tr!("Item.username"),
                                 SettingField::input(
                                     |cx: &App| AppSettings::global(cx).username.clone(),
                                     |val: SharedString, cx: &mut App| {
@@ -242,9 +283,9 @@ impl SettingsWindow {
                                 )
                                 .default_value(defaults.username.clone()),
                             )
-                            .description("Your unique handle."),
+                            .description(tr!("Item.username_desc")),
                             SettingItem::new(
-                                "Display Name",
+                                tr!("Item.display_name"),
                                 SettingField::input(
                                     |cx: &App| AppSettings::global(cx).display_name.clone(),
                                     |val: SharedString, cx: &mut App| {
@@ -253,10 +294,10 @@ impl SettingsWindow {
                                 )
                                 .default_value(defaults.display_name.clone()),
                             )
-                            .description("Shown instead of your username."),
+                            .description(tr!("Item.display_name_desc")),
                         ]),
                 ),
-            SettingPage::new("About")
+            SettingPage::new(tr!("Page.about"))
                 .icon(Icon::new(IconName::Info))
                 .groups(vec![
                     SettingGroup::new().item(SettingItem::render(|_options, _window, cx| {
@@ -273,17 +314,17 @@ impl SettingsWindow {
                                     .child("settings-demo"),
                             )
                             .child(
-                                Label::new("A settings-style demo app built with GPUI Kit.")
+                                Label::new(tr!("About.tagline"))
                                     .text_sm()
                                     .text_color(cx.theme().muted_foreground),
                             )
                     })),
                     SettingGroup::new()
-                        .title("Links")
+                        .title(tr!("Group.links"))
                         .icon(IconName::ExternalLink)
                         .items(vec![
                             SettingItem::new(
-                                "Website",
+                                tr!("Item.website"),
                                 SettingField::render(|options, _window, _cx| {
                                     Button::new("open-website")
                                         .outline()
@@ -295,26 +336,25 @@ impl SettingsWindow {
                                         })
                                 }),
                             )
-                            .description("Framework website and documentation."),
+                            .description(tr!("Item.website_desc")),
                             SettingItem::new(
-                                "About",
+                                tr!("Item.about"),
                                 SettingField::render(|options, _window, _cx| {
                                     Button::new("open-about")
                                         .outline()
                                         .with_size(options.size())
                                         .icon(IconName::Info)
-                                        .label("About…")
+                                        .label(tr!("Action.about"))
                                         .on_click(|_, window, cx| {
                                             window.open_dialog(cx, |dialog, _, _| {
-                                                dialog.title("About settings-demo").child(
-                                                    "Built with GPUI Kit — the Rust desktop \
-                                                     framework from Longbridge.",
-                                                )
+                                                dialog
+                                                    .title(tr!("About.dialog_title"))
+                                                    .child(tr!("About.dialog_body"))
                                             });
                                         })
                                 }),
                             )
-                            .description("Show the about dialog."),
+                            .description(tr!("Item.about_desc")),
                         ]),
                 ]),
         ]
@@ -422,6 +462,11 @@ fn main() {
             // This must be called before using any GPUI Component features.
             gpui_kit::init(cx);
             theme::install(cx);
+            // Apply the startup defaults: locale (switches both the app and
+            // the component-internal strings) and the live UI font size.
+            let defaults = AppSettings::default();
+            rust_i18n::set_locale(locale_for(&defaults.language));
+            theme::apply_font_size(defaults.font_size, cx);
             // ⌘Q: gpui ships no default Quit action or menu item, and macOS
             // uses `QuitMode::Explicit`, so both have to be registered here.
             // Bind first — `set_menus` reads the keymap for key equivalents.
@@ -465,4 +510,54 @@ fn main() {
             })
             .detach();
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+
+    /// Every key in `locales/app.yml` must carry a value for every language the
+    /// Language dropdown offers, so switching never silently falls back to
+    /// English for a key that exists in another column.
+    #[test]
+    fn locale_files_cover_every_offered_language() {
+        let backend = crate::_rust_i18n_backend();
+        let locales = ["en", "vi", "zh-CN", "ja"];
+
+        let mut reference: Option<BTreeSet<String>> = None;
+        for locale in locales {
+            let messages = backend
+                .messages_for_locale(locale)
+                .unwrap_or_else(|| panic!("locale {locale} missing from locales/app.yml"));
+            let keys: BTreeSet<String> = messages.iter().map(|(key, _)| key.to_string()).collect();
+            assert!(!keys.is_empty(), "locale {locale} has no keys");
+
+            match &reference {
+                None => {
+                    assert!(
+                        keys.contains("Page.general"),
+                        "expected key Page.general in the locale file"
+                    );
+                    reference = Some(keys);
+                }
+                Some(expected) => {
+                    let missing: Vec<_> = expected.difference(&keys).collect();
+                    let extra: Vec<_> = keys.difference(expected).collect();
+                    assert!(
+                        missing.is_empty() && extra.is_empty(),
+                        "locale {locale} key mismatch — missing {missing:?}, extra {extra:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// The dropdown value `zh` must bridge to the component's `zh-CN` column.
+    #[test]
+    fn locale_for_bridges_chinese() {
+        assert_eq!(super::locale_for("zh"), "zh-CN");
+        assert_eq!(super::locale_for("en"), "en");
+        assert_eq!(super::locale_for("vi"), "vi");
+        assert_eq!(super::locale_for("ja"), "ja");
+    }
 }
