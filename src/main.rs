@@ -130,9 +130,10 @@ impl SettingsWindow {
                                         };
                                         Theme::global_mut(cx).mode = mode;
                                         Theme::change(mode, None, cx);
-                                        // `Theme::change` resets `font_size` from
-                                        // the theme config, so re-apply the setting.
-                                        theme::apply_font_size(
+                                        // `Theme::change` rebuilds the theme from
+                                        // the config, so re-apply the app-side
+                                        // overrides (font size, focus ring).
+                                        theme::apply_overrides(
                                             AppSettings::global(cx).font_size,
                                             cx,
                                         );
@@ -171,7 +172,7 @@ impl SettingsWindow {
                                     |val: f64, cx: &mut App| {
                                         let val = theme::clamp_font_size(val);
                                         AppSettings::global_mut(cx).font_size = val;
-                                        theme::apply_font_size(val, cx);
+                                        theme::apply_overrides(val, cx);
                                     },
                                 )
                                 .default_value(defaults.font_size),
@@ -461,12 +462,12 @@ fn main() {
         .run(|cx| {
             // This must be called before using any GPUI Component features.
             gpui_kit::init(cx);
-            theme::install(cx);
             // Apply the startup defaults: locale (switches both the app and
-            // the component-internal strings) and the live UI font size.
+            // the component-internal strings) and the theme overrides (font
+            // size, focus ring).
             let defaults = AppSettings::default();
             rust_i18n::set_locale(locale_for(&defaults.language));
-            theme::apply_font_size(defaults.font_size, cx);
+            theme::install(cx, defaults.font_size);
             // ⌘Q: gpui ships no default Quit action or menu item, and macOS
             // uses `QuitMode::Explicit`, so both have to be registered here.
             // Bind first — `set_menus` reads the keymap for key equivalents.

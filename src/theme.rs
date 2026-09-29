@@ -15,20 +15,33 @@ pub fn clamp_font_size(size: f64) -> f64 {
     size.clamp(FONT_SIZE_MIN, FONT_SIZE_MAX)
 }
 
-/// Apply `size` (clamped) as the live UI font size.
+/// Write the app's theme overrides onto `theme`.
 ///
-/// `Theme::change` resets `font_size` from the theme config, so callers must
-/// re-apply this after a mode switch. `sync_base` rebuilds the Base tokens the
-/// components read, and `Root` re-derives the window rem size from
-/// `theme.font_size` on the next paint.
-pub fn apply_font_size(size: f64, cx: &mut App) {
-    Theme::global_mut(cx).font_size = px(clamp_font_size(size) as f32);
+/// - `font_size` — the Font Size setting, clamped to 12–18.
+/// - `focus_ring` — off. The framework's ring is painted *outside* a focused
+///   control's border and reads as too heavy here; with the flag off,
+///   `ThemeStyled::focus_ring_style` keeps only the 1px border tinted with
+///   `theme.ring`, which costs no space and cannot be clipped.
+fn write_overrides(theme: &mut Theme, font_size: f64) {
+    theme.font_size = px(clamp_font_size(font_size) as f32);
+    theme.focus_ring = false;
+}
+
+/// Apply the app's theme overrides to the live theme.
+///
+/// `Theme::change` rebuilds the theme from the config, so this must run after
+/// every mode switch (and once at startup, from [`install`]). `sync_base`
+/// rebuilds the Base tokens the components read, and `Root` re-derives the
+/// window rem size from `theme.font_size` on the next paint.
+pub fn apply_overrides(font_size: f64, cx: &mut App) {
+    write_overrides(Theme::global_mut(cx), font_size);
     Theme::sync_base(cx);
 }
 
-/// Loads the embedded `mono-light` / `mono-dark` theme set and makes it the
-/// active light/dark pair. Call once in `main()` after `gpui_kit::init(cx)`.
-pub fn install(cx: &mut App) {
+/// Loads the embedded `mono-light` / `mono-dark` theme set, makes it the
+/// active light/dark pair, and applies the app's overrides for `font_size`.
+/// Call once in `main()` after `gpui_kit::init(cx)`.
+pub fn install(cx: &mut App, font_size: f64) {
     ThemeRegistry::global_mut(cx)
         .load_themes_from_str(MONO_THEMES)
         .expect("failed to parse embedded assets/themes/mono.json");
@@ -66,13 +79,32 @@ pub fn install(cx: &mut App) {
 
     let mode = Theme::global(cx).mode;
     Theme::change(mode, None, cx);
+    apply_overrides(font_size, cx);
 }
 
 #[cfg(test)]
 mod tests {
     use super::MONO_THEMES;
-    use super::{FONT_SIZE_MAX, FONT_SIZE_MIN, clamp_font_size};
-    use gpui_kit::component::ThemeSet;
+    use super::{FONT_SIZE_MAX, FONT_SIZE_MIN, clamp_font_size, write_overrides};
+    use gpui_kit::component::{Theme, ThemeSet};
+    use gpui_kit::px;
+
+    /// The app turns the framework's outer focus ring off and clamps the font
+    /// size; both are written by the same override pass that runs after every
+    /// `Theme::change`.
+    #[test]
+    fn overrides_disable_focus_ring_and_clamp_font_size() {
+        let mut theme = Theme::default();
+        assert!(theme.focus_ring, "framework default keeps the ring on");
+
+        write_overrides(&mut theme, 99.0);
+        assert!(!theme.focus_ring, "the app turns the outer ring off");
+        assert_eq!(theme.font_size, px(FONT_SIZE_MAX as f32));
+
+        write_overrides(&mut theme, 1.0);
+        assert!(!theme.focus_ring);
+        assert_eq!(theme.font_size, px(FONT_SIZE_MIN as f32));
+    }
 
     #[test]
     fn font_size_clamps_to_supported_range() {
