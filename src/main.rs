@@ -1,9 +1,11 @@
 use gpui_kit::component::{
     ActiveTheme, Icon, IconName, Root, Sizable, Theme, ThemeMode, TitleBar, WindowExt,
     button::Button,
+    h_flex,
     label::Label,
     notification::Notification,
     setting::{NumberFieldOptions, SettingField, SettingGroup, SettingItem, SettingPage, Settings},
+    switch::Switch,
     v_flex,
 };
 use gpui_kit::{
@@ -14,9 +16,11 @@ use gpui_kit::{
 };
 use rust_i18n::t;
 use shell::{AppShell, ShellState};
+use status_chip::{StatusChip, StatusIcon, StatusTone};
 
 mod assets;
 mod shell;
+mod status_chip;
 mod theme;
 
 // App translations, loaded with the same stack the vendored gpui-component
@@ -108,6 +112,10 @@ impl SettingsWindow {
     fn setting_pages(&self, cx: &mut Context<Self>) -> Vec<SettingPage> {
         let _ = cx;
         let defaults = AppSettings::default();
+        // Copied out of `defaults` so the reset closures of the element fields
+        // below can be `'static`.
+        let auto_update_default = defaults.auto_update;
+        let notifications_default = defaults.notifications_enabled;
 
         vec![
             SettingPage::new(tr!("Page.general"))
@@ -197,13 +205,36 @@ impl SettingsWindow {
                             .description(tr!("Item.launch_at_login_desc")),
                             SettingItem::new(
                                 tr!("Item.auto_update"),
-                                SettingField::switch(
-                                    |cx: &App| AppSettings::global(cx).auto_update,
-                                    |val: bool, cx: &mut App| {
-                                        AppSettings::global_mut(cx).auto_update = val;
+                                SettingField::render(|options, _window, cx| {
+                                    let enabled = AppSettings::global(cx).auto_update;
+                                    // Auto update is either up to date or held
+                                    // back, so the chip carries the tone's own
+                                    // status name ("Ready" / "Paused").
+                                    let tone = if enabled {
+                                        StatusTone::Ready
+                                    } else {
+                                        StatusTone::Paused
+                                    };
+                                    h_flex().gap_2().child(StatusChip::new(tone)).child(
+                                        Switch::new("auto-update")
+                                            .checked(enabled)
+                                            .with_size(options.size())
+                                            .on_click(|checked: &bool, _, cx: &mut App| {
+                                                AppSettings::global_mut(cx).auto_update = *checked;
+                                            }),
+                                    )
+                                })
+                                // An element field carries no typed value, so
+                                // the page reset needs the handler explicitly.
+                                .on_reset(
+                                    move |cx: &App| {
+                                        AppSettings::global(cx).auto_update != auto_update_default
                                     },
-                                )
-                                .default_value(defaults.auto_update),
+                                    move |_window, cx: &mut App| {
+                                        AppSettings::global_mut(cx).auto_update =
+                                            auto_update_default;
+                                    },
+                                ),
                             )
                             .description(tr!("Item.auto_update_desc")),
                         ]),
@@ -218,13 +249,36 @@ impl SettingsWindow {
                         .items(vec![
                             SettingItem::new(
                                 tr!("Item.notifications_enabled"),
-                                SettingField::switch(
-                                    |cx: &App| AppSettings::global(cx).notifications_enabled,
-                                    |val: bool, cx: &mut App| {
-                                        AppSettings::global_mut(cx).notifications_enabled = val;
+                                SettingField::render(|options, _window, cx| {
+                                    let enabled = AppSettings::global(cx).notifications_enabled;
+                                    let (tone, label) = if enabled {
+                                        (StatusTone::Ready, tr!("Status.enabled"))
+                                    } else {
+                                        (StatusTone::Paused, tr!("Status.disabled"))
+                                    };
+                                    h_flex()
+                                        .gap_2()
+                                        .child(StatusChip::labelled(tone, label))
+                                        .child(
+                                            Switch::new("notifications-enabled")
+                                                .checked(enabled)
+                                                .with_size(options.size())
+                                                .on_click(|checked: &bool, _, cx: &mut App| {
+                                                    AppSettings::global_mut(cx)
+                                                        .notifications_enabled = *checked;
+                                                }),
+                                        )
+                                })
+                                .on_reset(
+                                    move |cx: &App| {
+                                        AppSettings::global(cx).notifications_enabled
+                                            != notifications_default
                                     },
-                                )
-                                .default_value(defaults.notifications_enabled),
+                                    move |_window, cx: &mut App| {
+                                        AppSettings::global_mut(cx).notifications_enabled =
+                                            notifications_default;
+                                    },
+                                ),
                             )
                             .description(tr!("Item.notifications_enabled_desc")),
                             SettingItem::new(
@@ -319,6 +373,20 @@ impl SettingsWindow {
                                 Label::new(tr!("About.tagline"))
                                     .text_sm()
                                     .text_color(cx.theme().muted_foreground),
+                            )
+                            // The version borrows the blue informational tone
+                            // with a release-tag glyph: a calendar would read as
+                            // a date, not a release.
+                            .child(
+                                StatusChip::labelled(
+                                    StatusTone::Scheduled,
+                                    format!(
+                                        "{} {}",
+                                        tr!("Status.version"),
+                                        env!("CARGO_PKG_VERSION")
+                                    ),
+                                )
+                                .icon(StatusIcon::Tag),
                             )
                     })),
                     SettingGroup::new()

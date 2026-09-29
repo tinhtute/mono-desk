@@ -221,3 +221,59 @@ Notification:
     vi: Xin chào từ settings-demo!
     zh-CN: 来自 settings-demo 的问候！
     ja: settings-demo からのこんにちは！
+Status:
+  queued:
+    en: Queued
+    vi: Đang chờ
+    zh-CN: 排队中
+    ja: キュー待ち
+  scheduled:
+    en: Scheduled
+    vi: Đã lên lịch
+    zh-CN: 已计划
+    ja: 予定済み
+  in_progress:
+    en: In progress
+    vi: Đang thực hiện
+    zh-CN: 进行中
+    ja: 進行中
+  high_priority:
+    en: High Priority
+    vi: Ưu tiên cao
+    zh-CN: 高优先级
+    ja: 優先度：高
+  ready:
+    en: Ready
+    vi: Sẵn sàng
+    zh-CN: 就绪
+    ja: 準備完了
+  waiting:
+    en: Waiting
+    vi: Đang đợi
+    zh-CN: 等待中
+    ja: 待機中
+  paused:
+    en: Paused
+    vi: Tạm dừng
+    zh-CN: 已暂停
+    ja: 一時停止
+  reviewing:
+    en: Reviewing
+    vi: Đang xem xét
+    zh-CN: 审核中
+    ja: レビュー中
+  enabled:
+    en: Enabled
+    vi: Đã bật
+    zh-CN: 已启用
+    ja: 有効
+  disabled:
+    en: Disabled
+    vi: Đã tắt
+    zh-CN: 已禁用
+    ja: 無効
+  version:
+    en: Version
+    vi: Phiên bản
+    zh-CN: 版本
+    ja: バージョン
