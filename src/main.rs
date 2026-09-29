@@ -9,7 +9,8 @@ use gpui_kit::component::{
 use gpui_kit::{
     App, AppContext as _, Bounds, Context, FocusHandle, Focusable, Global, IntoElement, KeyBinding,
     Menu, MenuItem, ParentElement as _, Render, SharedString, StyleRefinement, Styled as _,
-    TitlebarOptions, Window, WindowBounds, WindowOptions, div, img, point, px, size,
+    TitlebarOptions, Window, WindowBounds, WindowDecorations, WindowOptions, div, img, point, px,
+    size,
 };
 use rust_i18n::t;
 use shell::{AppShell, ShellState};
@@ -493,12 +494,26 @@ fn main() {
             // Frameless window driven by the vendored `TitleBar`: transparent
             // titlebar with macOS traffic lights at zdesk's (16,18) and an
             // app-owned drag region; only the bounds are customized.
+            //
+            // On Linux (GNOME/Wayland + XWayland) the compositor otherwise
+            // stacks its own GTK/system titlebar above the vendored one.
+            // Client-side decorations make the vendored `TitleBar` the only
+            // chrome: it draws minimize/maximize/close itself
+            // (`WindowControls`, gated on `Decorations::Client`) and owns
+            // dragging, and `Root` already renders `window_border()` for the
+            // resize edges. macOS keeps its native titlebar (traffic lights).
+            #[cfg(target_os = "linux")]
+            let window_decorations = Some(WindowDecorations::Client);
+            #[cfg(not(target_os = "linux"))]
+            let window_decorations: Option<WindowDecorations> = None;
+
             let window_options = WindowOptions {
                 window_bounds: Some(default_window_bounds(cx)),
                 titlebar: Some(TitlebarOptions {
                     traffic_light_position: Some(point(px(16.), px(18.))),
                     ..TitleBar::title_bar_options()
                 }),
+                window_decorations,
                 ..TitleBar::window_options()
             };
             cx.spawn(async move |cx| {
