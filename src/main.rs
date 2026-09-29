@@ -8,6 +8,7 @@ use gpui_kit::component::{
     switch::Switch,
     v_flex,
 };
+use gpui_kit::{AnimationExt, Pixels, SpringAnimation, SpringConfig};
 use gpui_kit::{
     App, AppContext as _, Bounds, Context, FocusHandle, Focusable, FontWeight, Global, IntoElement,
     KeyBinding, Menu, MenuItem, ParentElement as _, Render, SharedString, StyleRefinement,
@@ -467,64 +468,110 @@ fn normalize_font_size(val: f64) -> Option<f64> {
     val.is_finite().then_some(val)
 }
 
+/// Sidebar rail widths: collapsed icon rail and expanded navigation column.
+const SIDEBAR_COLLAPSED_W: Pixels = px(48.);
+const SIDEBAR_EXPANDED_W: Pixels = px(240.);
+
+/// Once the expanding rail reaches 85% of `SIDEBAR_EXPANDED_W`, labels and
+/// search un-hide — "near full" without waiting for the spring to settle.
+/// (204px; `Pixels` exposes no const arithmetic, so the literal must be
+/// kept in sync.)
+const SIDEBAR_LABEL_REVEAL_W: Pixels = px(204.);
+
+/// Critically damped (ω₀ ≈ 32 rad/s), no overshoot: settles inside ~200 ms,
+/// and a retarget keeps velocity instead of jumping.
+const SIDEBAR_SPRING: SpringConfig = SpringConfig::new(1024.0, 64.0, 1.0);
+
+/// Settling tolerance in pixels — sub-pixel, so the last visible step still
+/// lands on the exact target.
+const SIDEBAR_SPRING_EPSILON: f32 = 0.5;
+
+/// Whether the sidebar renders icon-only: immediately when collapsing, and
+/// until the rail is nearly full width again when expanding.
+fn sidebar_icon_mode(collapsed: bool, width: Pixels) -> bool {
+    collapsed || width < SIDEBAR_LABEL_REVEAL_W
+}
+
 impl Render for SettingsWindow {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let collapsed = cx.global::<ShellState>().collapsed;
-        let sidebar_w = px(if collapsed { 48. } else { 240. });
+        let foreground = cx.theme().foreground;
+        let target_w = if collapsed {
+            SIDEBAR_COLLAPSED_W
+        } else {
+            SIDEBAR_EXPANDED_W
+        };
+
+        let settings = Settings::new("settings-demo")
+            .sidebar_width(target_w)
+            // ResizablePanel min/max are authoritative, so pinning the range
+            // to the animated width keeps the seam from dragging.
+            .sidebar_size_range(target_w..target_w)
+            // Suppress the painted 1px resize seam between sidebar and card
+            // (hit area stays but the pin prevents drag).
+            .show_handle(false)
+            // zdesk rail: borderless, inactive items in the muted foreground.
+            // The colour lands as the inherited text color on the sidebar
+            // root — active/hover items set their own full-contrast colors.
+            // (zdesk's 70%-opacity variant resolved to 3.7:1 in light mode,
+            // below WCAG AA; `muted.foreground` is 5.9:1 / 6.1:1.)
+            //
+            // `w_full()` is a fractional, not pixel, width, so the vendored
+            // `Sidebar` sees no expanded pixel width and skips its own
+            // wrapper tween — the spring below is the single width driver
+            // and the sidebar fills its panel exactly.
+            .sidebar_style(
+                &StyleRefinement::default()
+                    .w_full()
+                    .border_0()
+                    .text_color(cx.theme().muted_foreground),
+            )
+            // Raised pill on the active sidebar item.
+            .active_item_style(
+                &StyleRefinement::default()
+                    .bg(cx.theme().group_box)
+                    .border_1()
+                    .border_color(cx.theme().border),
+            )
+            // Raised zdesk card around the settings content: rounded,
+            // stroked, lighter than the window base, with a 6px inset on all
+            // four sides, clipped so page content can't bleed past the
+            // radius.
+            .content_panel_style(
+                &StyleRefinement::default()
+                    .rounded_lg()
+                    .border_1()
+                    .border_color(cx.theme().border)
+                    .bg(cx.theme().group_box)
+                    .m(px(6.))
+                    .overflow_hidden(),
+            )
+            .pages(self.setting_pages(cx))
+            // One spring drives the sidebar panel's width; the element id
+            // preserves spring state across frames, so a mid-flight toggle
+            // retargets with its current velocity instead of restarting.
+            .with_spring(
+                "sidebar-width",
+                SpringAnimation::new(SIDEBAR_SPRING)
+                    .to(target_w)
+                    .with_epsilon(SIDEBAR_SPRING_EPSILON),
+                move |this, w| {
+                    this.sidebar_width(w)
+                        .sidebar_size_range(w..w)
+                        // Icon-only while narrow: labels and search hide the
+                        // moment collapse starts and reappear only once the
+                        // rail is nearly back at full width.
+                        .sidebar_collapsed(sidebar_icon_mode(collapsed, w))
+                        .sidebar_header(shell::sidebar_brand(
+                            sidebar_icon_mode(collapsed, w),
+                            foreground,
+                        ))
+                },
+            );
         div()
             .size_full()
             .bg(cx.theme().background)
-            .child(
-                AppShell::new().settings_view(
-                    Settings::new("settings-demo")
-                        .sidebar_width(sidebar_w)
-                        // Pin the resizable panel to the current sidebar width —
-                        // ResizablePanel min/max are authoritative, so a
-                        // collapsed-sized pin keeps the seam from dragging.
-                        .sidebar_size_range(sidebar_w..sidebar_w)
-                        // Icon-collapse (48px rail) vs expanded (240px) sidebar.
-                        .sidebar_collapsed(collapsed)
-                        // Suppress the painted 1px resize seam between sidebar
-                        // and card (hit area stays but the pin prevents drag).
-                        .show_handle(false)
-                        // Brand row above the search input (`sidebar_header`
-                        // slot); collapses to the mark alone, search hides.
-                        .sidebar_header(shell::sidebar_brand(collapsed, cx.theme().foreground))
-                        // zdesk rail: borderless, inactive items in the muted
-                        // foreground. The colour lands as the inherited text
-                        // color on the sidebar root — active/hover items set
-                        // their own full-contrast colors. (zdesk's 70%-opacity
-                        // variant resolved to 3.7:1 in light mode, below WCAG
-                        // AA; `muted.foreground` is 5.9:1 / 6.1:1.)
-                        .sidebar_style(
-                            &StyleRefinement::default()
-                                .w(sidebar_w)
-                                .border_0()
-                                .text_color(cx.theme().muted_foreground),
-                        )
-                        // Raised pill on the active sidebar item.
-                        .active_item_style(
-                            &StyleRefinement::default()
-                                .bg(cx.theme().group_box)
-                                .border_1()
-                                .border_color(cx.theme().border),
-                        )
-                        // Raised zdesk card around the settings content:
-                        // rounded, stroked, lighter than the window base, with
-                        // a 6px inset on all four sides, clipped so page
-                        // content can't bleed past the radius.
-                        .content_panel_style(
-                            &StyleRefinement::default()
-                                .rounded_lg()
-                                .border_1()
-                                .border_color(cx.theme().border)
-                                .bg(cx.theme().group_box)
-                                .m(px(6.))
-                                .overflow_hidden(),
-                        )
-                        .pages(self.setting_pages(cx)),
-                ),
-            )
+            .child(AppShell::new().settings_view(settings.into_any_element()))
             .children(Root::render_dialog_layer(window, cx))
             .children(Root::render_sheet_layer(window, cx))
             .children(Root::render_notification_layer(window, cx))
@@ -639,7 +686,32 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::normalize_font_size;
+    use super::{
+        SIDEBAR_COLLAPSED_W, SIDEBAR_EXPANDED_W, SIDEBAR_LABEL_REVEAL_W, normalize_font_size,
+        sidebar_icon_mode,
+    };
+    use gpui_kit::px;
+
+    /// Icon-mode is asymmetric: collapsing hides labels at the very first
+    /// animated frame (width still ~full), while expanding only restores
+    /// them once the rail is nearly back at `SIDEBAR_EXPANDED_W`.
+    #[test]
+    fn sidebar_icon_mode_hides_early_and_reveals_late() {
+        // Collapse direction: `collapsed` alone forces icon mode at any width.
+        assert!(sidebar_icon_mode(true, SIDEBAR_EXPANDED_W));
+        assert!(sidebar_icon_mode(true, SIDEBAR_COLLAPSED_W));
+
+        // Expand direction: labels stay hidden below the reveal width...
+        assert!(sidebar_icon_mode(false, SIDEBAR_COLLAPSED_W));
+        assert!(sidebar_icon_mode(false, SIDEBAR_LABEL_REVEAL_W - px(1.)));
+        // ...and appear at the reveal width, including a settled full rail.
+        assert!(!sidebar_icon_mode(false, SIDEBAR_LABEL_REVEAL_W));
+        assert!(!sidebar_icon_mode(false, SIDEBAR_EXPANDED_W));
+
+        // The reveal width must sit strictly between the two rail sizes.
+        assert!(SIDEBAR_COLLAPSED_W < SIDEBAR_LABEL_REVEAL_W);
+        assert!(SIDEBAR_LABEL_REVEAL_W < SIDEBAR_EXPANDED_W);
+    }
 
     /// The sidebar tree shows children only for pages with at least two
     /// titled groups — that's exactly what keeps About (untitled brand
