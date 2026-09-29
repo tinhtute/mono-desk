@@ -28,8 +28,8 @@
 - format: `make fmt`
 
 ## Architecture in one breath
-- runtime shape: single binary crate, Rust 2024, direct deps `gpui-kit` 0.6
-  and `rust-i18n` 4.2 (the same i18n stack the vendored component uses), plus
+- runtime shape: single binary crate, Rust 2024, direct dep `gpui-kit` 0.6,
+  plus
   `[patch.crates-io] gpui-component = { path = "vendor/gpui-component" }` —
   upstream 0.6.1 carrying the full rail/cursor/tree patch set (deltas in
   `vendor/patches/`, apply order listed in `Cargo.toml`)
