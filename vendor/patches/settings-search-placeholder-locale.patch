@@ -1,0 +1,44 @@
+diff --git a/src/setting/settings.rs b/src/setting/settings.rs
+index 40f1780..8a67873 100644
+--- a/src/setting/settings.rs
++++ b/src/setting/settings.rs
+@@ -336,6 +336,8 @@ pub(super) struct SettingsState {
+     /// If set, defer scrolling to this group index after rendering.
+     pub(super) deferred_scroll_group_ix: Option<usize>,
+     pub(super) search_input: Entity<InputState>,
++    /// Locale the cached search placeholder was rendered for.
++    pub(super) placeholder_locale: String,
+ }
+ 
+ /// Options for rendering setting item.
+@@ -449,6 +451,7 @@ pub struct SelectIndex {
+ 
+ impl RenderOnce for Settings {
+     fn render(mut self, window: &mut Window, cx: &mut App) -> impl IntoElement {
++        let locale = rust_i18n::locale().to_string();
+         let state = window.use_keyed_state(self.id.clone(), cx, |window, cx| {
+             let search_input = cx.new(|cx| {
+                 InputState::new(window, cx)
+@@ -460,9 +463,22 @@ impl RenderOnce for Settings {
+                 search_input,
+                 selected_index: self.default_selected_index,
+                 deferred_scroll_group_ix: None,
++                placeholder_locale: locale.clone(),
+             }
+         });
+ 
++        // The search input is created once per keyed state, so its placeholder
++        // would otherwise keep the locale that was active at first render.
++        // Re-apply it whenever the active locale changes.
++        if state.read(cx).placeholder_locale != locale {
++            let placeholder = t!("Settings.search_placeholder").to_string();
++            let search_input = state.read(cx).search_input.clone();
++            search_input.update(cx, |input, cx| {
++                input.set_placeholder(placeholder, window, cx);
++            });
++            state.update(cx, |state, _| state.placeholder_locale = locale);
++        }
++
+         let query = state.read(cx).search_input.read(cx).value();
+         let filtered_pages = self.filtered_pages(&query, cx);
+         let options = RenderOptions::new()

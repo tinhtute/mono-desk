@@ -91,8 +91,9 @@ Applied in mono-desk `Settings`:
   `sidebar.accent.foreground` explicitly). Still not expressible:
   `text-[10px] uppercase` group labels and per-item density — both are
   component-internal (`sidebar/menu.rs` hardcodes
-  `p_2`/`gap_x_2`/`text_sm`/`h_7`; `SettingGroup::icon` is the only
-  per-item hook, added via `settings-group-icon.patch`).
+  `p_2`/`gap_x_2`/`text_sm`/`h_7`; the `SettingGroup::icon` per-item
+  hook added via `settings-group-icon.patch` was later removed by
+  `settings-static-tree.patch` — child rows are now iconless text).
 - **Rail chrome:** this section now describes the corrected zdesk-era
   layout — see `zdesk-port-spec.md` for the full applied state; this doc
   remains the source-of-truth record for the kumo port above.
@@ -115,9 +116,9 @@ Applied in mono-desk `Settings`:
     `sidebar-slots.patch` but is dormant — no call site by owner
     decision.
   - How the slots exist: `vendor/gpui-component/` is the 0.6.1 crate
-    carrying four patches, resolved via
-    `[patch.crates-io] gpui-component = { path = "vendor/gpui-component" }`
-    (`Cargo.toml:12-19`):
+    resolved via `[patch.crates-io] gpui-component = { path =
+    "vendor/gpui-component" }` (`Cargo.toml`). It carried four patches at
+    this doc's writing —
     `vendor/patches/sidebar-slots.patch` (101 lines, restored —
     `sidebar_header`/`sidebar_footer` on `src/setting/settings.rs`),
     `vendor/patches/sidebar-cursor.patch` (14 lines,
@@ -127,8 +128,12 @@ Applied in mono-desk `Settings`:
     `content_panel_style` → `refine_style` on the content
     `resizable_panel`), and
     `vendor/patches/settings-group-icon.patch` (86 lines, new —
-    `SettingGroup::icon` → `.icon()` on the group's `SidebarMenuItem`).
-    Upgrade = re-copy upstream + re-apply all four patches.
+    `SettingGroup::icon` → `.icon()` on the group's `SidebarMenuItem`;
+    superseded by `settings-static-tree.patch`, which removed the API
+    when child icons were dropped).
+    The stack has since grown; the current set and apply order is the
+    `Cargo.toml` comment (see also `zdesk-port-spec.md`, "Vendored patch
+    state"). Upgrade = re-copy upstream + re-apply every patch in order.
   - Rail item cursor: upstream `SidebarMenuItem` sets hover colors but no
     cursor, so the rail items showed the default arrow — patched to
     `cursor_pointer()`.
@@ -170,7 +175,7 @@ are recorded as the design intent where components allow, not restyled.
 ## Known flags for owner review
 
 - `sidebar.border` dark `#ebebeb` — bright divider on dark rail.
-- Rail chrome (brand row, fixed-240px rail, group icons) is not visually
+- Rail chrome (brand row, fixed-240px rail, page icons) is not visually
   verified headless — `make run` is the owner check; see Sidebar metrics.
 - Variable→static instancing — rendering verified by name/weight tables,
   not yet by glyphs in a live window (`make run` pending).

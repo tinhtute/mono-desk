@@ -29,8 +29,8 @@ Collapsed (48px, via ⊟ or Cmd+B):
 │      ╭───────────────────────────────────────────────╮
 │  ◆   │ General                                     │ │
 │ ╭──╮ │                                             │ │
-│ │⚙ │ │                                             │ │  group icons only (4),
-│ ╰──╯ │                                             │ │  click = open first child
+│ │⚙ │ │                                             │ │  page icons only (4),
+│ ╰──╯ │                                             │ │  no children on the rail
 │  🔔  │                                             │ │  search hidden
 │  👤  │                                             │ │
 │  ⓘ   │                                             │ │

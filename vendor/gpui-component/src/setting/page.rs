@@ -22,7 +22,6 @@ use crate::{
 pub struct SettingPage {
     pub(super) icon: Option<Icon>,
     resettable: bool,
-    pub(super) default_open: bool,
     pub(super) title: SharedString,
     pub(super) title_suffix: Option<Rc<dyn Fn(&mut Window, &mut App) -> AnyElement>>,
     pub(super) description: Option<SharedString>,
@@ -35,7 +34,6 @@ impl SettingPage {
         Self {
             icon: None,
             resettable: true,
-            default_open: false,
             title: title.into(),
             title_suffix: None,
             description: None,
@@ -73,12 +71,6 @@ impl SettingPage {
     /// Set the description of the setting page, default is None.
     pub fn description(mut self, description: impl Into<SharedString>) -> Self {
         self.description = Some(description.into());
-        self
-    }
-
-    /// Set the default open state of the setting page, default is false.
-    pub fn default_open(mut self, default_open: bool) -> Self {
-        self.default_open = default_open;
         self
     }
 

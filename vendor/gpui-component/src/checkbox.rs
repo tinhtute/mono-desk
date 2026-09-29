@@ -241,6 +241,7 @@ impl RenderOnce for Checkbox {
         base.role(self.role)
             .checked(checked)
             .disabled(self.disabled)
+            .when(!self.disabled, |this| this.cursor_pointer())
             .styles(|styles| {
                 styles.disabled(|style| {
                     style
