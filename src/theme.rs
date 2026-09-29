@@ -17,9 +17,9 @@ const XANH_MONO_SEMIBOLD_ITALIC: &[u8] =
     include_bytes!("../assets/fonts/XanhMono-SemiBoldItalic.ttf");
 
 /// Lower bound of the Font Size setting, in px.
-pub const FONT_SIZE_MIN: f64 = 12.0;
+pub const FONT_SIZE_MIN: f64 = 8.0;
 /// Upper bound of the Font Size setting, in px.
-pub const FONT_SIZE_MAX: f64 = 18.0;
+pub const FONT_SIZE_MAX: f64 = 32.0;
 
 /// Clamp a requested UI font size into the supported range.
 pub fn clamp_font_size(size: f64) -> f64 {
@@ -28,7 +28,7 @@ pub fn clamp_font_size(size: f64) -> f64 {
 
 /// Write the app's theme overrides onto `theme`.
 ///
-/// - `font_size` — the Font Size setting, clamped to 12–18.
+/// - `font_size` — the Font Size setting, clamped to 8–32.
 /// - `focus_ring` — off. The framework's ring is painted *outside* a focused
 ///   control's border and reads as too heavy here; with the flag off,
 ///   `ThemeStyled::focus_ring_style` keeps only the 1px border tinted with
@@ -258,11 +258,11 @@ mod tests {
     #[test]
     fn font_size_clamps_to_supported_range() {
         assert_eq!(clamp_font_size(0.0), FONT_SIZE_MIN);
-        assert_eq!(clamp_font_size(11.9), FONT_SIZE_MIN);
+        assert_eq!(clamp_font_size(7.9), FONT_SIZE_MIN);
         assert_eq!(clamp_font_size(FONT_SIZE_MIN), FONT_SIZE_MIN);
         assert_eq!(clamp_font_size(15.0), 15.0);
         assert_eq!(clamp_font_size(FONT_SIZE_MAX), FONT_SIZE_MAX);
-        assert_eq!(clamp_font_size(19.0), FONT_SIZE_MAX);
+        assert_eq!(clamp_font_size(33.0), FONT_SIZE_MAX);
         assert_eq!(clamp_font_size(999.0), FONT_SIZE_MAX);
     }
 

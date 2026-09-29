@@ -15,17 +15,41 @@ static STRINGS: &[(&str, &str, &str, &str, &str)] = &[
         "通知",
         "通知",
     ),
-    ("page.profile", "Profile", "Hồ sơ", "个人资料", "プロフィール"),
+    (
+        "page.profile",
+        "Profile",
+        "Hồ sơ",
+        "个人资料",
+        "プロフィール",
+    ),
     ("page.about", "About", "Giới thiệu", "关于", "情報"),
     // Groups
-    ("group.appearance", "Appearance", "Giao diện", "外观", "外観"),
+    (
+        "group.appearance",
+        "Appearance",
+        "Giao diện",
+        "外观",
+        "外観",
+    ),
     ("group.startup", "Startup", "Khởi động", "启动", "起動"),
     ("group.delivery", "Delivery", "Nhận", "送达", "配信"),
     ("group.actions", "Actions", "Thao tác", "操作", "アクション"),
-    ("group.account", "Account", "Tài khoản", "账户", "アカウント"),
+    (
+        "group.account",
+        "Account",
+        "Tài khoản",
+        "账户",
+        "アカウント",
+    ),
     ("group.links", "Links", "Liên kết", "链接", "リンク"),
     // Items
-    ("item.dark_mode", "Dark Mode", "Chế độ tối", "深色模式", "ダークモード"),
+    (
+        "item.dark_mode",
+        "Dark Mode",
+        "Chế độ tối",
+        "深色模式",
+        "ダークモード",
+    ),
     (
         "item.dark_mode.desc",
         "Switch between light and dark themes.",
@@ -133,7 +157,13 @@ static STRINGS: &[(&str, &str, &str, &str, &str)] = &[
         "你的个人资料展示给他人的样子。",
         "他の人に表示されるプロフィールの見え方。",
     ),
-    ("item.website", "Website", "Trang web", "网站", "ウェブサイト"),
+    (
+        "item.website",
+        "Website",
+        "Trang web",
+        "网站",
+        "ウェブサイト",
+    ),
     (
         "item.website.desc",
         "Framework website and documentation.",
@@ -202,6 +232,16 @@ static STRINGS: &[(&str, &str, &str, &str, &str)] = &[
         "Được xây dựng bằng GPUI Kit — framework desktop Rust từ Longbridge.",
         "使用 GPUI Kit 构建 —— 来自 Longbridge 的 Rust 桌面框架。",
         "GPUI Kit で構築 — Longbridge の Rust デスクトップフレームワーク。",
+    ),
+    // Status chips
+    ("status.enabled", "Enabled", "Đã bật", "已启用", "有効"),
+    ("status.disabled", "Disabled", "Đã tắt", "已禁用", "無効"),
+    (
+        "status.version",
+        "Version",
+        "Phiên bản",
+        "版本",
+        "バージョン",
     ),
     // About
     (

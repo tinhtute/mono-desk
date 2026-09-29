@@ -12,23 +12,16 @@
   real desktop apps.
 
 ## Non-goals
-<<<<<<< HEAD
-- Not a production settings/productivity app; no persistence backend, no
-  multi-window or multi-view product surface. UI strings switch live across
-  the four offered languages (en/vi/zh/ja), but there is no OS-locale
-  negotiation, no pluralization, and no RTL support.
-=======
 - Not a production settings/productivity app; no multi-window or
   multi-view product surface. (Persistence and i18n were non-goals
   until 2026-09-23 — shipped under
   docs/plans/completed/real-settings.md.)
->>>>>>> origin/main
 
 ## What are the gate commands?
 - run from: repository root (host-local: `/Users/tinhtute/Lab/mono-desk`,
   Linux sessions `/home/tinhpt/Lab/mono-desk`)
 - tests: `cargo test` (embedded theme + font-size clamp in `src/theme.rs`,
-  locale coverage in `src/main.rs`)
+  locale table in `src/i18n.rs`, persistence in `src/persist.rs`)
 - types: `make check`
 - lint: `make lint`
 - build: `make run` (compiles; window needs a GUI session)
@@ -40,9 +33,9 @@
   `[patch.crates-io] gpui-component = { path = "vendor/gpui-component" }` —
   upstream 0.6.1 carrying the full rail/cursor/tree patch set (deltas in
   `vendor/patches/`, apply order listed in `Cargo.toml`)
-- i18n: `locales/app.yml` (en/vi/zh/ja) loaded by `rust_i18n::i18n!` in
-  `src/main.rs`; the Language setting calls `rust_i18n::set_locale`, which
-  switches the app strings and the component-internal strings together
+- i18n: zero-dependency table in `src/i18n.rs` (en/vi/zh-CN/ja); the
+  Language setting also calls `gpui_kit::component::set_locale` for the
+  component-internal strings
 - assets: `assets/themes/mono.json` (embedded ThemeSet), `assets/fonts/`
   (8 static TTFs registered at startup), `assets/brand/` (SVG + PNG mark +
   `icon.icns`) served by an app `AssetSource` that delegates other paths
