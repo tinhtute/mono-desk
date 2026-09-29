@@ -5,9 +5,18 @@ use gpui_kit::component::{
     v_flex,
 };
 use gpui_kit::{
-    App, FontWeight, Global, Hsla, IntoElement, ParentElement as _, RenderOnce, StyleRefinement,
-    Styled as _, Window, div, img, px,
+    App, FontWeight, Global, Hsla, IntoElement, ParentElement as _, Pixels, Point, RenderOnce,
+    StyleRefinement, Styled as _, Window, div, img, point, px,
 };
+
+/// Titlebar height, from zdesk `spacing.css`.
+pub(crate) const TITLEBAR_H: Pixels = px(36.);
+const LIGHT_SIZE: Pixels = px(14.);
+
+/// GPUI's `traffic_light_position.y` is the button TOP edge (Tauri's is the center).
+pub(crate) fn traffic_light_origin() -> Point<Pixels> {
+    point(px(16.), TITLEBAR_H / 2. - LIGHT_SIZE / 2.)
+}
 
 /// Shell chrome state, stored as a GPUI global so both the titlebar
 /// collapse button (via `on_click`) and `main.rs` (sidebar sizing) can
@@ -92,7 +101,7 @@ impl RenderOnce for AppShell {
                 // `border_widths = 0` on all edges) wins and kills the
                 // 1px seam under the title bar.
                 TitleBar::new()
-                    .refine_style(&StyleRefinement::default().border_0())
+                    .refine_style(&StyleRefinement::default().h(TITLEBAR_H).border_0())
                     .child(
                         Button::new("sidebar-collapse-toggle")
                             .ghost()
