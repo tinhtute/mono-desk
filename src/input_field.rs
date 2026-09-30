@@ -169,9 +169,22 @@ impl FieldState {
     /// Entering an error from a non-error state bumps the shake generation;
     /// staying in error does not, even when the message changes.
     pub fn set_validation(&mut self, validation: Option<Validation>) -> bool {
+        self.replace_validation(validation, true)
+    }
+
+    /// Adopt a validation result computed for a value the user did not type —
+    /// the initial value, an external write, a page reset.
+    ///
+    /// Returns whether the state changed. Unlike [`Self::set_validation`] this
+    /// never bumps the shake generation: there is no keystroke to shake at.
+    pub fn adopt_validation(&mut self, validation: Option<Validation>) -> bool {
+        self.replace_validation(validation, false)
+    }
+
+    fn replace_validation(&mut self, validation: Option<Validation>, shake: bool) -> bool {
         let was_error = matches!(self.validation, Some(Validation::Error(_)));
         let is_error = matches!(validation, Some(Validation::Error(_)));
-        if is_error && !was_error {
+        if shake && is_error && !was_error {
             self.shake_generation += 1;
         }
         let changed = self.validation != validation;
@@ -275,6 +288,29 @@ pub(crate) fn status_ink(status: FieldStatus, theme: &Theme) -> Hsla {
     }
 }
 
+/// Reconcile the field with the value the app holds.
+///
+/// Returns the value the input has to be set to, or `None` when it already
+/// shows it.
+///
+/// `InputState::set_value` emits no [`InputEvent::Change`], so validation
+/// cannot ride on the input event alone: a value written from outside the
+/// field — the initial value, a page reset, any external write — would
+/// otherwise keep the message the previous value earned. The result is
+/// adopted without shaking, because the user did not type this value.
+fn reconcile(
+    current: &str,
+    value: &SharedString,
+    validate: &Validator,
+    field: &mut FieldState,
+) -> Option<SharedString> {
+    if current == value.as_ref() {
+        return None;
+    }
+    field.adopt_validation(validate(value));
+    Some(value.clone())
+}
+
 /// Keyed-state slot for the field view.
 ///
 /// `use_keyed_state` observes the entity it stores and notifies the current
@@ -315,10 +351,11 @@ impl InputFieldView {
     }
 
     fn new(window: &mut Window, cx: &mut Context<Self>, config: InputFieldConfig) -> Self {
+        let initial = (config.get_value)(cx);
         let input = cx.new(|cx| {
             InputState::new(window, cx)
                 .placeholder(config.placeholder.clone())
-                .default_value((config.get_value)(cx))
+                .default_value(initial.clone())
         });
         let subscription = cx.subscribe_in(
             &input,
@@ -339,9 +376,14 @@ impl InputFieldView {
                 }
             },
         );
+        // The value the field mounts with is validated up front, so a field
+        // that starts on an invalid value shows its message without waiting
+        // for a keystroke.
+        let mut field = FieldState::new();
+        field.adopt_validation((config.validate)(&initial));
         Self {
             input,
-            field: FieldState::new(),
+            field,
             config,
             size: Size::Medium,
             shake: shake_keyframes(),
@@ -431,11 +473,19 @@ impl InputFieldView {
 impl Render for InputFieldView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // The app stays the source of truth: mirror its value so an external
-        // write (a page reset, say) shows up on the next render.
+        // write (a page reset, say) shows up on the next render. The mirror
+        // also re-runs the validation — `set_value` emits no `Change`, so
+        // otherwise the message would outlive the value it described.
         let value = (self.config.get_value)(cx);
-        if self.input.read(cx).value() != value {
+        let current = self.input.read(cx).value();
+        if let Some(next) = reconcile(
+            current.as_ref(),
+            &value,
+            &self.config.validate,
+            &mut self.field,
+        ) {
             self.input
-                .update(cx, |input, cx| input.set_value(value, window, cx));
+                .update(cx, |input, cx| input.set_value(next, window, cx));
         }
 
         let status = self.field.status();
@@ -551,6 +601,41 @@ mod tests {
         assert!(!state.set_validation(error("taken")));
         assert!(state.set_validation(None));
         assert!(!state.set_validation(None));
+    }
+
+    /// A page reset writes the value from outside the field, and the vendored
+    /// `InputState::set_value` emits no `Change` — so the validation has to be
+    /// re-run against the new value. Without that, the error the previous
+    /// entry earned outlives the text it described.
+    #[test]
+    fn external_value_sync_clears_a_stale_error_without_shaking() {
+        // The demo's rule in miniature: empty is idle, under three characters
+        // is an error, anything else is fine.
+        let validate: Validator = Rc::new(|value: &str| match value.chars().count() {
+            0 => None,
+            n if n < 3 => error("too short"),
+            _ => success("ok"),
+        });
+
+        let mut field = FieldState::new();
+
+        // The user types "ab": the field reports the error and shakes.
+        field.set_validation(validate("ab"));
+        assert_eq!(field.status(), FieldStatus::Error);
+        assert_eq!(field.shake_generation(), 1);
+
+        // Reset writes "ninja" from outside. The input still shows "ab", so
+        // the field is re-synced — and the error must not survive it.
+        let next = reconcile("ab", &"ninja".into(), &validate, &mut field);
+        assert_eq!(next.as_deref(), Some("ninja"));
+        assert_eq!(field.status(), FieldStatus::Success);
+        assert_eq!(field.visible_message().map(|m| m.as_ref()), Some("ok"));
+        // Nothing was typed, so nothing shakes.
+        assert_eq!(field.shake_generation(), 1);
+
+        // An input that already shows the app's value needs no sync.
+        assert!(reconcile("ninja", &"ninja".into(), &validate, &mut field).is_none());
+        assert_eq!(field.status(), FieldStatus::Success);
     }
 
     #[test]

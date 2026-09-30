@@ -70,6 +70,11 @@ impl RenderOnce for Tabs {
         let mut row = h_flex()
             .gap_5()
             .px_4()
+            // The card is a fixed 500px, but the labels and mono counts scale
+            // with the Font Size setting: at 32px the five tabs need ~750px.
+            // Wrapping keeps every tab reachable instead of clipping the tail
+            // off the row.
+            .flex_wrap()
             .border_b_1()
             .border_color(cx.theme().border);
         for (ix, tab) in self.tabs.into_iter().enumerate() {
