@@ -13,7 +13,7 @@ exact_next_action: "work phase `beui-token-baseline` (wave: bt-1 ∥ bt-2)"
 # beUI token layer (spacing / typography / radius / overlay shadow)
 
 Decide, document, and pin the app's non-color token layer on the
-`77af8b5` baseline, and add the app-owned elevation snapshot the audit
+`143e7b6` baseline, and add the app-owned elevation snapshot the audit
 requires: resolved from the live theme with
 `Theme::resolve_semantic_config` (never the apply API), consumed by the
 app-owned raised surface, with `theme.shadow` staying `false`. Colors,
@@ -23,7 +23,7 @@ app-owned raised surface, with `theme.shadow` staying `false`. Colors,
 
 - `assets/themes/mono.json` is unchanged: both modes keep `font.size` 14,
   `mono_font.size` 12, `radius` 8, `radius.lg` 16, `shadow` false, and
-  every color byte-identical to `77af8b5`.
+  every color byte-identical to `143e7b6`.
 - `docs/design/zdesk-port-spec.md` states the card's real radius
   (`.rounded_lg()` = 0.5rem = **7px** at rem 14 — a rem helper, not
   `theme.radius_lg`) and records the token decisions: the rem coupling,
@@ -45,10 +45,11 @@ the `sm` elevation in both modes with `theme.shadow == false`.
 
 ## Authority and Requirements
 
-**Baseline:** `77af8b5` (`quaqua/mdinput`, fast-forwarded into
-`quaqua/tieude-beuitokens`; owner-approved). Both this plan and the
-components plan share it. Its colors are identical to `9fb40ec`; the only
-non-color delta is `font.size` 13→14, `radius` 6→8, `radius.lg` 10→16.
+**Baseline:** `143e7b6` (`quaqua/mdinput` with `origin/main` merged in,
+merged into `quaqua/tieude-beuitokens`; owner-approved). Both this plan
+and the components plan share it. Its colors are identical to `9fb40ec`;
+the only non-color delta is `font.size` 13→14, `radius` 6→8, `radius.lg`
+10→16.
 
 Sources:
 
@@ -67,11 +68,11 @@ patches.
 
 Requirements:
 
-1. **Baseline and font authority (audit 1–2).** Baseline `77af8b5`;
+1. **Baseline and font authority (audit 1–2).** Baseline `143e7b6`;
    `font.size` 14 retained in both modes; no 16px rem base. The rem
    coupling is documented and pinned: `Root::render` sets the window rem
    to `theme.font_size`, so every rem helper renders at 14/16 of its
-   Tailwind nominal and the Font Size setting (12–18) scales rem-derived
+   Tailwind nominal and the Font Size setting (8–32) scales rem-derived
    layout — accepted behavior, not a defect.
 2. **Radius roles (audit 3).** `radius` 8 = controls (inputs, sidebar
    items, buttons, tooltip); `radius.lg` 16 = large surfaces (dialogs,
@@ -115,7 +116,7 @@ Requirements:
 
 ### Decisions (audit items 1–6)
 
-**D1 — Baseline.** `77af8b5`; both plans share it. Colors identical to
+**D1 — Baseline.** `143e7b6`; both plans share it. Colors identical to
 `9fb40ec`; non-color delta `font.size` 14, `radius` 8, `radius.lg` 16,
 `shadow` false.
 
@@ -129,8 +130,8 @@ setting scales those. No 16px. Pinned by test.
 | Role | Token | Value | Consumers |
 |---|---|---|---|
 | control | `theme.radius` | 8px | inputs, sidebar items, buttons, tooltip (`tooltip.rs:120`) |
-| large surface | `theme.radius_lg` | 16px | dialogs (`dialog.rs:580`), notifications (`notification.rs:425`) |
-| pill | `rounded_full()` helper (app) / `theme.radius_full()` (vendored) | 9999 | status chip (`src/status_chip.rs:269`), vendored badges |
+| large surface | `theme.radius_lg` | 16px | dialogs (`dialog/dialog.rs:580`), notifications (`notification.rs:425`) |
+| pill | `rounded_full()` helper (app) / `theme.radius_full()` (vendored) | 9999 | status chip (`src/status_chip.rs:249`), vendored badges |
 | card | `.rounded_lg()` rem helper | 7px @ rem 14 | the content card (`src/main.rs`) |
 
 Derived `RadiusTokens` = none 0 · sm 4 · md 8 · lg 16 · **xl 16** · full
@@ -158,10 +159,12 @@ Derived `RadiusTokens` = none 0 · sm 4 · md 8 · lg 16 · **xl 16** · full
 
 **D5 — Snapshot use and reapply.** `UiTokens { shadow: ShadowTokens }` —
 non-color, mode-independent; stored as a `Global`; resolved from the live
-theme; re-resolved in `theme::apply_overrides` (called after every
-`Theme::change`, after every font-size change, and at install). Consumers:
-the active pill (`sm`). No spacing/typography/radius snapshot: those are
-live projections (`radius_tokens()`, `typography_tokens()`) or defaults
+theme; re-resolved in `theme::apply_overrides` (reached via
+`apply_font_size`, so it runs after every `Theme::change`, after every
+font-size change, and at install — the preference itself is persisted in
+`src/persist.rs`). Consumers: the active pill (`sm`). No
+spacing/typography/radius snapshot: those are live projections
+(`radius_tokens()`, `typography_tokens()`) or defaults
 (`spacing_tokens()`), and nothing in the app or the vendored components
 reads a stored copy.
 
@@ -189,7 +192,7 @@ reads a stored copy.
 
 - **Palette digest pin** — an intentional color change must update the
   digest; the test prints the canonical JSON on mismatch, and the phase
-  verify diffs `mono.json` against `77af8b5`.
+  verify diffs `mono.json` against `143e7b6`.
 - **Pill shadow clipping or reading as grime** — the elevation is the
   vendored `raised_shadow` scale (tight falloff); the item's inner flex
   clips only x, the sidebar clips at its bounds. Owner visual pass; if it
@@ -230,13 +233,17 @@ phase 2 derives from; phase 2 adds the snapshot and its consumer.
 1. `bt-1` — `docs/design/zdesk-port-spec.md`:
    - Fix the Content card row: `.rounded_lg()` is the GPUI style helper
      (`rems(0.5)`), **7px at rem 14** — not `theme.radius_lg`/16px.
-   - Add a "beUI token layer" section: font 14 retained and the rem
-     coupling (helpers at 14/16 nominal; the Font Size setting scales
-     rem-derived layout); the radius role table (D3) including the
-     derived `RadiusTokens` and the lg/xl collision; the shadow policy
-     (D4): `theme.shadow` false, the app-owned elevation scale, the
-     vendored overlays owning theirs, the switch-thumb exception not
-     adopted, 10% black ink.
+   - Refresh the Shell metrics table's `src/main.rs` refs, which the
+     `origin/main` merge shifted: card block `src/main.rs:680-688`,
+     `active_item_style` 670-676, `sidebar_style` 663-668,
+     `traffic_light_position` 809.
+   - Extend the existing "beUI pilot (2026-09-30)" paragraph (it already
+     records the retune and the 14/16 rem coupling) with a "beUI token
+     layer" section: the radius role table (D3) including the derived
+     `RadiusTokens` and the lg/xl collision; the shadow policy (D4):
+     `theme.shadow` false, the app-owned elevation scale, the vendored
+     overlays owning theirs, the switch-thumb exception not adopted, 10%
+     black ink.
    - Check: `make fmt-check`; the doc's claims match the code
      (`src/main.rs` card, `src/theme.rs`, `assets/themes/mono.json`).
 2. `bt-2` — `src/theme.rs` tests (build the theme like the existing
@@ -262,7 +269,7 @@ phase 2 derives from; phase 2 adds the snapshot and its consumer.
    - Check: `make test`; `make lint`; `make fmt-check`.
 
 **Phase checks:** `make check && make test && make lint && make fmt-check`;
-`git diff 77af8b5 -- assets/themes/mono.json` is empty (no color or token
+`git diff 143e7b6 -- assets/themes/mono.json` is empty (no color or token
 change); the spec's card row reads 7px.
 
 **Stop:** a pinned value disagrees with the config (the pin and the
@@ -341,10 +348,16 @@ re-planned.
   `quansu-beuiaudit` corrections, on the `77af8b5` baseline (ff-merged
   `quaqua/mdinput`). Resolves the audit's "Required before the tokens
   plan" items 1–6 as D1–D6; open decisions O1–O3 recorded below.
+- 2026-09-30 — baseline advanced to `143e7b6` (`origin/main` `e494a92`
+  merged into `quaqua/mdinput`, then into this branch). Re-checked every
+  ref against the merged tree: tokens stay 14/8/16 (`origin/main` never
+  touched `mono.json`), the Font Size range is now 8–32, the pill moved
+  to `src/status_chip.rs:249`, the spec's `src/main.rs` refs shifted, and
+  the font preference now lives in `src/persist.rs`.
 
 ## Decisions
 
-- 2026-09-30 — baseline `77af8b5` (owner-approved merge); colors frozen;
+- 2026-09-30 — baseline `143e7b6` (owner-approved merge); colors frozen;
   `font.size` 14 retained; `theme.shadow` false; app-side composition
   over vendor patches (owner constraints).
 - Open (owner): **O1** pill shadow — recommended: adopt `sm` on the
@@ -364,7 +377,7 @@ re-planned.
 ## Validation
 
 Per phase gate: `make check && make test && make lint && make fmt-check`.
-Phase 1 additionally: `git diff 77af8b5 -- assets/themes/mono.json` empty.
+Phase 1 additionally: `git diff 143e7b6 -- assets/themes/mono.json` empty.
 Phase 2 additionally: owner `make run` visual pass (pill shadow, both
 modes, no clipping). GUI-verifiable items are recorded as owner checks in
 `## Progress`; no GUI is launched by the agent.
