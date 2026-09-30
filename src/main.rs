@@ -19,6 +19,7 @@ use shell::{AppShell, ShellState};
 use status_chip::{StatusChip, StatusIcon, StatusTone};
 
 mod assets;
+mod cadence;
 mod i18n;
 mod persist;
 mod shell;
@@ -112,6 +113,7 @@ struct SettingsWindow {
 impl SettingsWindow {
     fn new(_window: &mut Window, cx: &mut Context<Self>) -> Self {
         cx.set_global(ShellState::default());
+        cx.set_global(cadence::DemoState::demo());
         Self {
             focus_handle: cx.focus_handle(),
         }
@@ -346,6 +348,7 @@ impl SettingsWindow {
                             .description(tr("item.preview.desc", &lang)),
                         ]),
                 ),
+            cadence::showcase::page(&lang),
             SettingPage::new(tr("page.about", &lang))
                 .icon(Icon::new(IconName::Info))
                 .groups(vec![

@@ -243,6 +243,21 @@ static STRINGS: &[(&str, &str, &str, &str, &str)] = &[
         "版本",
         "バージョン",
     ),
+    // Finance UI showcase (cloned from the yurygok reference)
+    (
+        "page.finance",
+        "Finance UI",
+        "Giao diện tài chính",
+        "财务界面",
+        "ファイナンスUI",
+    ),
+    (
+        "page.finance.desc",
+        "Components cloned from x.com/yurygok/status/2105191658337841531 — sample data is the reference's own.",
+        "Các component được clone từ x.com/yurygok/status/2105191658337841531 — dữ liệu mẫu giữ nguyên từ bản gốc.",
+        "从 x.com/yurygok/status/2105191658337841531 克隆的组件 —— 示例数据保留原样。",
+        "x.com/yurygok/status/2105191658337841531 からクローンしたコンポーネント — サンプルデータは参照のまま。",
+    ),
     // About
     (
         "about.tagline",
