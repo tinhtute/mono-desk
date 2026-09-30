@@ -78,10 +78,19 @@ Charts (`chart.1–5`) keep the prior mono palette (`#e5a14b`, `#3fb785`,
 tokens; `base.*` accent shades (`base.cyan` `#124b68`/`#18c7e2`, etc.)
 track the zdesk accent/status hues.
 
-Theme-level keys in both configs (`mono.json`): `"radius": 6`,
-`"radius.lg": 10`, `"shadow": false`, `"font.family": "Inclusive Sans"`,
-`"font.size": 13`, `"mono_font.family": "Google Sans Code"`,
+Theme-level keys in both configs (`mono.json`): `"radius": 8`,
+`"radius.lg": 16`, `"shadow": false`, `"font.family": "Inclusive Sans"`,
+`"font.size": 14`, `"mono_font.family": "Google Sans Code"`,
 `"mono_font.size": 12`.
+
+**beUI pilot (2026-09-30).** The owner retuned the three non-colour keys
+above — `font.size` 13 → 14, `radius` 6 → 8, `radius.lg` 10 → 16 — while
+keeping every colour and `shadow: false`. `font.size` is also the window
+rem base (`Root::render` → `set_rem_size`), so every rem-derived helper
+(`h_7`, `text_sm`, `rounded_lg`, …) now renders at 14/16 of its Tailwind
+nominal instead of 13/16; the px annotations in the tables below are the
+13px-era values. `theme::tests::default_font_size_matches_theme_config`
+pins the app's startup default to the config.
 
 ### Accessibility (WCAG) adjustments
 
@@ -119,17 +128,17 @@ inactive sidebar labels use `muted.foreground` instead of
 | Traffic lights | macOS overlay at (16, 18), 72px reserved (`--spacing-traffic-lights: 4.5rem`) | `traffic_light_position: point(px(16.), px(18.))` over `TitleBar::title_bar_options()` (`src/main.rs:426-429`) |
 | Sidebar | `--spacing-nav: 15rem` = 240px (`NavView.tsx:40`) | `sidebar_width(sidebar_w)` + `sidebar_size_range(sidebar_w..sidebar_w)` where `sidebar_w` = 240 expanded / 48 collapsed — the dynamic pin keeps the `resizable_panel` seam from dragging; `show_handle(false)` (settings-collapse.patch) suppresses the painted 1px line via an empty `ResizeHandleRenderer` but the hit area remains — **deviation (residual invisible hit area)** (`src/main.rs:340-349`) |
 | Brand row | 20px mark (`--spacing-brand: 1.25rem`) + wordmark | `Settings::sidebar_header` slot (the header always renders; only the search input is gated on `!sidebar_collapsed` by `settings-collapsed-header.patch`, so the mark stays on the rail): expanded = `h(32px)` row, 20px PNG mark (raster `img` — `svg()` would flatten the gradient), Xanh Mono italic `text_size(17px)` wordmark "mono-desk" in `theme.foreground` (12.7:1 / 15.0:1), `gap_2 px_2`; collapsed = centered 20px mark on a 32px box (`src/shell.rs:35-57`) |
-| Sidebar item | `SidebarItem` `h-7` = 28px, `rounded-md`, `px-2 gap-2` (`SidebarItem.tsx:39`) | vendored `SidebarMenuItem`: `h_7`, `p_2`, `gap_x_2`, `text_sm`, `rounded(theme.radius)` = 6px; collapsed items render as centered icons (`SidebarCollapsible::Icon`); **page** items carry icons via `SettingPage::icon` — Settings2/Bell/User/Info (`src/main.rs`); child (group) rows are iconless text (`settings-static-tree.patch`) |
+| Sidebar item | `SidebarItem` `h-7` = 28px, `rounded-md`, `px-2 gap-2` (`SidebarItem.tsx:39`) | vendored `SidebarMenuItem`: `h_7`, `p_2`, `gap_x_2`, `text_sm`, `rounded(theme.radius)` = 8px (was 6px before the beUI pilot); collapsed items render as centered icons (`SidebarCollapsible::Icon`); **page** items carry icons via `SettingPage::icon` — Settings2/Bell/User/Info (`src/main.rs`); child (group) rows are iconless text (`settings-static-tree.patch`) |
 | Selected state | `border-stroke` + `bg-background-raised` + `shadow-raised` (`SidebarItem.tsx:42`) | `active_item_style` patch: `bg(group_box)` + `border_1` `border_color(theme.border)` — the raised pill. `SidebarMenuItem::active_style` is refined **after** the built-in active styling (`when(is_active)` lands last, `settings-item-style.patch`), so the custom style wins in both modes; still no `shadow-raised` (`theme.shadow = false`) — partial deviation (`src/main.rs:364-369`) |
 | Inactive items | muted foreground | `sidebar_style` `.w(sidebar_w)` + `.border_0()` (rail's right border removed) + `text_color(muted_foreground)` — inherited by inactive labels only (active/hover set `sidebar.accent.foreground` explicitly). zdesk's `sidebar_foreground.opacity(0.7)` resolved to 3.7:1 in light mode, below WCAG AA; `muted.foreground` is 5.9:1 / 6.1:1 (`src/main.rs:398-409`) |
 | Hover | `bg-selection-hover` | native hover: `sidebar.accent` at 0.8 opacity + `sidebar.accent.foreground` (`sidebar/menu.rs:288-293`) |
-| Content card | `rounded-lg border border-stroke bg-background-raised` + inset margins (`AppShell.tsx:40`) | `content_panel_style` on the `resizable_panel` content panel: `rounded_lg()` (10px), `border_1` `border_color(theme.border)`, `bg(theme.group_box)`, `m(6px)` — equal 4-side inset — `overflow_hidden` (`src/main.rs:374-382`) |
+| Content card | `rounded-lg border border-stroke bg-background-raised` + inset margins (`AppShell.tsx:40`) | `content_panel_style` on the `resizable_panel` content panel: `rounded_lg()` (16px — `theme.radius_lg`, raised from 10 by the beUI pilot), `border_1` `border_color(theme.border)`, `bg(theme.group_box)`, `m(6px)` — equal 4-side inset — `overflow_hidden` (`src/main.rs:374-382`) |
 
 ## Font roles
 
 | Role | Family | Weights vendored | Applied as |
 |---|---|---|---|
-| UI sans (body, labels, controls) | Inclusive Sans | 400 / 500 / 600 / 700 | `font.family`, `font.size` = 13 (zdesk `text-body`); sidebar labels are native `SidebarMenuItem` `text_sm` |
+| UI sans (body, labels, controls) | Inclusive Sans | 400 / 500 / 600 / 700 | `font.family`, `font.size` = 14 (zdesk `text-body`; raised from 13 by the beUI pilot); sidebar labels are native `SidebarMenuItem` `text_sm` |
 | Mono (code, telemetry) | Google Sans Code | 400 / 500 | `mono_font.family`, `mono_font.size` = 12 (zdesk `text-code`) |
 | Wordmark | Xanh Mono | 400 regular + 400 italic | `sidebar_brand()` wordmark — 17px italic in `theme.foreground` (`src/shell.rs:35-57`); zdesk specifies a 15px semibold sans wordmark — locked deviation per owner decision. Xanh Mono ships no 600 face, so the requested `SEMIBOLD` resolves to Regular; presence comes from size + colour |
 

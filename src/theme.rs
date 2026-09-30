@@ -3,7 +3,11 @@ use std::borrow::Cow;
 use gpui_kit::component::{Theme, ThemeRegistry};
 use gpui_kit::{App, px};
 
-const MONO_THEMES: &str = include_str!("../assets/themes/mono.json");
+/// The app's embedded theme set (`mono-light` / `mono-dark`).
+///
+/// Crate-visible so tests elsewhere can resolve the app's own palette instead
+/// of the framework defaults.
+pub(crate) const MONO_THEMES: &str = include_str!("../assets/themes/mono.json");
 
 /// Emboldened Xanh Mono italic (weight 600), derived from
 /// `XanhMono-Italic.ttf` by `scripts/embolden-xanh-mono.py`.
@@ -264,6 +268,26 @@ mod tests {
         assert_eq!(clamp_font_size(FONT_SIZE_MAX), FONT_SIZE_MAX);
         assert_eq!(clamp_font_size(33.0), FONT_SIZE_MAX);
         assert_eq!(clamp_font_size(999.0), FONT_SIZE_MAX);
+    }
+
+    /// The startup default must equal the theme's own `font.size`: the app
+    /// applies `AppSettings::default().font_size` as an override at boot, so a
+    /// drift between the two silently changes the baseline the theme (and the
+    /// window rem size every style helper derives from) was tuned for.
+    #[test]
+    fn default_font_size_matches_theme_config() {
+        let set: serde_json::Value =
+            serde_json::from_str(MONO_THEMES).expect("embedded mono.json must deserialize");
+        let default = crate::AppSettings::default().font_size;
+
+        for theme in set["themes"].as_array().expect("themes array") {
+            let name = theme["name"].as_str().expect("theme name");
+            let size = theme["font.size"].as_f64().expect("font.size");
+            assert_eq!(
+                size, default,
+                "{name}: font.size {size} does not match the app default {default}"
+            );
+        }
     }
 
     #[test]
