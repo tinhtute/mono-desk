@@ -374,8 +374,10 @@ search, card radius/margins, both modes.
 
 ## Current State
 
-All phases done; gates green. Remaining: owner `make run` visual pass
-against `docs/design/shell-layout-target.md` — one sidebar (borderless,
-240⇄48 via ⌘B/titlebar button; icons-only + brand mark collapsed),
-raised card with equal 6px inset as the only bordered surface, active
-item pill, no handle line, no titlebar border; both modes.
+- branch: `main` (075992d); PRs #3–#9 merged, PR #1 closed as superseded
+- lifecycle_status: in-progress (no phase closed via `check` yet; no `full` independent review recorded in `## Validation`)
+- completed: tokens/fonts, shell (one borderless sidebar, raised card, active pill), main merge (i18n.rs, persist.rs, font 8-32); titlebar fix #4 (`TITLEBAR_H=36`, light y = 36/2 − 14/2; GPUI y = button top edge); spring sidebar collapse #5; InputField + token retune #6 (font 14, radius 8/16); Finance UI `src/cadence` #9 with input reset revalidation + wrapping PO tabs; gates green, 42 tests
+- review: codex reviewer on #6–#9 combined → SHIP-WITH-FIXES; the two priority fixes landed (01f12a9)
+- blockers: none
+- open_items: owner `make run` visual pass on main (both modes, collapsed + expanded, font 8–32, Finance page); follow-ups: cadence checkbox/toggle/tabs lack keyboard focus (`src/cadence/blocks.rs:454`), Reset filter button has no handler (`showcase.rs:517`), bar chart col 8 overflows plot (`charts.rs:209`), Segmented pills overflow at large fonts, `docs/design/zdesk-port-spec.md` stale rows (`rounded_lg` 16px vs real 7px; titlebar 34px/(16,18)); `full` independent check before completing this plan
+- next action: owner runs `make run` on main; then `check full` on main for this plan
