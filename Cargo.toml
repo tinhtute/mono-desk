@@ -5,9 +5,6 @@ edition = "2024"
 
 [dependencies]
 gpui-kit = "0.6"
-# Same i18n stack the vendored gpui-component uses, so `set_locale` switches
-# both the app's strings and the component-internal ones.
-rust-i18n = "4.2"
 
 [dev-dependencies]
 serde_json = "1.0.151"
