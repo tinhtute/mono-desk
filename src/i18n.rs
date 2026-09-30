@@ -129,6 +129,13 @@ static STRINGS: &[(&str, &str, &str, &str, &str)] = &[
         "ユーザー名",
     ),
     (
+        "item.username_placeholder",
+        "your-handle",
+        "tên-của-bạn",
+        "你的用户名",
+        "your-handle",
+    ),
+    (
         "item.username.desc",
         "Your unique handle.",
         "Tên định danh duy nhất của bạn.",
@@ -242,6 +249,35 @@ static STRINGS: &[(&str, &str, &str, &str, &str)] = &[
         "Phiên bản",
         "版本",
         "バージョン",
+    ),
+    // Field validation
+    (
+        "field.username_too_short",
+        "Use at least 3 characters.",
+        "Dùng ít nhất 3 ký tự.",
+        "至少使用 3 个字符。",
+        "3文字以上で入力してください。",
+    ),
+    (
+        "field.username_too_long",
+        "Use at most 16 characters.",
+        "Dùng tối đa 16 ký tự.",
+        "最多使用 16 个字符。",
+        "16文字以内で入力してください。",
+    ),
+    (
+        "field.username_invalid",
+        "Only lowercase letters, digits, - and _.",
+        "Chỉ dùng chữ thường, số, - và _.",
+        "仅限小写字母、数字、- 和 _。",
+        "小文字・数字・-・_ のみ使用できます。",
+    ),
+    (
+        "field.username_ok",
+        "Looks good.",
+        "Hợp lệ.",
+        "看起来不错。",
+        "問題ありません。",
     ),
     // Finance UI showcase (cloned from the yurygok reference)
     (
