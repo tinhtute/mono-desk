@@ -13,14 +13,19 @@ exact_next_action: "work phase `beui-p1-input-sync` (wave: p0-1 → p0-2 → p0-
 # beUI P1 components → mono-desk
 
 Adopt the beUI P1 control set into the settings app on the merged
-`quaqua/mdinput` baseline (`77af8b5`, fast-forwarded from `9fb40ec`).
-Phase 0 fixes the input pilot's synchronization defect and adds the
-view-level test backend; the remaining phases adopt or compose each
-control on a named settings surface, or record it dropped.
+`quaqua/mdinput` baseline (`143e7b6` — the `origin/main` merge
+`e494a92` into `77af8b5`; `origin/main` is an ancestor, so this branch
+now carries `src/i18n.rs`, `src/persist.rs`, the `TITLEBAR_H = 36`
+shell and the spring sidebar). Phase 0 fixes the input pilot's
+synchronization defect and adds the view-level test backend; the
+remaining phases adopt or compose each control on a named settings
+surface, or record it dropped.
 
 Sources: audit `~/quaqua/runs/quansu-beuiaudit.md` (corrections override
 the research reports), research `~/quaqua/runs/bespace.md` and
-`~/quaqua/runs/becomp.md`. Hard constraints (owner): **all current
+`~/quaqua/runs/becomp.md` — authoring-time inputs, **not present on
+this machine** (`~/quaqua/runs/` does not exist), so the contracts
+below are the surviving record. Hard constraints (owner): **all current
 colors stay; `font.size` 14 stays; `theme.shadow` stays `false`;
 app-side composition is preferred over vendor patches.**
 
@@ -85,14 +90,14 @@ M 2–4 days, L ≥ 1 week.
 ### switch — effort S
 
 - **Surface:** General → Dark Mode (existing `SettingField::switch`);
-  Notifications → Notifications Enabled and Auto Update (existing raw
-  `Switch` rows).
+  Notifications → Notifications Enabled (the existing raw `Switch`
+  row — the merged baseline has no Auto Update row).
 - **Retained:** spring thumb (`spring_move`), controlled `checked` +
   `on_click`, disabled, sizes, tooltip support.
 - **Composed:** accessible name per row — convert the Dark Mode row to
   `SettingField::render` + `Switch` with `.accessibility_label(row
-  title)` and an `.on_reset` handler (the auto-update row is the
-  pattern); add `.accessibility_label(...)` to the two raw switches.
+  title)` and an `.on_reset` handler (the notifications-enabled row is
+  the pattern); add `.accessibility_label(...)` to that raw switch.
 - **Dropped:** beUI press squish and disabled shake; layout-animated
   thumb (the GPUI spring is the substitute).
 - **A11y/keyboard acceptance:** role `Switch`, toggled state, label =
@@ -104,7 +109,7 @@ M 2–4 days, L ≥ 1 week.
 
 ### checkbox (boolean) — effort S
 
-- **Surface:** Profile → Launch at login (existing
+- **Surface:** General → Startup → Launch at login (existing
   `SettingField::checkbox`).
 - **Retained:** spring mark, controlled `checked`, disabled, sizes.
 - **Composed:** accessible name — convert to `SettingField::render` +
@@ -123,7 +128,7 @@ M 2–4 days, L ≥ 1 week.
   Approve or drop (see Open decisions).
 - **Retained:** `gpui_base::Checkbox` semantics — `CheckboxState::
   Indeterminate` → `Toggled::Mixed`, keyboard, focus, disabled
-  (`gpui-base/src/checkbox.rs:21-35,102-110`). The vendored
+  (`gpui-base/src/checkbox.rs:17-38,106-115`). The vendored
   `gpui-component::Checkbox` is boolean-only and cannot carry mixed.
 - **Composed:** tri-state logic (parent = all/none/mixed; child toggle
   updates parent; parent toggle sets all), the mixed mark (dash) in an
@@ -139,9 +144,12 @@ M 2–4 days, L ≥ 1 week.
 
 ### radio — effort M — owner-gated surface
 
-- **Surface:** none exists. Candidate: Notifications → Digest
-  (Immediate / Daily / Weekly) as a radio group replacing the dropdown
-  menu. Approve or drop (see Open decisions).
+- **Surface:** none exists. The pre-merge candidate (Notifications →
+  Digest, replacing a dropdown) is **stale**: the merged baseline has
+  no Digest row and no `AppSettings.digest` field. Candidate now: a
+  new Notifications → Digest group (Immediate / Daily / Weekly) as a
+  radio group, which also adds the `digest` app state. Approve or drop
+  (see Open decisions).
 - **Retained:** `gpui_base::Radio`/`RadioGroup` semantics — group role
   + orientation (`gpui-base/src/radio_group.rs:57-70`), per-radio
   `Role::RadioButton`, `aria_toggled`/`aria_selected`,
@@ -172,10 +180,14 @@ M 2–4 days, L ≥ 1 week.
   `List` key context, `list/list.rs:29-33,667`), selected check mark,
   placement flip, menu width, empty state.
 - **Composed:** `SelectState` + `SearchableVec<LanguageItem>` delegate
-  (`searchable_list/vec.rs:76-108`), `SettingField::render` wrapper
-  with `.on_reset`, `Select::accessibility_label`, subscription to
-  `SelectEvent::Confirm` writing `AppSettings.language` +
-  `rust_i18n::set_locale`.
+  (`searchable_list/vec.rs:76-108`) — `LanguageItem` is a **new**
+  app-side item type (the merged baseline's Language dropdown uses
+  `(SharedString, SharedString)` pairs) — `SettingField::render`
+  wrapper with `.on_reset`, `Select::accessibility_label`,
+  subscription to `SelectEvent::Confirm` writing `AppSettings.language`
+  + `gpui_kit::component::set_locale(component_locale(&lang))` (the
+  merged baseline's locale path; app strings come from
+  `i18n::tr(key, &lang)` — there is no `rust_i18n`).
 - **Dropped:** beUI panel pinch/unfold morph.
 - **A11y/keyboard acceptance:** accessible label + value
   (`Select::accessibility_label`, `accessibility_value`); open via
@@ -187,8 +199,8 @@ M 2–4 days, L ≥ 1 week.
 ### combobox — effort 0 (decision only)
 
 - **Surface:** none — the app has no searchable list (Language has 4
-  options; Digest 3). Adding one would be a catalogue demo (audit
-  item 3).
+  options; the merged baseline has no Digest row). Adding one would be
+  a catalogue demo (audit item 3).
 - **Disposition:** dropped from P1; revisit only if a searchable
   surface lands (e.g., a command palette or a long list).
 
@@ -202,8 +214,9 @@ M 2–4 days, L ≥ 1 week.
   `zdesk-port-spec.md` deviation “Collapsed tooltips unavailable” is
   stale and gets corrected.
 - **Retained:** managed tooltip system — 500 ms show delay, 300 ms
-  grace, 150 ms slide/fade enter, 200 ms same-row slide
-  (`vendor/gpui-component/src/tooltip.rs:148-186`).
+  grace (`gpui-base/src/tooltip.rs:13-14`), 150 ms slide/fade enter,
+  200 ms same-row slide
+  (`vendor/gpui-component/src/tooltip.rs:149,151,158-186`).
 - **Composed:** nothing (verify + test only).
 - **Dropped:** beUI collision-aware follow-cursor tooltip (the managed
   overlay owns placement).
@@ -348,7 +361,8 @@ Test mechanics (grounded in the vendored/test-support sources):
 
 - **Vendor patches for a11y labels** (`BoolField` passing a label):
   rejected — `SettingField::render` + app-side controls is the
-  existing pattern (auto-update row) and keeps the patch count flat.
+  existing pattern (the notifications-enabled row) and keeps the patch
+  count flat.
 - **Adopting the vendored `Radio` check mark**: rejected as the
   primary path — beUI’s dot is the target; recorded as the fallback.
 - **A combobox/tabs/context-menu demo surface**: rejected — audit
@@ -362,8 +376,8 @@ Test mechanics (grounded in the vendored/test-support sources):
 
 - **R1 — `SettingField::render` conversions lose typed reset
   integration.** Mitigation: `.on_reset(is_dirty, reset)` on the
-  `SettingItem` (the auto-update row is the working pattern); tests
-  assert the reset path.
+  `SettingItem` (the notifications-enabled row is the working
+  pattern); tests assert the reset path.
 - **R2 — `test-support` feature unification rebuilds the GPUI stack
   for test builds.** One-time cost on the first `make test` after the
   dev-dependency lands; the binary keeps default features. If the
@@ -389,8 +403,8 @@ Test mechanics (grounded in the vendored/test-support sources):
 
 Gate after every phase: `make check && make test && make lint &&
 make fmt-check`, plus the owner `make run` visual pass. Baseline
-(2026-09-30, this worktree at `77af8b5`): `make check` ✓ (5.9 s),
-`make test` ✓ 21 passed, `make lint` ✓, `make fmt-check` ✓.
+(2026-09-30, this worktree at `143e7b6`): `make check` ✓ (31 s cold),
+`make test` ✓ 38 passed, `make lint` ✓, `make fmt-check` ✓.
 
 ### Phase `beui-p1-input-sync` — story_id: story-beui-p1-input-sync-20260930
 
@@ -401,8 +415,9 @@ make fmt-check`, plus the owner `make run` visual pass. Baseline
 - **Depends on:** none.
 - **Allowed surfaces:** `src/input_field.rs`, `src/main.rs` (username
   config + reset call site), `Cargo.toml` (dev-dependency),
-  `docs/design/zdesk-port-spec.md` (input notes), `locales/app.yml`
-  (only if a new string is needed — prefer the existing row title).
+  `docs/design/zdesk-port-spec.md` (input notes), `src/i18n.rs`
+  (only if a new string is needed — prefer the existing row title;
+  the merged baseline has no `locales/app.yml`).
 - **Avoided:** `vendor/`, `assets/themes/`, `src/theme.rs`.
 
 **Wave 1** — `p0-1` test backend:
@@ -439,7 +454,8 @@ make fmt-check`, plus the owner `make run` visual pass. Baseline
   `Role::Alert` on the row when it carries an error.
 - **Output:** reset/external writes update text **and** validation;
   the field has an accessible name; the message row can grow.
-- **Check:** `make check`, `make test` (existing 21 tests still pass).
+- **Check:** `make check`, `make test` (the existing 38 tests still
+  pass).
 
 **Wave 3** — `p0-3` behavioral tests (the audit’s five):
 
@@ -478,12 +494,12 @@ attempts → halt, report.
 
 **Wave 1** — `p1-1` switch + checkbox rows:
 
-- Convert General → Dark Mode (`SettingField::switch`) and Profile →
-  Launch at login (`SettingField::checkbox`) to `SettingField::render`
-  with app-side `Switch`/`Checkbox` carrying
+- Convert General → Dark Mode (`SettingField::switch`) and General →
+  Startup → Launch at login (`SettingField::checkbox`) to
+  `SettingField::render` with app-side `Switch`/`Checkbox` carrying
   `.accessibility_label(row title)` and `.on_reset(...)`; add
-  `.accessibility_label(...)` to the two raw switches (auto-update,
-  notifications-enabled). Give each control a unique id and a
+  `.accessibility_label(...)` to the one raw switch
+  (notifications-enabled). Give each control a unique id and a
   `debug_selector` on its wrapper.
 - Tests (`src/view_tests.rs`): render the app’s Settings pages with the
   relevant page selected (`Settings::default_selected_index`); click →
@@ -517,14 +533,15 @@ wiring test, record the visual as an owner check, continue.
   with their acceptance tests; declined controls are recorded dropped.
 - **Depends on:** `beui-p1-input-sync` (test backend); owner decisions.
 - **Allowed surfaces:** `src/main.rs`, `src/view_tests.rs`,
-  `locales/app.yml`, `docs/design/zdesk-port-spec.md`.
+  `src/i18n.rs`, `docs/design/zdesk-port-spec.md`.
 - **Avoided:** `vendor/`, `assets/themes/`, `src/theme.rs`.
 
-**Wave 1** — `p2-1` radio (if approved): compose the Digest radio group
-on `gpui_base::Radio`/`RadioGroup` with the app-owned dot indicator;
-wire `AppSettings.digest`; tests for group semantics, Tab + Space/Enter
-(+ arrow keys if approved), reduced motion. Fallback: vendored
-`RadioGroup` as-is.
+**Wave 1** — `p2-1` radio (if approved): compose a new Notifications →
+Digest radio group on `gpui_base::Radio`/`RadioGroup` with the
+app-owned dot indicator; add the `AppSettings.digest` field (new
+state — the merged baseline has none); tests for group semantics,
+Tab + Space/Enter (+ arrow keys if approved), reduced motion.
+Fallback: vendored `RadioGroup` as-is.
 
 **Wave 2** — `p2-2` select (if approved): compose the Language
 `SelectState` + `SearchableVec<LanguageItem>` field; subscribe to
@@ -570,8 +587,9 @@ these are answered:
 1. **Mixed checkbox surface** — approve the Notifications “Channels”
    group (parent “All channels” + Email/Desktop/Digest) or drop mixed?
    *(Recommended: approve — it is the only genuine mixed surface.)*
-2. **Radio surface** — approve Digest as a radio group (replacing the
-   dropdown) or drop radio? *(Recommended: approve.)*
+2. **Radio surface** — approve a **new** Notifications → Digest radio
+   group (the merged baseline has no Digest row; this adds the
+   `digest` app state) or drop radio? *(Recommended: approve.)*
 3. **Select surface** — approve Language as a `Select` listbox
    (replacing the dropdown menu) or drop Select? *(Recommended:
    approve; fallback keeps the dropdown.)*
@@ -589,9 +607,10 @@ these are answered:
 
 ## Decisions
 
-- 2026-09-30 — baseline locked: `quaqua/mdinput` fast-forwarded into
-  `quaqua/tieude-beuicomps` (`77af8b5`); audit corrections override the
-  research reports.
+- 2026-09-30 — baseline locked: `quaqua/mdinput` merged into
+  `quaqua/tieude-beuicomps` (`143e7b6`, the `origin/main` merge
+  `e494a92` into `77af8b5`); audit corrections override the research
+  reports.
 - 2026-09-30 — hard constraints: colors unchanged; `font.size` 14;
   `shadow: false`; app-side composition preferred over vendor patches.
 - 2026-09-30 — Phase 0 is the pilot acceptance gate: finding 1 fix +
@@ -603,17 +622,22 @@ these are answered:
 ## Validation
 
 Per phase: `make check && make test && make lint && make fmt-check`,
-plus the owner `make run` visual pass. Baseline at `77af8b5`
-(2026-09-30): all four green (`make test`: 21 passed). View-level
+plus the owner `make run` visual pass. Baseline at `143e7b6`
+(2026-09-30): all four green (`make test`: 38 passed). View-level
 tests run headless via `#[gpui_kit::test]`; no GUI automation is
 claimed. Worker gates never launch the app.
 
 ## Progress
 
 - 2026-09-30 — plan authored from the audit + research reports on the
-  merged `77af8b5` baseline; baseline gates green (`make check` 5.9 s,
+  `77af8b5` baseline; baseline gates green (`make check` 5.9 s,
   `make test` 21 passed, `make lint`, `make fmt-check`). Phases 0–1
   are decision-free; Phases 2–3 wait on the owner decisions above.
+- 2026-09-30 — integrated `origin/main` via `origin/quaqua/mdinput`
+  (`143e7b6`, conflict-free — this branch only touches this plan file)
+  and re-grounded every path/API/line/test-count/token reference on
+  the merged tree; gates re-run green (`make check` 31 s cold,
+  `make test` 38 passed).
 
 ## Current State
 
