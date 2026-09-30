@@ -21,7 +21,9 @@ use std::time::Duration;
 
 use gpui_kit::base::{Keyframe, Keyframes, Timing, animate_keyframes};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
-use gpui_kit::component::{ActiveTheme, Sizable, Size, StyledExt, h_flex, label::Label, v_flex};
+use gpui_kit::component::{
+    ActiveTheme, Sizable, Size, StyledExt, Theme, h_flex, label::Label, v_flex,
+};
 use gpui_kit::{
     AnyElement, App, AppContext as _, Context, ElementId, Entity, Hsla, IntoElement,
     ParentElement as _, Pixels, Render, SharedString, StyleRefinement, Styled as _, Subscription,
@@ -258,6 +260,21 @@ impl InputFieldConfig {
     }
 }
 
+/// The ink a status paints with.
+///
+/// `theme.danger` / `theme.success` are the pastel chip *backgrounds*
+/// (`danger.background` / `success.background` in `mono.json`); text, icons
+/// and borders need the matching `*_foreground` ink, or the message reads
+/// faded against the card. Crate-visible so callers drawing their own state
+/// affordances (the demo's success check) share the one mapping.
+pub(crate) fn status_ink(status: FieldStatus, theme: &Theme) -> Hsla {
+    match status {
+        FieldStatus::Error => theme.danger_foreground,
+        FieldStatus::Success => theme.success_foreground,
+        _ => theme.muted_foreground,
+    }
+}
+
 /// Keyed-state slot for the field view.
 ///
 /// `use_keyed_state` observes the entity it stores and notifies the current
@@ -346,13 +363,12 @@ impl InputFieldView {
     /// The border colour the validation state imposes, if any.
     ///
     /// `None` leaves the vendored input's own border — and its focus tint —
-    /// alone. The error/success colours replace it and stay while the field is
+    /// alone. The error/success inks replace it and stay while the field is
     /// focused, so the state remains visible while the user fixes the value;
     /// the caret still marks focus.
     fn state_border(&self, status: FieldStatus, cx: &App) -> Option<Hsla> {
         match status {
-            FieldStatus::Error => Some(cx.theme().danger),
-            FieldStatus::Success => Some(cx.theme().success),
+            FieldStatus::Error | FieldStatus::Success => Some(status_ink(status, cx.theme())),
             _ => None,
         }
     }
@@ -396,11 +412,7 @@ impl InputFieldView {
     /// state gets the same row in the success ink, and its glyph lives in the
     /// input's suffix slot instead.
     fn render_message(&self, status: FieldStatus, cx: &App) -> Option<AnyElement> {
-        let ink = match status {
-            FieldStatus::Error => cx.theme().danger,
-            FieldStatus::Success => cx.theme().success,
-            _ => cx.theme().muted_foreground,
-        };
+        let ink = status_ink(status, cx.theme());
         let message = self.field.visible_message().cloned();
         if message.is_none() && !self.config.reserve_message_line {
             return None;
@@ -461,6 +473,7 @@ impl Render for InputFieldView {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gpui_kit::component::{ThemeMode, ThemeSet};
 
     fn error(message: &str) -> Option<Validation> {
         Some(Validation::Error(message.into()))
@@ -560,5 +573,58 @@ mod tests {
         assert_eq!(frames.sample(0.0), px(0.));
         assert_eq!(frames.sample(1.0), px(0.));
         assert_ne!(frames.sample(0.15), px(0.));
+    }
+
+    /// The app's own palette, resolved the way `Theme::change` resolves it.
+    fn mono_theme(mode: ThemeMode) -> Theme {
+        let set: ThemeSet = serde_json::from_str(crate::theme::MONO_THEMES)
+            .expect("embedded mono.json must deserialize");
+        let config = set
+            .themes
+            .into_iter()
+            .find(|theme| theme.mode == mode)
+            .expect("both modes are present in the embedded theme set");
+        let mut theme = Theme::default();
+        theme.apply_config(&Rc::new(config));
+        theme
+    }
+
+    /// The field's ink must be the state's *foreground* token.
+    ///
+    /// `theme.danger` / `theme.success` are the pastel chip *backgrounds*
+    /// (`danger.background` / `success.background`), which read as faded text
+    /// and borders against the card — the bug this pins. The palette must keep
+    /// the tint and the ink distinct for the assertion to mean anything.
+    #[test]
+    fn status_ink_uses_the_foreground_tokens() {
+        for mode in [ThemeMode::Light, ThemeMode::Dark] {
+            let theme = mono_theme(mode);
+            assert_ne!(
+                theme.danger, theme.danger_foreground,
+                "{mode:?}: the palette must distinguish the danger tint from its ink"
+            );
+            assert_ne!(
+                theme.success, theme.success_foreground,
+                "{mode:?}: the palette must distinguish the success tint from its ink"
+            );
+
+            assert_eq!(
+                status_ink(FieldStatus::Error, &theme),
+                theme.danger_foreground,
+                "{mode:?}: error ink must be `danger.foreground`, not the tint"
+            );
+            assert_eq!(
+                status_ink(FieldStatus::Success, &theme),
+                theme.success_foreground,
+                "{mode:?}: success ink must be `success.foreground`, not the tint"
+            );
+            for status in [
+                FieldStatus::Idle,
+                FieldStatus::Focused,
+                FieldStatus::Disabled,
+            ] {
+                assert_eq!(status_ink(status, &theme), theme.muted_foreground);
+            }
+        }
     }
 }

@@ -3,7 +3,11 @@ use std::borrow::Cow;
 use gpui_kit::component::{Theme, ThemeRegistry};
 use gpui_kit::{App, px};
 
-const MONO_THEMES: &str = include_str!("../assets/themes/mono.json");
+/// The app's embedded theme set (`mono-light` / `mono-dark`).
+///
+/// Crate-visible so tests elsewhere can resolve the app's own palette instead
+/// of the framework defaults.
+pub(crate) const MONO_THEMES: &str = include_str!("../assets/themes/mono.json");
 
 /// Emboldened Xanh Mono italic (weight 600), derived from
 /// `XanhMono-Italic.ttf` by `scripts/embolden-xanh-mono.py`.

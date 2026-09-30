@@ -366,99 +366,102 @@ impl SettingsWindow {
                 .icon(Icon::new(IconName::User))
                 .resettable(true)
                 .group(SettingGroup::new().title(tr!("Group.account")).items(vec![
-                            SettingItem::new(
-                                tr!("Item.username"),
-                                // The composed input field (label + input +
-                                // validation row) instead of the vendored
-                                // `SettingField::input`: the settings row
-                                // already carries the title, so the field's
-                                // own label stays off and the leading icon
-                                // slot stands in for it.
-                                SettingField::render({
-                                    let config = InputFieldConfig::new(
-                                        tr!("Item.username_placeholder"),
-                                        |value: &str| username_rule(value).validation(),
-                                        |cx: &App| AppSettings::global(cx).username.clone(),
-                                        |value: SharedString, cx: &mut App| {
-                                            AppSettings::global_mut(cx).username = value;
-                                        },
-                                    )
-                                    // beUI's leading icon, muted like the
-                                    // placeholder.
-                                    .prefix(Rc::new(|_, _, cx| {
-                                        Some(
-                                            Icon::new(IconName::User)
-                                                .text_color(cx.theme().muted_foreground)
-                                                .into_any_element(),
-                                        )
-                                    }))
-                                    // beUI's success check: it replaces the
-                                    // trailing icon while the value is valid.
-                                    .suffix(Rc::new(|status, window, cx| {
-                                        (status == FieldStatus::Success).then(|| {
-                                            Icon::new(IconName::CircleCheck)
-                                                .with_size(Size::Size(window.rem_size()))
-                                                .text_color(cx.theme().success)
-                                                .into_any_element()
-                                        })
-                                    }))
-                                    .reserve_message_line();
-                                    move |options, window, cx| {
-                                        let view = InputFieldView::keyed(
-                                            window,
-                                            cx,
-                                            "profile-username",
-                                            config.clone(),
-                                        );
-                                        view.update(cx, |view, cx| {
-                                            view.set_presentation(
-                                                options.size(),
-                                                options.is_disabled(),
-                                                cx,
-                                            )
-                                        });
-                                        let field = div().child(view);
-                                        if options.layout().is_horizontal() {
-                                            field.w_64()
-                                        } else {
-                                            field.w_full()
-                                        }
-                                    }
-                                })
-                                .on_reset(
-                                    {
-                                        let username_default = defaults.username.clone();
-                                        move |cx: &App| {
-                                            AppSettings::global(cx).username != username_default
-                                        }
-                                    },
-                                    {
-                                        let username_default = defaults.username.clone();
-                                        move |_window, cx: &mut App| {
-                                            AppSettings::global_mut(cx).username =
-                                                username_default.clone();
-                                            // The field mirrors the global on
-                                            // render; refresh so the reset
-                                            // shows up without waiting for the
-                                            // next unrelated re-render.
-                                            cx.refresh_windows();
-                                        }
-                                    },
-                                ),
-                            )
-                            .description(tr!("Item.username_desc")),
-                            SettingItem::new(
-                                tr!("Item.display_name"),
-                                SettingField::input(
-                                    |cx: &App| AppSettings::global(cx).display_name.clone(),
-                                    |val: SharedString, cx: &mut App| {
-                                        AppSettings::global_mut(cx).display_name = val;
+                        SettingItem::new(
+                            tr!("Item.username"),
+                            // The composed input field (label + input +
+                            // validation row) instead of the vendored
+                            // `SettingField::input`: the settings row
+                            // already carries the title, so the field's
+                            // own label stays off and the leading icon
+                            // slot stands in for it.
+                            SettingField::render({
+                                let config = InputFieldConfig::new(
+                                    tr!("Item.username_placeholder"),
+                                    |value: &str| username_rule(value).validation(),
+                                    |cx: &App| AppSettings::global(cx).username.clone(),
+                                    |value: SharedString, cx: &mut App| {
+                                        AppSettings::global_mut(cx).username = value;
                                     },
                                 )
-                                .default_value(defaults.display_name.clone()),
+                                // beUI's leading icon, muted like the
+                                // placeholder.
+                                .prefix(Rc::new(|_, _, cx| {
+                                    Some(
+                                        Icon::new(IconName::User)
+                                            .text_color(cx.theme().muted_foreground)
+                                            .into_any_element(),
+                                    )
+                                }))
+                                // beUI's success check: it replaces the
+                                // trailing icon while the value is valid.
+                                // The ink comes from the field's own
+                                // status→ink mapping, so the icon cannot
+                                // drift onto the pastel tint token.
+                                .suffix(Rc::new(|status, window, cx| {
+                                    (status == FieldStatus::Success).then(|| {
+                                        Icon::new(IconName::CircleCheck)
+                                            .with_size(Size::Size(window.rem_size()))
+                                            .text_color(input_field::status_ink(status, cx.theme()))
+                                            .into_any_element()
+                                    })
+                                }))
+                                .reserve_message_line();
+                                move |options, window, cx| {
+                                    let view = InputFieldView::keyed(
+                                        window,
+                                        cx,
+                                        "profile-username",
+                                        config.clone(),
+                                    );
+                                    view.update(cx, |view, cx| {
+                                        view.set_presentation(
+                                            options.size(),
+                                            options.is_disabled(),
+                                            cx,
+                                        )
+                                    });
+                                    let field = div().child(view);
+                                    if options.layout().is_horizontal() {
+                                        field.w_64()
+                                    } else {
+                                        field.w_full()
+                                    }
+                                }
+                            })
+                            .on_reset(
+                                {
+                                    let username_default = defaults.username.clone();
+                                    move |cx: &App| {
+                                        AppSettings::global(cx).username != username_default
+                                    }
+                                },
+                                {
+                                    let username_default = defaults.username.clone();
+                                    move |_window, cx: &mut App| {
+                                        AppSettings::global_mut(cx).username =
+                                            username_default.clone();
+                                        // The field mirrors the global on
+                                        // render; refresh so the reset
+                                        // shows up without waiting for the
+                                        // next unrelated re-render.
+                                        cx.refresh_windows();
+                                    }
+                                },
+                            ),
+                        )
+                        .description(tr!("Item.username_desc")),
+                        SettingItem::new(
+                            tr!("Item.display_name"),
+                            SettingField::input(
+                                |cx: &App| AppSettings::global(cx).display_name.clone(),
+                                |val: SharedString, cx: &mut App| {
+                                    AppSettings::global_mut(cx).display_name = val;
+                                },
                             )
-                            .description(tr!("Item.display_name_desc")),
-                        ])),
+                            .default_value(defaults.display_name.clone()),
+                        )
+                        .description(tr!("Item.display_name_desc")),
+                    ])),
             SettingPage::new(tr!("Page.about"))
                 .icon(Icon::new(IconName::Info))
                 .groups(vec![
