@@ -1,5 +1,6 @@
 use gpui_kit::component::{
-    ActiveTheme, Icon, IconName, Root, Sizable, Theme, ThemeMode, TitleBar, WindowExt,
+    ActiveTheme, AxisExt as _, Icon, IconName, Root, Sizable, Size, Theme, ThemeMode, TitleBar,
+    WindowExt,
     button::Button,
     h_flex,
     label::Label,
@@ -14,11 +15,14 @@ use gpui_kit::{
     Styled as _, TitlebarOptions, Window, WindowBounds, WindowDecorations, WindowOptions, div, img,
     point, px, size,
 };
+use input_field::{FieldStatus, InputFieldConfig, InputFieldView, Validation};
 use rust_i18n::t;
 use shell::{AppShell, ShellState};
 use status_chip::{StatusChip, StatusIcon, StatusTone};
+use std::rc::Rc;
 
 mod assets;
+mod input_field;
 mod shell;
 mod status_chip;
 mod theme;
@@ -54,6 +58,54 @@ fn locale_for(language: &str) -> &str {
     }
 }
 
+/// Why the demo's username field accepts or rejects a value.
+///
+/// The rule is a pure function so the demo's validation is testable without a
+/// locale or a window; [`Self::validation`] adds the translated message.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum UsernameRule {
+    /// Empty: no message, the field is simply idle.
+    Empty,
+    TooShort,
+    TooLong,
+    InvalidCharacter,
+    Valid,
+}
+
+impl UsernameRule {
+    /// The validation the field shows for this rule, in the current locale.
+    fn validation(self) -> Option<Validation> {
+        match self {
+            Self::Empty => None,
+            Self::TooShort => Some(Validation::Error(tr!("Field.username_too_short").into())),
+            Self::TooLong => Some(Validation::Error(tr!("Field.username_too_long").into())),
+            Self::InvalidCharacter => Some(Validation::Error(tr!("Field.username_invalid").into())),
+            Self::Valid => Some(Validation::Success(tr!("Field.username_ok").into())),
+        }
+    }
+}
+
+/// Usernames are 3–16 characters of lowercase letters, digits, `-` and `_`.
+fn username_rule(value: &str) -> UsernameRule {
+    if value.is_empty() {
+        return UsernameRule::Empty;
+    }
+    let length = value.chars().count();
+    if length < 3 {
+        return UsernameRule::TooShort;
+    }
+    if length > 16 {
+        return UsernameRule::TooLong;
+    }
+    if !value
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_')
+    {
+        return UsernameRule::InvalidCharacter;
+    }
+    UsernameRule::Valid
+}
+
 /// Application state, stored as a GPUI global so `SettingField` closures can
 /// reach it through `&App` / `&mut App`.
 struct AppSettings {
@@ -71,9 +123,10 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             language: "en".into(),
-            // Matches the theme's `font.size` (13px) so the applied default
-            // preserves the approved visual baseline.
-            font_size: 13.0,
+            // Matches the theme's `font.size` (14px) so the applied default
+            // preserves the approved visual baseline. `theme::tests` pins the
+            // two together.
+            font_size: 14.0,
             launch_at_login: false,
             auto_update: true,
             notifications_enabled: true,
@@ -315,13 +368,83 @@ impl SettingsWindow {
                 .group(SettingGroup::new().title(tr!("Group.account")).items(vec![
                             SettingItem::new(
                                 tr!("Item.username"),
-                                SettingField::input(
-                                    |cx: &App| AppSettings::global(cx).username.clone(),
-                                    |val: SharedString, cx: &mut App| {
-                                        AppSettings::global_mut(cx).username = val;
+                                // The composed input field (label + input +
+                                // validation row) instead of the vendored
+                                // `SettingField::input`: the settings row
+                                // already carries the title, so the field's
+                                // own label stays off and the leading icon
+                                // slot stands in for it.
+                                SettingField::render({
+                                    let config = InputFieldConfig::new(
+                                        tr!("Item.username_placeholder"),
+                                        |value: &str| username_rule(value).validation(),
+                                        |cx: &App| AppSettings::global(cx).username.clone(),
+                                        |value: SharedString, cx: &mut App| {
+                                            AppSettings::global_mut(cx).username = value;
+                                        },
+                                    )
+                                    // beUI's leading icon, muted like the
+                                    // placeholder.
+                                    .prefix(Rc::new(|_, _, cx| {
+                                        Some(
+                                            Icon::new(IconName::User)
+                                                .text_color(cx.theme().muted_foreground)
+                                                .into_any_element(),
+                                        )
+                                    }))
+                                    // beUI's success check: it replaces the
+                                    // trailing icon while the value is valid.
+                                    .suffix(Rc::new(|status, window, cx| {
+                                        (status == FieldStatus::Success).then(|| {
+                                            Icon::new(IconName::CircleCheck)
+                                                .with_size(Size::Size(window.rem_size()))
+                                                .text_color(cx.theme().success)
+                                                .into_any_element()
+                                        })
+                                    }))
+                                    .reserve_message_line();
+                                    move |options, window, cx| {
+                                        let view = InputFieldView::keyed(
+                                            window,
+                                            cx,
+                                            "profile-username",
+                                            config.clone(),
+                                        );
+                                        view.update(cx, |view, cx| {
+                                            view.set_presentation(
+                                                options.size(),
+                                                options.is_disabled(),
+                                                cx,
+                                            )
+                                        });
+                                        let field = div().child(view);
+                                        if options.layout().is_horizontal() {
+                                            field.w_64()
+                                        } else {
+                                            field.w_full()
+                                        }
+                                    }
+                                })
+                                .on_reset(
+                                    {
+                                        let username_default = defaults.username.clone();
+                                        move |cx: &App| {
+                                            AppSettings::global(cx).username != username_default
+                                        }
                                     },
-                                )
-                                .default_value(defaults.username.clone()),
+                                    {
+                                        let username_default = defaults.username.clone();
+                                        move |_window, cx: &mut App| {
+                                            AppSettings::global_mut(cx).username =
+                                                username_default.clone();
+                                            // The field mirrors the global on
+                                            // render; refresh so the reset
+                                            // shows up without waiting for the
+                                            // next unrelated re-render.
+                                            cx.refresh_windows();
+                                        }
+                                    },
+                                ),
                             )
                             .description(tr!("Item.username_desc")),
                             SettingItem::new(
@@ -664,5 +787,43 @@ mod tests {
         assert_eq!(super::locale_for("en"), "en");
         assert_eq!(super::locale_for("vi"), "vi");
         assert_eq!(super::locale_for("ja"), "ja");
+    }
+
+    /// The demo field's rules: empty is idle, 3–16 characters of lowercase
+    /// letters, digits, `-` and `_` are valid, everything else is rejected.
+    #[test]
+    fn username_rules() {
+        use super::{UsernameRule, username_rule};
+        use crate::input_field::Validation;
+
+        assert_eq!(username_rule(""), UsernameRule::Empty);
+        assert_eq!(username_rule("ab"), UsernameRule::TooShort);
+        assert_eq!(username_rule("abcdefghijklmnopq"), UsernameRule::TooLong);
+        assert_eq!(username_rule("Ninja"), UsernameRule::InvalidCharacter);
+        assert_eq!(username_rule("ninja!"), UsernameRule::InvalidCharacter);
+        assert_eq!(username_rule("ninja"), UsernameRule::Valid);
+        assert_eq!(username_rule("a-1"), UsernameRule::Valid);
+        assert_eq!(username_rule("a_b_2"), UsernameRule::Valid);
+
+        // Only a non-empty rule produces a message, and only the valid one is
+        // a success. The message text itself is locale-dependent, so only the
+        // kind is asserted.
+        assert!(UsernameRule::Empty.validation().is_none());
+        assert!(matches!(
+            UsernameRule::TooShort.validation(),
+            Some(Validation::Error(_))
+        ));
+        assert!(matches!(
+            UsernameRule::TooLong.validation(),
+            Some(Validation::Error(_))
+        ));
+        assert!(matches!(
+            UsernameRule::InvalidCharacter.validation(),
+            Some(Validation::Error(_))
+        ));
+        assert!(matches!(
+            UsernameRule::Valid.validation(),
+            Some(Validation::Success(_))
+        ));
     }
 }

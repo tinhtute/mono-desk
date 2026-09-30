@@ -137,6 +137,11 @@ Item:
     vi: Tên người dùng
     zh-CN: 用户名
     ja: ユーザー名
+  username_placeholder:
+    en: your-handle
+    vi: tên-của-bạn
+    zh-CN: 你的用户名
+    ja: your-handle
   username_desc:
     en: Your unique handle.
     vi: Tên định danh duy nhất của bạn.
@@ -277,3 +282,24 @@ Status:
     vi: Phiên bản
     zh-CN: 版本
     ja: バージョン
+Field:
+  username_too_short:
+    en: Use at least 3 characters.
+    vi: Dùng ít nhất 3 ký tự.
+    zh-CN: 至少使用 3 个字符。
+    ja: 3文字以上で入力してください。
+  username_too_long:
+    en: Use at most 16 characters.
+    vi: Dùng tối đa 16 ký tự.
+    zh-CN: 最多使用 16 个字符。
+    ja: 16文字以内で入力してください。
+  username_invalid:
+    en: Only lowercase letters, digits, - and _.
+    vi: Chỉ dùng chữ thường, số, - và _.
+    zh-CN: 仅限小写字母、数字、- 和 _。
+    ja: 小文字・数字・-・_ のみ使用できます。
+  username_ok:
+    en: Looks good.
+    vi: Hợp lệ.
+    zh-CN: 看起来不错。
+    ja: 問題ありません。
