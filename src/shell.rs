@@ -1,13 +1,21 @@
 use gpui_kit::component::{
     ActiveTheme, IconName, StyledExt, TitleBar,
     button::{Button, ButtonVariants},
-    setting::Settings,
     v_flex,
 };
 use gpui_kit::{
-    App, FontWeight, Global, Hsla, IntoElement, ParentElement as _, RenderOnce, StyleRefinement,
-    Styled as _, Window, div, img, px,
+    AnyElement, App, FontWeight, Global, Hsla, IntoElement, ParentElement as _, Pixels, Point,
+    RenderOnce, StyleRefinement, Styled as _, Window, div, img, point, px,
 };
+
+/// Titlebar height, from zdesk `spacing.css`.
+pub(crate) const TITLEBAR_H: Pixels = px(36.);
+const LIGHT_SIZE: Pixels = px(14.);
+
+/// GPUI's `traffic_light_position.y` is the button TOP edge (Tauri's is the center).
+pub(crate) fn traffic_light_origin() -> Point<Pixels> {
+    point(px(16.), TITLEBAR_H / 2. - LIGHT_SIZE / 2.)
+}
 
 /// Shell chrome state, stored as a GPUI global so both the titlebar
 /// collapse button (via `on_click`) and `main.rs` (sidebar sizing) can
@@ -61,12 +69,13 @@ pub(crate) fn sidebar_brand(collapsed: bool, foreground: Hsla) -> impl IntoEleme
 /// Stateless shell element: a vertical column of exactly two regions —
 /// the transparent `TitleBar` (borderless; its one child is the sidebar
 /// collapse toggle, parked right of the macOS traffic lights via the
-/// title bar's built-in 80px left padding) and the `Settings` element
-/// rendered directly below it. The raised content card is applied by
-/// `Settings` itself via `content_panel_style`.
+/// title bar's built-in 80px left padding) and the settings element
+/// rendered directly below it — an `AnyElement` so `main.rs` can wrap the
+/// `Settings` tree in the sidebar-width spring. The raised content card is
+/// applied by `Settings` itself via `content_panel_style`.
 #[derive(IntoElement)]
 pub struct AppShell {
-    settings: Option<Settings>,
+    settings: Option<AnyElement>,
 }
 
 impl AppShell {
@@ -74,8 +83,8 @@ impl AppShell {
         Self { settings: None }
     }
 
-    /// Attach the `Settings` element rendered under the titlebar.
-    pub fn settings_view(mut self, settings: Settings) -> Self {
+    /// Attach the settings element rendered under the titlebar.
+    pub fn settings_view(mut self, settings: AnyElement) -> Self {
         self.settings = Some(settings);
         self
     }
@@ -92,7 +101,7 @@ impl RenderOnce for AppShell {
                 // `border_widths = 0` on all edges) wins and kills the
                 // 1px seam under the title bar.
                 TitleBar::new()
-                    .refine_style(&StyleRefinement::default().border_0())
+                    .refine_style(&StyleRefinement::default().h(TITLEBAR_H).border_0())
                     .child(
                         Button::new("sidebar-collapse-toggle")
                             .ghost()
