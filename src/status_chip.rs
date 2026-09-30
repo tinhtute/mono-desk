@@ -26,7 +26,6 @@ use gpui_kit::component::{
 use gpui_kit::{
     App, IntoElement, ParentElement as _, RenderOnce, SharedString, Styled as _, Window, rgb,
 };
-use rust_i18n::t;
 
 /// A tone's resolved pill colors, as opaque `0xRRGGBB`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -105,20 +104,6 @@ impl StatusTone {
         Self::Paused,
         Self::Reviewing,
     ];
-
-    /// The tone's own status name, as a `locales/app.yml` key.
-    fn label_key(self) -> &'static str {
-        match self {
-            Self::Queued => "Status.queued",
-            Self::Scheduled => "Status.scheduled",
-            Self::InProgress => "Status.in_progress",
-            Self::HighPriority => "Status.high_priority",
-            Self::Ready => "Status.ready",
-            Self::Waiting => "Status.waiting",
-            Self::Paused => "Status.paused",
-            Self::Reviewing => "Status.reviewing",
-        }
-    }
 
     /// The glyph the reference pairs with this tone.
     fn icon(self) -> StatusIcon {
@@ -235,11 +220,6 @@ pub struct StatusChip {
 }
 
 impl StatusChip {
-    /// Chip for `tone`, labelled with the tone's own translated status name.
-    pub fn new(tone: StatusTone) -> Self {
-        Self::labelled(tone, t!(tone.label_key()).to_string())
-    }
-
     /// Chip for `tone` with a caller-supplied, already-translated label.
     pub fn labelled(tone: StatusTone, label: impl Into<SharedString>) -> Self {
         Self {
