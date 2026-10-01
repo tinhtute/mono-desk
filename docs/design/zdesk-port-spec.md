@@ -16,7 +16,7 @@ General page).
 
 **Two-region layout (phases `zdesk-correction` + `zdesk-layout-fix`).**
 `AppShell` is a `v_flex` of exactly two children
-(`src/shell.rs:78-101`): a borderless transparent `TitleBar`
+(`src/shell.rs:93-117`): a borderless transparent `TitleBar`
 (`refine_style(border_0)` kills its built-in `border_b_1` seam — the
 refinement lands after the component's own border in
 `vendor/gpui-component/src/title_bar.rs:336-337`, so it wins) whose one
@@ -26,7 +26,7 @@ title bar's built-in 80px left padding
 (`TITLE_BAR_LEFT_PADDING`, `title_bar.rs:17`); and the `Settings`
 element rendered directly under it. Settings' internal sidebar IS the
 app sidebar — now collapsible between 240px and a 48px icon rail via
-`ShellState` (a derived-`Default` `Global`, `src/shell.rs:15-21`);
+`ShellState` (a derived-`Default` `Global`, `src/shell.rs:20-27`);
 there is still no separate nav column, destinations, StatusBar, or
 EmptyState placeholders.
 
@@ -89,8 +89,43 @@ keeping every colour and `shadow: false`. `font.size` is also the window
 rem base (`Root::render` → `set_rem_size`), so every rem-derived helper
 (`h_7`, `text_sm`, `rounded_lg`, …) now renders at 14/16 of its Tailwind
 nominal instead of 13/16; the px annotations in the tables below are the
-13px-era values. `theme::tests::default_font_size_matches_theme_config`
+13px-era values. `theme::tests::default_and_reset_agree_with_the_config`
 pins the app's startup default to the config.
+
+**beUI token layer (2026-10-01).** The non-colour token layer is decided
+and pinned; colours, `font.size` 14, and the vendored patch set are
+frozen (owner decisions O1–O3).
+
+Radius roles (D3):
+
+| Role | Token | Value | Consumers |
+|---|---|---|---|
+| control | `theme.radius` | 8px | inputs, sidebar items, buttons, tooltip (`tooltip.rs:120`) |
+| large surface | `theme.radius_lg` | 16px | dialogs (`dialog/dialog.rs:580`), notifications (`notification.rs:425`) |
+| pill | `rounded_full()` helper (app) / `theme.radius_full()` (vendored) | 9999 | status chip (`src/status_chip.rs:249`), vendored badges |
+| card | `.rounded_lg()` rem helper | 7px @ rem 14 | the content card (`src/main.rs:1696-1703`) |
+
+Derived `RadiusTokens`: none 0 · sm 4 · md 8 · lg 16 · **xl 16** · full
+9999. `lg` and `xl` collide at 16 (`xl` = `radius * 2`); accepted (O3) —
+nothing in the app reads `radius.xl` (its only vendored reader is
+`Attachment`), and the derived values are pinned by
+`theme::tests::theme_token_values_are_pinned`. The card keeps the 7px
+rem helper (O2): faithful to zdesk's `rounded-lg` at the approved rem
+base, and it scales with the Font Size setting.
+
+Shadow policy (D4): `theme.shadow` stays `false` — the legacy flag gates
+surface-control shadows, not beUI. The app-owned elevation scale
+(`sm`/`md`/`lg`, 10% black ink, Tailwind radii halved for GPUI's sigma)
+lives in `src/tokens.rs` (`UiTokens`), resolved from the live theme via
+`Theme::resolve_semantic_config` (non-mutating; `apply_semantic_config*`
+is never called) and re-resolved by `theme::apply_overrides` after every
+theme rebuild and font-size change. Its consumer is the active sidebar
+pill, which carries `sm` (`active_item_style`, `src/main.rs:1685-1692`).
+The vendored overlays — Dialog, Sheet, Notification, Popover, Tooltip —
+paint their own hardcoded elevations at the same scale and are not
+restyled. The switch-thumb exception (beUI's `shadow-md` on the switch
+thumb) is **not adopted**: controls stay flat, and a thumb shadow would
+need a vendor patch.
 
 ### Accessibility (WCAG) adjustments
 
@@ -124,15 +159,15 @@ inactive sidebar labels use `muted.foreground` instead of
 
 | Element | zdesk source | Applied |
 |---|---|---|
-| Title bar | 36px (`--spacing-titlebar: 2.25rem`, `spacing.css:8`) | vendored `TitleBar` at `TITLE_BAR_HEIGHT = 34px` (`vendor/gpui-component/src/title_bar.rs:15`) — **deviation**; bottom border removed via `refine_style(border_0)` which lands after the component's own `.border_b_1()` (`title_bar.rs:336-337`), so the zeroed border wins (`src/shell.rs:82-98`) |
-| Traffic lights | macOS overlay at (16, 18), 72px reserved (`--spacing-traffic-lights: 4.5rem`) | `traffic_light_position: point(px(16.), px(18.))` over `TitleBar::title_bar_options()` (`src/main.rs:426-429`) |
-| Sidebar | `--spacing-nav: 15rem` = 240px (`NavView.tsx:40`) | `sidebar_width(sidebar_w)` + `sidebar_size_range(sidebar_w..sidebar_w)` where `sidebar_w` = 240 expanded / 48 collapsed — the dynamic pin keeps the `resizable_panel` seam from dragging; `show_handle(false)` (settings-collapse.patch) suppresses the painted 1px line via an empty `ResizeHandleRenderer` but the hit area remains — **deviation (residual invisible hit area)** (`src/main.rs:340-349`) |
-| Brand row | 20px mark (`--spacing-brand: 1.25rem`) + wordmark | `Settings::sidebar_header` slot (the header always renders; only the search input is gated on `!sidebar_collapsed` by `settings-collapsed-header.patch`, so the mark stays on the rail): expanded = `h(32px)` row, 20px PNG mark (raster `img` — `svg()` would flatten the gradient), Xanh Mono italic `text_size(17px)` wordmark "mono-desk" in `theme.foreground` (12.7:1 / 15.0:1), `gap_2 px_2`; collapsed = centered 20px mark on a 32px box (`src/shell.rs:35-57`) |
+| Title bar | 36px (`--spacing-titlebar: 2.25rem`, `spacing.css:8`) | vendored `TitleBar` at `TITLE_BAR_HEIGHT = 34px` (`vendor/gpui-component/src/title_bar.rs:15`) — **deviation**; bottom border removed via `refine_style(border_0)` which lands after the component's own `.border_b_1()` (`title_bar.rs:336-337`), so the zeroed border wins (`src/shell.rs:95-114`) |
+| Traffic lights | macOS overlay at (16, 18), 72px reserved (`--spacing-traffic-lights: 4.5rem`) | `traffic_light_position: Some(shell::traffic_light_origin())` — 16px left, top edge at 11px so the 14px button centers on zdesk's y=18 — over `TitleBar::title_bar_options()` (`src/main.rs:1825`) |
+| Sidebar | `--spacing-nav: 15rem` = 240px (`NavView.tsx:40`) | `sidebar_width(sidebar_w)` + `sidebar_size_range(sidebar_w..sidebar_w)` where `sidebar_w` = 240 expanded / 48 collapsed — the dynamic pin keeps the `resizable_panel` seam from dragging; `show_handle(false)` (settings-collapse.patch) suppresses the painted 1px line via an empty `ResizeHandleRenderer` but the hit area remains — **deviation (residual invisible hit area)** (`src/main.rs:1677-1683`) |
+| Brand row | 20px mark (`--spacing-brand: 1.25rem`) + wordmark | `Settings::sidebar_header` slot (the header always renders; only the search input is gated on `!sidebar_collapsed` by `settings-collapsed-header.patch`, so the mark stays on the rail): expanded = `h(32px)` row, 20px PNG mark (raster `img` — `svg()` would flatten the gradient), Xanh Mono italic `text_size(17px)` wordmark "mono-desk" in `theme.foreground` (12.7:1 / 15.0:1), `gap_2 px_2`; collapsed = centered 20px mark on a 32px box (`src/shell.rs:45-67`) |
 | Sidebar item | `SidebarItem` `h-7` = 28px, `rounded-md`, `px-2 gap-2` (`SidebarItem.tsx:39`) | vendored `SidebarMenuItem`: `h_7`, `p_2`, `gap_x_2`, `text_sm`, `rounded(theme.radius)` = 8px (was 6px before the beUI pilot); collapsed items render as centered icons (`SidebarCollapsible::Icon`); **page** items carry icons via `SettingPage::icon` — Settings2/Bell/User/Info (`src/main.rs`); child (group) rows are iconless text (`settings-static-tree.patch`) |
-| Selected state | `border-stroke` + `bg-background-raised` + `shadow-raised` (`SidebarItem.tsx:42`) | `active_item_style` patch: `bg(group_box)` + `border_1` `border_color(theme.border)` — the raised pill. `SidebarMenuItem::active_style` is refined **after** the built-in active styling (`when(is_active)` lands last, `settings-item-style.patch`), so the custom style wins in both modes; still no `shadow-raised` (`theme.shadow = false`) — partial deviation (`src/main.rs:364-369`) |
-| Inactive items | muted foreground | `sidebar_style` `.w(sidebar_w)` + `.border_0()` (rail's right border removed) + `text_color(muted_foreground)` — inherited by inactive labels only (active/hover set `sidebar.accent.foreground` explicitly). zdesk's `sidebar_foreground.opacity(0.7)` resolved to 3.7:1 in light mode, below WCAG AA; `muted.foreground` is 5.9:1 / 6.1:1 (`src/main.rs:398-409`) |
-| Hover | `bg-selection-hover` | native hover: `sidebar.accent` at 0.8 opacity + `sidebar.accent.foreground` (`sidebar/menu.rs:288-293`) |
-| Content card | `rounded-lg border border-stroke bg-background-raised` + inset margins (`AppShell.tsx:40`) | `content_panel_style` on the `resizable_panel` content panel: `rounded_lg()` (16px — `theme.radius_lg`, raised from 10 by the beUI pilot), `border_1` `border_color(theme.border)`, `bg(theme.group_box)`, `m(6px)` — equal 4-side inset — `overflow_hidden` (`src/main.rs:374-382`) |
+| Selected state | `border-stroke` + `bg-background-raised` + `shadow-raised` (`SidebarItem.tsx:42`) | `active_item_style` patch: `bg(group_box)` + `border_1` `border_color(theme.border)` + the app-owned `sm` elevation (`UiTokens`, O1) — the raised pill. `SidebarMenuItem::active_style` is refined **after** the built-in active styling (`when(is_active)` lands last, `settings-item-style.patch`), so the custom style wins in both modes; `theme.shadow` stays `false` (`src/main.rs:1685-1692`) |
+| Inactive items | muted foreground | `sidebar_style` `.w(sidebar_w)` + `.border_0()` (rail's right border removed) + `text_color(muted_foreground)` — inherited by inactive labels only (active/hover set `sidebar.accent.foreground` explicitly). zdesk's `sidebar_foreground.opacity(0.7)` resolved to 3.7:1 in light mode, below WCAG AA; `muted.foreground` is 5.9:1 / 6.1:1 (`src/main.rs:1677-1683`) |
+| Hover | `bg-selection-hover` | native hover: `sidebar.accent` at 0.8 opacity + `sidebar.accent.foreground` (`sidebar/menu.rs:256-261`) |
+| Content card | `rounded-lg border border-stroke bg-background-raised` + inset margins (`AppShell.tsx:40`) | `content_panel_style` on the `resizable_panel` content panel: `rounded_lg()` — the GPUI style helper (`rems(0.5)`), **7px at rem 14**, not `theme.radius_lg`/16px (O2) — `border_1` `border_color(theme.border)`, `bg(theme.group_box)`, `m(6px)` — equal 4-side inset — `overflow_hidden` (`src/main.rs:1696-1703`) |
 
 ## Font roles
 
@@ -140,12 +175,12 @@ inactive sidebar labels use `muted.foreground` instead of
 |---|---|---|---|
 | UI sans (body, labels, controls) | Inclusive Sans | 400 / 500 / 600 / 700 | `font.family`, `font.size` = 14 (zdesk `text-body`; raised from 13 by the beUI pilot); sidebar labels are native `SidebarMenuItem` `text_sm` |
 | Mono (code, telemetry) | Google Sans Code | 400 / 500 | `mono_font.family`, `mono_font.size` = 12 (zdesk `text-code`) |
-| Wordmark | Xanh Mono | 400 regular + 400 italic | `sidebar_brand()` wordmark — 17px italic in `theme.foreground` (`src/shell.rs:35-57`); zdesk specifies a 15px semibold sans wordmark — locked deviation per owner decision. Xanh Mono ships no 600 face, so the requested `SEMIBOLD` resolves to Regular; presence comes from size + colour |
+| Wordmark | Xanh Mono | 400 regular + 400 italic | `sidebar_brand()` wordmark — 17px italic in `theme.foreground` (`src/shell.rs:45-67`); zdesk specifies a 15px semibold sans wordmark — locked deviation per owner decision. Xanh Mono ships no 600 face, so the requested `SEMIBOLD` resolves to Regular; presence comes from size + colour |
 
 Vendoring: Inclusive Sans was copied as static TTFs from
 `~/Library/Fonts` (installed upstream statics — no instancer pass
 needed); registered alongside Hanken Grotesk, Google Sans Code, and Xanh
-Mono in `theme::install` (`src/theme.rs:31-40`) via
+Mono in `theme::install` (`src/theme.rs:85-100`) via
 `cx.text_system().add_fonts` before `Theme::change`. Hanken Grotesk
 remains registered but is no longer the theme family.
 
@@ -153,11 +188,11 @@ remains registered but is no longer the theme family.
 
 | zdesk behavior (`useGlobalShortcuts.ts`) | Applied |
 |---|---|
-| ⌘/Ctrl+Q → window close | `cmd-q` → `Quit` → `cx.quit()`; the app-menu item is registered in `set_menus` so macOS shows the key equivalent (`src/main.rs:429,433-436`) |
-| ⌘/Ctrl+W → close active tab, else close window | `cmd-w` → `CloseWindow` → `cx.quit()` — **no tabs exist, so it quits** (`src/main.rs:430,439`); semantics recorded as deviation |
+| ⌘/Ctrl+Q → window close | `cmd-q` → `Quit` → `cx.quit()`; the app-menu item is registered in `set_menus` so macOS shows the key equivalent (`src/main.rs:1788,1792-1794`) |
+| ⌘/Ctrl+W → close active tab, else close window | `cmd-w` → `CloseWindow` → `cx.quit()` — **no tabs exist, so it quits** (`src/main.rs:1789,1798-1799`); semantics recorded as deviation |
 | ⌘/Ctrl+K → search view | **not bound** — the multi-view shell was removed; there is no Search view |
 | ⌘/Ctrl+, → settings view | **not bound** — Settings is the only view |
-| ⌘/Ctrl+B → toggle nav | `cmd-b` → `ToggleSidebar` flips `ShellState::collapsed` + `cx.refresh_windows()` — toggles 240px ⇄ 48px icon rail; same affordance as the titlebar `PanelLeft` ghost button (`src/main.rs:431,441-446`) |
+| ⌘/Ctrl+B → toggle nav | `cmd-b` → `ToggleSidebar` flips `ShellState::collapsed` + `cx.refresh_windows()` — toggles 240px ⇄ 48px icon rail; same affordance as the titlebar `PanelLeft` ghost button (`src/main.rs:1790,1801-1805`) |
 | Theme toggle | zdesk offers a controller; mono-desk keeps it Settings-only (Dark Mode switch, General page) — locked decision |
 
 ## Settings control contracts (beUI P1 adoption)
@@ -196,9 +231,11 @@ remains registered but is no longer the theme family.
   hex, so a knob change requires re-resolving every row in the table
   above (both modes).
 - **Selected rail items carry a raised pill** (`active_item_style`: `bg`
-  group_box + 1px border stroke) applied after the vendored accent fill
-  so it overrides; zdesk's `shadow-raised` is still not applied
-  (`theme.shadow = false` gates surface shadows).
+  group_box + 1px border stroke + the app-owned `sm` elevation from
+  `UiTokens`) applied after the vendored accent fill so it overrides;
+  zdesk's `shadow-raised` is now matched by the app-owned scale while
+  `theme.shadow` stays `false` (the legacy flag gates the vendored
+  surface-control shadows).
 - **No keyframe motion**: zdesk `motion.css` (120–200ms easings,
   transitions on `SidebarItem`) has no GPUI analog — non-portable.
 - **Residual resize hit area**: `sidebar_size_range` pins
@@ -213,9 +250,6 @@ remains registered but is no longer the theme family.
   `sidebar/menu.rs`): component-internal to vendored `Settings`, not
   expressible without another patch. The inactive-item ~70% opacity gap
   is closed via `sidebar_style`.
-- **Collapsed tooltips unavailable**: on the 48px rail items shrink to
-  bare icons; adding hover tooltips would need crate-internal API the
-  vendored `SidebarMenuItem` doesn't expose — deviation.
 - **TitleBar 34px vs spec 36px** — vendored-component deviation, no
   patch added.
 - **`Cmd+W` semantics**: zdesk closes the active tab before falling back
@@ -256,7 +290,8 @@ sequence).
 
 - `make run` visual check pending: traffic-light position, borderless
   titlebar with the `PanelLeft` toggle right of the lights, ⌘B collapse
-  icons), active pill (bg raised + 1px stroke), static tree (bold pages,
+  icons), active pill (bg raised + 1px stroke + `sm` elevation), static
+  tree (bold pages,
   iconless children), equal 6px
   card inset, residual (invisible) resize hit area.
 - ⌘W = quit is a destructive binding kept per plan; revisit if tabs land.

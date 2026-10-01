@@ -7,7 +7,7 @@ created: 2026-09-30
 updated: 2026-10-01
 approach: planned
 planning_status: planned
-exact_next_action: "work phase `beui-p1-input-sync` (p0-2/p0-3 remainder: input aria_label + Role::Alert + message-row growth, the five view-level input tests)"
+exact_next_action: "owner `make run` visual pass over the four phases (input field, labelled rows, tooltips, notifications, Channels/Digest, Region select/combobox, About tabs/context menu)"
 ---
 
 # beUI P1 components → mono-desk
@@ -408,7 +408,10 @@ make fmt-check`, plus the owner `make run` visual pass. Baseline
 
 ### Phase `beui-p1-input-sync` — story_id: story-beui-p1-input-sync-20260930
 
-- **Status:** `planned`
+- **Status:** `done` (2026-10-01, `quaqua/sude-beuip1`; merged into
+  `quaqua/tieude-beuip23`) — revalidation fix, mount seeding, aria
+  label, `Role::Alert` message row, the five view-level input tests.
+  Owner visual pass pending.
 - **Goal:** external writes/reset revalidate; view-level tests for the
   input field; input a11y + message-row growth; config immutability
   documented.
@@ -482,7 +485,12 @@ attempts → halt, report.
 
 ### Phase `beui-p1-existing-surfaces` — story_id: story-beui-p1-existing-surfaces-20260930
 
-- **Status:** `planned`
+- **Status:** `done` (2026-10-01, `quaqua/sude-beuip1`; merged into
+  `quaqua/tieude-beuip23`) — labelled switch/checkbox rows with typed
+  resets, notifications switch label, collapsed-rail tooltip lifecycle,
+  notification push/close/autohide, `test_env` config isolation; the
+  stale collapsed-tooltip deviation is corrected in the port spec.
+  Owner visual pass pending.
 - **Goal:** switch + checkbox rows get accessible names and acceptance
   tests; tooltip and notification verified on their existing surfaces;
   the stale tooltip deviation corrected.
@@ -650,6 +658,13 @@ these are answered:
   closure and `handle_item_select`; recorded as the third beUI P1
   vendor patch (`combobox-value-change.patch`) — app-side cannot
   reach the commit decision, so the patch is required, not optional.
+- 2026-10-01 — integration decision (worker): merge `quaqua/sude-beuip1`
+  and `quaqua/tieude-beuitok` into `quaqua/tieude-beuip23` with
+  `--no-ff`, keeping every branch's behavior and tests; `view_tests.rs`
+  is a union (both harnesses, one deduped `press_key`), the pages
+  harness installs `test_env` so its row handlers stay off the owner's
+  config dir, and the port spec re-grounds the `src/main.rs` refs the
+  merge shifted.
 
 ## Validation
 
@@ -694,17 +709,31 @@ claimed. Worker gates never launch the app.
   Gates: `cargo test` 54 passed, `cargo clippy --all-targets -- -D
   warnings` clean, `cargo fmt --check` clean. Owner visual pass still
   pending (no GUI automation by workers).
+- 2026-10-01 — `beui-p1-input-sync` + `beui-p1-existing-surfaces`
+  implemented on `quaqua/sude-beuip1`: `FieldState` mount seeding +
+  `sync_from_app` revalidation (no shake on mount/external writes),
+  `InputFieldConfig::aria_label`, the `min_h` message row with
+  `Role::Alert`, the five view-level input tests; Dark Mode / Launch
+  at login / notifications rows carry accessible names and typed
+  resets; collapsed-rail tooltip lifecycle and notification
+  push/close/autohide acceptance; `test_env` redirects the config dir
+  for view tests.
+- 2026-10-01 — integration on `quaqua/tieude-beuip23`: merged
+  `quaqua/sude-beuip1` (Phase 0 + Phase 1) and `quaqua/tieude-beuitok`
+  (token baseline + elevation) with `--no-ff`; `view_tests.rs` is the
+  union of both test sets (19 view tests) with both harnesses and one
+  deduped `press_key`; the pages harness now also installs `test_env`;
+  the port spec unions both branches' sections and re-grounds the
+  `src/main.rs` line refs the merge shifted. Gates: `cargo test` 75
+  passed, `cargo clippy --all-targets -- -D warnings` clean, `cargo
+  fmt --check` clean, `git diff 904337e -- assets/themes/mono.json`
+  empty.
 
 ## Current State
 
-Phases `beui-p1-new-surfaces` and `beui-p1-conditional` are
-implemented and validated on `quaqua/tieude-beuip23` (worker gates
-green; owner visual pass pending). Phase 0 (`beui-p1-input-sync`)
-remains the next executable phase — the revalidation fix landed on
-`main` (`01f12a9`) and the view-test backend exists, but the input
-`aria_label`, the error row's `Role::Alert`, the growing message row,
-and the five view-level input tests are still open; Phase 1
-(existing-surface switch/checkbox labels, tooltip/notification
-acceptance, the stale collapsed-tooltip deviation) is planned and
-decision-free. The `zdesk-ui-port` plan remains active pending its
-owner visual pass.
+All four phases (`beui-p1-input-sync`, `beui-p1-existing-surfaces`,
+`beui-p1-new-surfaces`, `beui-p1-conditional`) are implemented and
+validated on `quaqua/tieude-beuip23` (worker gates green; owner visual
+pass pending). The token layer (`beui-tokens` plan) is merged in from
+`quaqua/tieude-beuitok` with its owner visual pass pending. The
+`zdesk-ui-port` plan remains active pending its owner visual pass.

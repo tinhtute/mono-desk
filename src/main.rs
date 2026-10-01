@@ -34,6 +34,7 @@ use gpui_kit::{
 use input_field::{FieldStatus, InputFieldConfig, InputFieldView, Validation};
 use shell::{AppShell, ShellState};
 use status_chip::{StatusChip, StatusIcon, StatusTone};
+use tokens::UiTokens;
 
 mod assets;
 mod cadence;
@@ -43,6 +44,7 @@ mod persist;
 mod shell;
 mod status_chip;
 mod theme;
+mod tokens;
 
 #[cfg(test)]
 mod view_tests;
@@ -1678,12 +1680,14 @@ impl Render for SettingsWindow {
                     .border_0()
                     .text_color(cx.theme().muted_foreground),
             )
-            // Raised pill on the active sidebar item.
+            // Raised pill on the active sidebar item: the app-owned `sm`
+            // elevation from the resolved token snapshot (O1).
             .active_item_style(
                 &StyleRefinement::default()
                     .bg(cx.theme().group_box)
                     .border_1()
-                    .border_color(cx.theme().border),
+                    .border_color(cx.theme().border)
+                    .shadow(cx.global::<UiTokens>().shadow.sm.clone()),
             )
             // Raised zdesk card around the settings content: rounded,
             // stroked, lighter than the window base, with a 6px inset on all
