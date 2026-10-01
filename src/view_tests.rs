@@ -78,6 +78,25 @@ fn click_at_position(
     window.render_frame(cx);
 }
 
+/// Dispatches a full key press (down + up): the div-based activation path
+/// maps Enter/Space to a click on the key-up, so a bare `press` (key-down
+/// only) cannot toggle a focused checkbox.
+fn press_key(window: &mut Window, key: &str, cx: &mut App) {
+    let keystroke = gpui_kit::Keystroke::parse(key).expect("a valid test keystroke");
+    window.render_frame(cx);
+    window.dispatch_event(
+        gpui_kit::KeyDownEvent {
+            keystroke: keystroke.clone(),
+            is_held: false,
+            prefer_character_input: false,
+        }
+        .to_platform_input(),
+        cx,
+    );
+    window.dispatch_event(gpui_kit::KeyUpEvent { keystroke }.to_platform_input(), cx);
+    window.render_frame(cx);
+}
+
 /// Down+up in one burst, without an intervening frame: for targets that get
 /// blurred on mouse-down and would lose their hitbox before the release
 /// (e.g. the combobox row when the search field is focused).
@@ -205,6 +224,71 @@ fn channels_disable_with_notifications(cx: &mut TestAppContext) {
 }
 
 #[gpui_kit::test]
+fn digest_disable_with_notifications(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    cx.update(|cx| {
+        cx.set_global(AppSettings {
+            notifications_enabled: false,
+            ..Default::default()
+        });
+    });
+    with_settings(cx, 1, |window, cx| {
+        // The Digest group is gated on notifications like the Channels group:
+        // clicks leave the global untouched.
+        window.click("digest-weekly", cx);
+        assert_eq!(AppSettings::global(cx).digest, DigestCadence::Immediate);
+    });
+}
+
+#[gpui_kit::test]
+fn channels_keyboard_and_reduced_motion(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    cx.update(|cx| cx.set_global(AppSettings::default()));
+    with_settings(cx, 1, |window, cx| {
+        // Clicking focuses the composed control; Space and Enter then toggle
+        // it from the keyboard (base Checkbox activation).
+        window.click("channels-all", cx);
+        assert_eq!(window.find("channels-all").focused(), Some(true));
+        assert!(AppSettings::global(cx).channel_digest);
+        press_key(window, "space", cx);
+        assert!(!AppSettings::global(cx).channel_digest);
+        press_key(window, "enter", cx);
+        assert!(AppSettings::global(cx).channel_digest);
+
+        // Reduced motion: the mark spring resolves immediately; the toggle
+        // still lands and writes the global.
+        cx.set_reduce_motion(true);
+        window.click("channel-email", cx);
+        assert!(!AppSettings::global(cx).channel_email);
+        cx.set_reduce_motion(false);
+    });
+}
+
+#[gpui_kit::test]
+fn digest_radio_keyboard_and_reduced_motion(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    cx.update(|cx| cx.set_global(AppSettings::default()));
+    with_settings(cx, 1, |window, cx| {
+        // Clicking focuses the option; Space/Enter on the selected option are
+        // inert (a radio cannot be unchecked by activation).
+        window.click("digest-daily", cx);
+        assert_eq!(window.find("digest-daily").focused(), Some(true));
+        assert_eq!(window.find("digest-daily").selected(), Some(true));
+        assert_eq!(AppSettings::global(cx).digest, DigestCadence::Daily);
+        press_key(window, "space", cx);
+        press_key(window, "enter", cx);
+        assert_eq!(AppSettings::global(cx).digest, DigestCadence::Daily);
+
+        // Reduced motion: the dot spring resolves immediately; selection
+        // still lands.
+        cx.set_reduce_motion(true);
+        window.click("digest-weekly", cx);
+        assert_eq!(AppSettings::global(cx).digest, DigestCadence::Weekly);
+        cx.set_reduce_motion(false);
+    });
+}
+
+#[gpui_kit::test]
 fn digest_radio_selects_and_arrows_move(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     cx.update(|cx| cx.set_global(AppSettings::default()));
@@ -254,6 +338,32 @@ async fn language_select_commits_via_keyboard(cx: &mut TestAppContext) {
 }
 
 #[gpui_kit::test]
+async fn language_select_escape_cancels(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    cx.update(|cx| cx.set_global(AppSettings::default()));
+    let handle = open_settings(cx, 0);
+    cx.update_window(handle.into(), |_, window, cx| {
+        window.render_frame(cx);
+        window.within("language-select-control").click("input", cx);
+        assert_eq!(
+            window.find("language-select-control").expanded(),
+            Some(true)
+        );
+        // Escape closes the listbox without committing the cursor row.
+        window.press("down", cx);
+        window.press("escape", cx);
+        assert_eq!(
+            window.find("language-select-control").expanded(),
+            Some(false)
+        );
+    })
+    .unwrap();
+    cx.run_until_parked();
+    let language = cx.update(|cx| AppSettings::global(cx).language.clone());
+    assert_eq!(language, "en");
+}
+
+#[gpui_kit::test]
 async fn timezone_combobox_searches_and_commits(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     cx.update(|cx| cx.set_global(AppSettings::default()));
@@ -273,9 +383,9 @@ async fn timezone_combobox_searches_and_commits(cx: &mut TestAppContext) {
     cx.run_until_parked();
     cx.update_window(handle.into(), |_, window, cx| {
         window.render_frame(cx);
-        // Filter to the single row. WIP: typed text isn't reaching the
-        // popup's query input under the test window (see handoff); the rest
-        // of the flow is staged so the failure is isolated to that step.
+        // Filter to the single row. The query lands in the popup's search
+        // input; the Change events flush when this update returns, so the
+        // filter is applied by the time the next frame renders.
         window.input("tokyo", cx);
     })
     .unwrap();
@@ -301,6 +411,40 @@ async fn timezone_combobox_searches_and_commits(cx: &mut TestAppContext) {
         AppSettings::global(cx).timezone == "Asia/Tokyo"
     })
     .await;
+}
+
+#[gpui_kit::test]
+fn about_context_menu_escape_dismisses(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    cx.update(|cx| cx.set_global(AppSettings::default()));
+    let handle = open_settings(cx, 4);
+    cx.update_window(handle.into(), |_, window, cx| {
+        window.render_frame(cx);
+        click_at_position(
+            window,
+            MouseButton::Right,
+            bounds_below(window, "about-brand-card").center(),
+            cx,
+        );
+    })
+    .unwrap();
+    cx.run_until_parked();
+    cx.update_window(handle.into(), |_, window, cx| {
+        window.render_frame(cx);
+        // Escape dismisses the menu; a following Enter has no item to
+        // activate, so nothing reaches the clipboard.
+        window.press("escape", cx);
+        window.press("enter", cx);
+    })
+    .unwrap();
+    cx.run_until_parked();
+    assert!(cx.read_from_clipboard().is_none());
+    cx.update_window(handle.into(), |_, window, cx| {
+        window.render_frame(cx);
+        window.remove_window();
+    })
+    .unwrap();
+    cx.run_until_parked();
 }
 
 #[gpui_kit::test]

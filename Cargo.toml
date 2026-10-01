@@ -34,5 +34,8 @@ ttf-parser = "0.25"
 # cycle that leaks the menu entity).
 # - searchable-list-test-support.patch: `.test_support()` on searchable-list rows so the
 # gpui-kit test backend can observe popup rows (Select/Combobox items).
+# - combobox-value-change.patch: detect a Combobox selection change by item value, not by
+# row index — a filtered list reuses indices, so clicking a filtered row that lands on the
+# selected row's index was treated as "no change" (no Change/Confirm, no close).
 [patch.crates-io]
 gpui-component = { path = "vendor/gpui-component" }

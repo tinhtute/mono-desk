@@ -4,10 +4,10 @@ intake_id: intake-20260930-beui-p1-components
 status: active
 lane: normal
 created: 2026-09-30
-updated: 2026-09-30
+updated: 2026-10-01
 approach: planned
 planning_status: planned
-exact_next_action: "work phase `beui-p1-input-sync` (wave: p0-1 → p0-2 → p0-3)"
+exact_next_action: "work phase `beui-p1-input-sync` (p0-2/p0-3 remainder: input aria_label + Role::Alert + message-row growth, the five view-level input tests)"
 ---
 
 # beUI P1 components → mono-desk
@@ -527,8 +527,9 @@ wiring test, record the visual as an owner check, continue.
 
 ### Phase `beui-p1-new-surfaces` — story_id: story-beui-p1-new-surfaces-20260930
 
-- **Status:** `planned` — **starts only after the owner answers the
-  surface decisions** (radio, select, mixed checkbox).
+- **Status:** `done` (2026-10-01, `quaqua/tieude-beuip23`) — owner
+  decisions answered; all three approved controls composed and tested.
+  Owner visual pass pending.
 - **Goal:** the approved new-surface controls are composed app-side
   with their acceptance tests; declined controls are recorded dropped.
 - **Depends on:** `beui-p1-input-sync` (test backend); owner decisions.
@@ -558,9 +559,9 @@ record it dropped with the reason, continue with the rest.
 
 ### Phase `beui-p1-conditional` — story_id: story-beui-p1-conditional-20260930
 
-- **Status:** `planned` — **starts only if the owner approves a
-  context-menu and/or tabs surface**; otherwise this phase is closed
-  as “dropped, recorded”.
+- **Status:** `done` (2026-10-01, `quaqua/tieude-beuip23`) — owner
+  approved both surfaces (About “Copy version”, About tabs); both
+  implemented and tested. Owner visual pass pending.
 - **Goal:** the approved conditional controls are implemented with
   their acceptance tests, or recorded dropped.
 - **Depends on:** owner decisions; `beui-p1-input-sync` (test backend).
@@ -639,6 +640,16 @@ these are answered:
   (pages via `SettingsWindow::setting_pages`, now `&App`-scoped),
   navigate with `default_selected_index`; tab selection lives in
   `use_keyed_state("about-tab")` (self-observing).
+- 2026-10-01 — combobox test root cause (worker): the vendored
+  `ComboboxState` decided “selection changed” by comparing
+  `IndexPath`s, but a filtered list reuses row indices — clicking the
+  filtered row that lands on the selected row's index mutated the
+  selection without emitting `Change`/`Confirm` or closing. Fixed by
+  comparing item **values** (the identity `selection_changes` /
+  `is_item_checked` already use) in both the live deferred confirm
+  closure and `handle_item_select`; recorded as the third beUI P1
+  vendor patch (`combobox-value-change.patch`) — app-side cannot
+  reach the commit decision, so the patch is required, not optional.
 
 ## Validation
 
@@ -671,9 +682,29 @@ claimed. Worker gates never launch the app.
   `channel_*`/`digest`/`timezone`; `i18n.rs` gains all new keys in
   en/vi/zh-CN/ja; `view_tests.rs` adds headless `#[gpui_kit::test]`
   coverage.
+- 2026-10-01 — `beui-p1-new-surfaces` + `beui-p1-conditional`
+  finished on `quaqua/tieude-beuip23` (the `quaqua/sude-beuip23` WIP
+  fast-forwarded): the combobox search/commit test is green (root
+  cause + `combobox-value-change.patch` above); added acceptance
+  coverage for the gated Digest group
+  (`digest_disable_with_notifications`), Space/Enter activation and
+  reduced motion for the composed Channels/Digest controls, Select
+  Escape-cancel, and context-menu Escape-dismiss; the patch table in
+  `docs/design/zdesk-port-spec.md` now lists all thirteen patches.
+  Gates: `cargo test` 54 passed, `cargo clippy --all-targets -- -D
+  warnings` clean, `cargo fmt --check` clean. Owner visual pass still
+  pending (no GUI automation by workers).
 
 ## Current State
 
-Phase 0 (`beui-p1-input-sync`) is the next executable phase. Phase 1
-is planned and decision-free; Phases 2–3 are owner-gated. The
-`zdesk-ui-port` plan remains active pending its owner visual pass.
+Phases `beui-p1-new-surfaces` and `beui-p1-conditional` are
+implemented and validated on `quaqua/tieude-beuip23` (worker gates
+green; owner visual pass pending). Phase 0 (`beui-p1-input-sync`)
+remains the next executable phase — the revalidation fix landed on
+`main` (`01f12a9`) and the view-test backend exists, but the input
+`aria_label`, the error row's `Role::Alert`, the growing message row,
+and the five view-level input tests are still open; Phase 1
+(existing-surface switch/checkbox labels, tooltip/notification
+acceptance, the stale collapsed-tooltip deviation) is planned and
+decision-free. The `zdesk-ui-port` plan remains active pending its
+owner visual pass.

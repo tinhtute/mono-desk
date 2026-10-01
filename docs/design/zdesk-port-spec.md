@@ -194,8 +194,8 @@ remains registered but is no longer the theme family.
 
 ## Vendored patch state
 
-`vendor/gpui-component` is stock 0.6.1 plus exactly ten patches
-(`Cargo.toml:18-30`):
+`vendor/gpui-component` is stock 0.6.1 plus exactly thirteen patches
+(`Cargo.toml:18-39`):
 
 | Patch | Lines | State | What it does |
 |---|---|---|---|
@@ -209,10 +209,15 @@ remains registered but is no longer the theme family.
 | `vendor/patches/controls-cursor.patch` | 37 | **NEW** (WIP port) | `cursor_pointer()` on every interactive `Button` (was link/text variants only) and on enabled `Checkbox`/`Select`/`Switch` |
 | `vendor/patches/settings-collapsed-header.patch` | 44 | **NEW** (WIP port) | The sidebar header is always rendered; only the search `Input` is gated on `!sidebar_collapsed`, so the `sidebar_header` slot (brand mark) stays visible on the 48px rail |
 | `vendor/patches/settings-static-tree.patch` | 437 | **NEW** (mdtree) | Static sidebar tree (`src/sidebar/menu.rs`, `src/setting/{settings,page,group}.rs`): no caret/toggle (`SidebarMenuItem::{default_open,click_to_open,click_to_toggle}` + `SettingPage::default_open` removed), children always render when the rail is expanded, page labels bold via `label_style`, child items only for pages with >=2 titled groups — indices address `page.groups` so untitled groups keep their slots; child rows are iconless, so `SettingGroup::icon` (added by `settings-group-icon.patch`) is removed again |
+| `vendor/patches/context-menu-release.patch` | 18 | **NEW** (beUI P1) | `ContextMenuSharedState.menu_view` is cleared on `DismissEvent` — the subscription closure lives inside the state it captures, so retaining the built `PopupMenu` there is a retain cycle that leaks the menu entity (and keeps a stale entity alive until element unmount) |
+| `vendor/patches/searchable-list-test-support.patch` | 20 | **NEW** (beUI P1) | `.test_support()` on `SearchableListItemElement` rows (the `ListItem` element already has it) so the gpui-kit test backend can observe Select/Combobox popup rows |
+| `vendor/patches/combobox-value-change.patch` | 63 | **NEW** (beUI P1) | Combobox selection-change detection compares item **values**, not row indices — a filtered list reuses indices, so clicking a filtered row that landed on the selected row's index was treated as "no change" (no `Change`/`Confirm`, no close) while still mutating the selection; matches the value identity `selection_changes`/`is_item_checked` already use |
 
-Upgrade rule: re-copy the upstream crate, re-apply all ten patches.
+Upgrade rule: re-copy the upstream crate, re-apply all thirteen patches.
 **Reversal order** (the hunks stack — `git apply -R` in:
-`settings-static-tree` → `settings-collapsed-header` → `controls-cursor` →
+`combobox-value-change` → `searchable-list-test-support` →
+`context-menu-release` → `settings-static-tree` →
+`settings-collapsed-header` → `controls-cursor` →
 `settings-search-placeholder-locale` → `settings-item-style` →
 `settings-collapse` → `settings-group-icon` → `settings-content-style` →
 `sidebar-slots` → `sidebar-cursor`; apply forward in the reverse
