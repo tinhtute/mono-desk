@@ -3,6 +3,8 @@ use std::borrow::Cow;
 use gpui_kit::component::{Theme, ThemeRegistry};
 use gpui_kit::{App, px};
 
+use crate::tokens::UiTokens;
+
 /// The app's embedded theme set (`mono-light` / `mono-dark`).
 ///
 /// Crate-visible so tests elsewhere can resolve the app's own palette instead
@@ -32,12 +34,15 @@ pub fn clamp_font_size(size: f64) -> f64 {
 
 /// Write the app's theme overrides onto `theme`.
 ///
+/// Crate-visible so the token tests can exercise the override path on a bare
+/// `Theme`, without an `App`.
+///
 /// - `font_size` — the Font Size setting, clamped to 8–32.
 /// - `focus_ring` — off. The framework's ring is painted *outside* a focused
 ///   control's border and reads as too heavy here; with the flag off,
 ///   `ThemeStyled::focus_ring_style` keeps only the 1px border tinted with
 ///   `theme.ring`, which costs no space and cannot be clipped.
-fn write_overrides(theme: &mut Theme, font_size: f64) {
+pub(crate) fn write_overrides(theme: &mut Theme, font_size: f64) {
     theme.font_size = px(clamp_font_size(font_size) as f32);
     theme.focus_ring = false;
 }
@@ -46,11 +51,13 @@ fn write_overrides(theme: &mut Theme, font_size: f64) {
 ///
 /// `Theme::change` rebuilds the theme from the config, so this must run after
 /// every mode switch (and once at startup, from [`install`]). `sync_base`
-/// rebuilds the Base tokens the components read, and `Root` re-derives the
-/// window rem size from `theme.font_size` on the next paint.
+/// rebuilds the Base tokens the components read, `Root` re-derives the window
+/// rem size from `theme.font_size` on the next paint, and [`UiTokens::sync`]
+/// re-resolves the app's elevation snapshot from the rebuilt theme.
 pub fn apply_overrides(font_size: f64, cx: &mut App) {
     write_overrides(Theme::global_mut(cx), font_size);
     Theme::sync_base(cx);
+    UiTokens::sync(cx);
 }
 
 /// Loads the embedded `mono-light` / `mono-dark` theme set, makes it the
@@ -100,12 +107,15 @@ pub fn install(cx: &mut App, font_size: f64) {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+    use std::rc::Rc;
+
     use super::MONO_THEMES;
     use super::{
         FONT_SIZE_MAX, FONT_SIZE_MIN, XANH_MONO_SEMIBOLD_ITALIC, clamp_font_size, write_overrides,
     };
-    use gpui_kit::component::{Theme, ThemeSet};
-    use gpui_kit::px;
+    use gpui_kit::component::{Theme, ThemeMode, ThemeSet};
+    use gpui_kit::{px, rems};
 
     /// The wordmarks ask for `Xanh Mono` at `FontWeight::SEMIBOLD`, and GPUI
     /// never synthesizes bold — so the request only reads as SemiBold if the
@@ -162,6 +172,125 @@ mod tests {
         write_overrides(&mut theme, 1.0);
         assert!(!theme.focus_ring);
         assert_eq!(theme.font_size, px(FONT_SIZE_MIN as f32));
+    }
+
+    /// The app's own palette, resolved the way `Theme::change` resolves it.
+    fn mono_theme(mode: ThemeMode) -> Theme {
+        let set: ThemeSet =
+            serde_json::from_str(MONO_THEMES).expect("embedded mono.json must deserialize");
+        let config = set
+            .themes
+            .into_iter()
+            .find(|theme| theme.mode == mode)
+            .expect("both modes are present in the embedded theme set");
+        let mut theme = Theme::default();
+        theme.apply_config(&Rc::new(config));
+        theme
+    }
+
+    /// The agreed token layer: the config values both modes carry and the
+    /// tokens the vendored components derive from them. Any drift here moves
+    /// the app's density or shape, so every value is pinned.
+    #[test]
+    fn theme_token_values_are_pinned() {
+        for mode in [ThemeMode::Light, ThemeMode::Dark] {
+            let theme = mono_theme(mode);
+            let mode = mode.name();
+
+            // Config values (the palette digest test pins the colours).
+            assert_eq!(theme.font_size, px(14.), "{mode}: font.size");
+            assert_eq!(theme.mono_font_size, px(12.), "{mode}: mono_font.size");
+            assert_eq!(theme.radius, px(8.), "{mode}: radius");
+            assert_eq!(theme.radius_lg, px(16.), "{mode}: radius.lg");
+            assert!(!theme.shadow, "{mode}: shadow");
+
+            // Derived radius tokens: sm = radius/2, md = radius, lg =
+            // radius.lg, xl = radius*2 — the lg/xl collision (both 16) is
+            // accepted (O3).
+            let radius = theme.radius_tokens();
+            assert_eq!(radius.none, px(0.), "{mode}: radius.none");
+            assert_eq!(radius.sm, px(4.), "{mode}: radius.sm");
+            assert_eq!(radius.md, px(8.), "{mode}: radius.md");
+            assert_eq!(radius.lg, px(16.), "{mode}: radius.lg");
+            assert_eq!(radius.xl, px(16.), "{mode}: radius.xl");
+            assert_eq!(radius.full, px(9999.), "{mode}: radius.full");
+
+            // Spacing is the framework default scale — no app override.
+            let spacing = theme.spacing_tokens();
+            assert_eq!(spacing.xxs, px(2.), "{mode}: spacing.xxs");
+            assert_eq!(spacing.xs, px(4.), "{mode}: spacing.xs");
+            assert_eq!(spacing.sm, px(8.), "{mode}: spacing.sm");
+            assert_eq!(spacing.md, px(12.), "{mode}: spacing.md");
+            assert_eq!(spacing.lg, px(16.), "{mode}: spacing.lg");
+            assert_eq!(spacing.xl, px(24.), "{mode}: spacing.xl");
+            assert_eq!(spacing.xxl, px(32.), "{mode}: spacing.xxl");
+
+            // Typography: framework defaults with the sizes taken from the
+            // config (`md` = font.size, `mono_md` = mono_font.size).
+            let typography = theme.typography_tokens();
+            assert_eq!(typography.xs.size, px(12.), "{mode}: typography.xs.size");
+            assert_eq!(
+                typography.xs.line_height,
+                px(16.),
+                "{mode}: typography.xs.line_height"
+            );
+            assert_eq!(typography.sm.size, px(14.), "{mode}: typography.sm.size");
+            assert_eq!(
+                typography.sm.line_height,
+                px(20.),
+                "{mode}: typography.sm.line_height"
+            );
+            assert_eq!(typography.md.size, px(14.), "{mode}: typography.md.size");
+            assert_eq!(
+                typography.md.line_height,
+                px(24.),
+                "{mode}: typography.md.line_height"
+            );
+            assert_eq!(typography.lg.size, px(18.), "{mode}: typography.lg.size");
+            assert_eq!(
+                typography.lg.line_height,
+                px(28.),
+                "{mode}: typography.lg.line_height"
+            );
+            assert_eq!(typography.xl.size, px(20.), "{mode}: typography.xl.size");
+            assert_eq!(
+                typography.xl.line_height,
+                px(28.),
+                "{mode}: typography.xl.line_height"
+            );
+            assert_eq!(
+                typography.mono_md.size,
+                px(12.),
+                "{mode}: typography.mono_md.size"
+            );
+            assert_eq!(
+                typography.mono_md.line_height,
+                px(20.),
+                "{mode}: typography.mono_md.line_height"
+            );
+
+            // `shadow: false` keeps the vendored elevation snapshot empty.
+            let shadow = theme.shadow_tokens();
+            assert!(shadow.sm.is_empty(), "{mode}: shadow.sm");
+            assert!(shadow.md.is_empty(), "{mode}: shadow.md");
+            assert!(shadow.lg.is_empty(), "{mode}: shadow.lg");
+        }
+    }
+
+    /// `Root::render` sets the window rem to `theme.font_size`, so every rem
+    /// helper renders at 14/16 of its Tailwind nominal. The card's
+    /// `.rounded_lg()` (0.5rem), `text_sm` (0.875rem) and `h_8` (2rem) are
+    /// pinned at the approved base.
+    #[test]
+    fn rem_derived_values_match_the_approved_base() {
+        let mut theme = Theme::default();
+        write_overrides(&mut theme, 14.0);
+        assert_eq!(theme.font_size, px(14.));
+
+        let rem = theme.font_size;
+        assert_eq!(rems(0.5).to_pixels(rem), px(7.), "card radius");
+        assert_eq!(rems(0.875).to_pixels(rem), px(12.25), "text_sm");
+        assert_eq!(rems(2.).to_pixels(rem), px(28.), "h_8");
     }
 
     /// sRGB channel (0–255) → linear-light value, per WCAG 2.x.
@@ -259,6 +388,51 @@ mod tests {
         }
     }
 
+    /// Canonical (key-sorted, compact) JSON of a mode's `colors` object.
+    fn canonical_colors(colors: &serde_json::Value) -> String {
+        let canonical: BTreeMap<String, serde_json::Value> = colors
+            .as_object()
+            .expect("colors must be an object")
+            .iter()
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect();
+        serde_json::to_string(&canonical).expect("canonical colors must serialize")
+    }
+
+    /// FNV-1a 64 digest of `bytes`.
+    fn fnv1a64(bytes: &[u8]) -> u64 {
+        let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+        for byte in bytes {
+            hash ^= u64::from(*byte);
+            hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+        hash
+    }
+
+    /// Every colour byte is frozen: the palette digest must not move without
+    /// an owner decision. The canonical JSON is printed on mismatch so an
+    /// intentional change can be re-pinned by inspection.
+    #[test]
+    fn mono_palettes_are_pinned() {
+        let set: serde_json::Value =
+            serde_json::from_str(MONO_THEMES).expect("embedded mono.json must deserialize");
+
+        for theme in set["themes"].as_array().expect("themes array") {
+            let name = theme["name"].as_str().expect("theme name");
+            let canonical = canonical_colors(&theme["colors"]);
+            let expected = match name {
+                "mono-light" => 0x14ec_aa66_cfa4_390a_u64,
+                "mono-dark" => 0xa2f9_93cc_b566_9fcd_u64,
+                other => panic!("unexpected theme `{other}` in the embedded set"),
+            };
+            assert_eq!(
+                fnv1a64(canonical.as_bytes()),
+                expected,
+                "{name}: palette changed; canonical colors:\n{canonical}"
+            );
+        }
+    }
+
     #[test]
     fn font_size_clamps_to_supported_range() {
         assert_eq!(clamp_font_size(0.0), FONT_SIZE_MIN);
@@ -270,16 +444,22 @@ mod tests {
         assert_eq!(clamp_font_size(999.0), FONT_SIZE_MAX);
     }
 
-    /// The startup default must equal the theme's own `font.size`: the app
-    /// applies `AppSettings::default().font_size` as an override at boot, so a
-    /// drift between the two silently changes the baseline the theme (and the
-    /// window rem size every style helper derives from) was tuned for.
+    /// The startup default and the page reset closures both use
+    /// `AppSettings::default().font_size`: it must be exactly 14, equal both
+    /// modes' `font.size`, and sit inside the supported range. A drift here
+    /// silently changes the baseline the theme (and the window rem size every
+    /// style helper derives from) was tuned for.
     #[test]
-    fn default_font_size_matches_theme_config() {
+    fn default_and_reset_agree_with_the_config() {
+        let default = crate::AppSettings::default().font_size;
+        assert_eq!(default, 14.0, "the startup default is pinned to 14");
+        assert!(
+            (FONT_SIZE_MIN..=FONT_SIZE_MAX).contains(&default),
+            "the default must sit inside the supported range"
+        );
+
         let set: serde_json::Value =
             serde_json::from_str(MONO_THEMES).expect("embedded mono.json must deserialize");
-        let default = crate::AppSettings::default().font_size;
-
         for theme in set["themes"].as_array().expect("themes array") {
             let name = theme["name"].as_str().expect("theme name");
             let size = theme["font.size"].as_f64().expect("font.size");
