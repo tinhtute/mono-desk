@@ -1,10 +1,12 @@
 use std::rc::Rc;
 
+use gpui_kit::ElementId;
 use gpui_kit::base::{self as base, StyledExt as _, spring};
 use gpui_kit::component::{
     ActiveTheme, AxisExt as _, Disableable, Icon, IconName, IconNamed as _, Root, Sizable, Size,
     Theme, ThemeMode, ThemeStyled as _, TitleBar, WindowExt,
     button::Button,
+    checkbox::Checkbox,
     combobox::{Combobox, ComboboxEvent, ComboboxState},
     h_flex,
     label::Label,
@@ -12,7 +14,10 @@ use gpui_kit::component::{
     notification::Notification,
     searchable_list::{SearchableListDelegate, SearchableListItem, SearchableVec},
     select::{Select, SelectEvent, SelectState},
-    setting::{NumberFieldOptions, SettingField, SettingGroup, SettingItem, SettingPage, Settings},
+    setting::{
+        NumberFieldOptions, RenderOptions, SettingField, SettingGroup, SettingItem, SettingPage,
+        Settings,
+    },
     switch::Switch,
     tab::{Tab, TabBar},
     v_flex,
@@ -38,6 +43,36 @@ mod persist;
 mod shell;
 mod status_chip;
 mod theme;
+
+#[cfg(test)]
+mod view_tests;
+
+/// Test-only environment isolation.
+///
+/// View tests drive the real settings rows, whose handlers call
+/// `persist::save` / `persist::autostart_converge`. Both resolve through
+/// `$XDG_CONFIG_HOME`/`$HOME` at call time, so redirecting them to a per-
+/// process temp dir keeps the owner's `~/.config` untouched.
+#[cfg(test)]
+pub(crate) mod test_env {
+    /// Redirect `HOME` and `XDG_CONFIG_HOME` to a scratch dir. Safe to call
+    /// from every test; only the first call does anything.
+    pub(crate) fn install() {
+        static ONCE: std::sync::Once = std::sync::Once::new();
+        ONCE.call_once(|| {
+            let root = std::env::temp_dir().join(format!("mono-desk-test-{}", std::process::id()));
+            std::fs::create_dir_all(&root).expect("test scratch dir");
+            // SAFETY: `set_var` can race other threads' `getenv`; the first
+            // view test runs this before any test window (and therefore any
+            // persist/font worker thread) exists, and the vars are never
+            // touched again.
+            unsafe {
+                std::env::set_var("XDG_CONFIG_HOME", &root);
+                std::env::set_var("HOME", &root);
+            }
+        });
+    }
+}
 
 use i18n::tr;
 use persist::StoredSettings;
@@ -799,6 +834,68 @@ fn timezone_field(
     )
 }
 
+/// The Dark Mode switch's effect: flip the theme, remember the choice, and
+/// re-apply the derived overrides — shared by the row's click handler and the
+/// page reset so the two cannot drift.
+fn set_dark_mode(val: bool, cx: &mut App) {
+    let mode = if val {
+        ThemeMode::Dark
+    } else {
+        ThemeMode::Light
+    };
+    Theme::change(mode, None, cx);
+    AppSettings::global_mut(cx).dark_mode = val;
+    apply_font_size(cx);
+    save_settings(cx);
+    cx.refresh_windows();
+}
+
+/// The Launch at login checkbox's effect — shared by the row's click handler
+/// and the page reset.
+fn set_launch_at_login(val: bool, cx: &mut App) {
+    AppSettings::global_mut(cx).launch_at_login = val;
+    persist::autostart_converge(val);
+    save_settings(cx);
+}
+
+/// The settings-row `Switch`.
+///
+/// `SettingField::switch` renders a bare vendored control with no accessible
+/// name; composing the control here keeps the field's `on_reset` semantics
+/// while every switch row carries its row title as the `accessibility_label`.
+/// `test_support` on the underlying `gpui_base` control makes the role,
+/// toggled state and label observable in view tests.
+fn settings_switch(
+    id: impl Into<ElementId>,
+    checked: bool,
+    accessibility_label: impl Into<SharedString>,
+    options: &RenderOptions,
+    on_click: impl Fn(&bool, &mut Window, &mut App) + 'static,
+) -> Switch {
+    Switch::new(id)
+        .checked(checked)
+        .accessibility_label(accessibility_label)
+        .disabled(options.is_disabled())
+        .with_size(options.size())
+        .on_click(on_click)
+}
+
+/// The settings-row `Checkbox`; same reasoning as [`settings_switch`].
+fn settings_checkbox(
+    id: impl Into<ElementId>,
+    checked: bool,
+    accessibility_label: impl Into<SharedString>,
+    options: &RenderOptions,
+    on_click: impl Fn(&bool, &mut Window, &mut App) + 'static,
+) -> Checkbox {
+    Checkbox::new(id)
+        .checked(checked)
+        .accessibility_label(accessibility_label)
+        .disabled(options.is_disabled())
+        .with_size(options.size())
+        .on_click(on_click)
+}
+
 struct SettingsWindow {
     focus_handle: FocusHandle,
 }
@@ -829,22 +926,30 @@ impl SettingsWindow {
                         .items(vec![
                             SettingItem::new(
                                 tr("item.dark_mode", &lang),
-                                SettingField::switch(
-                                    |cx: &App| cx.theme().mode.is_dark(),
-                                    |val: bool, cx: &mut App| {
-                                        let mode = if val {
-                                            ThemeMode::Dark
-                                        } else {
-                                            ThemeMode::Light
-                                        };
-                                        Theme::change(mode, None, cx);
-                                        AppSettings::global_mut(cx).dark_mode = val;
-                                        apply_font_size(cx);
-                                        save_settings(cx);
-                                        cx.refresh_windows();
+                                SettingField::render({
+                                    let label = tr("item.dark_mode", &lang);
+                                    move |options, _window, cx| {
+                                        div().debug_selector(|| "dark-mode-row".into()).child(
+                                            settings_switch(
+                                                "dark-mode-switch",
+                                                cx.theme().mode.is_dark(),
+                                                label,
+                                                options,
+                                                move |checked: &bool, _, cx: &mut App| {
+                                                    set_dark_mode(*checked, cx);
+                                                },
+                                            ),
+                                        )
+                                    }
+                                })
+                                // An element field carries no typed value, so
+                                // the page reset needs the handler explicitly.
+                                .on_reset(
+                                    move |cx: &App| cx.theme().mode.is_dark() != defaults.dark_mode,
+                                    move |_window, cx: &mut App| {
+                                        set_dark_mode(defaults.dark_mode, cx);
                                     },
-                                )
-                                .default_value(false),
+                                ),
                             )
                             .description(tr("item.dark_mode.desc", &lang)),
                             SettingItem::new(
@@ -892,15 +997,33 @@ impl SettingsWindow {
                         .items(vec![
                             SettingItem::new(
                                 tr("item.launch_at_login", &lang),
-                                SettingField::checkbox(
-                                    |cx: &App| AppSettings::global(cx).launch_at_login,
-                                    |val: bool, cx: &mut App| {
-                                        AppSettings::global_mut(cx).launch_at_login = val;
-                                        persist::autostart_converge(val);
-                                        save_settings(cx);
+                                SettingField::render({
+                                    let label = tr("item.launch_at_login", &lang);
+                                    move |options, _window, cx| {
+                                        div().debug_selector(|| "launch-at-login-row".into()).child(
+                                            settings_checkbox(
+                                                "launch-at-login-checkbox",
+                                                AppSettings::global(cx).launch_at_login,
+                                                label,
+                                                options,
+                                                move |checked: &bool, _, cx: &mut App| {
+                                                    set_launch_at_login(*checked, cx);
+                                                },
+                                            ),
+                                        )
+                                    }
+                                })
+                                // An element field carries no typed value, so
+                                // the page reset needs the handler explicitly.
+                                .on_reset(
+                                    move |cx: &App| {
+                                        AppSettings::global(cx).launch_at_login
+                                            != defaults.launch_at_login
                                     },
-                                )
-                                .default_value(defaults.launch_at_login),
+                                    move |_window, cx: &mut App| {
+                                        set_launch_at_login(defaults.launch_at_login, cx);
+                                    },
+                                ),
                             )
                             .description(tr("item.launch_at_login.desc", &lang)),
                         ]),
@@ -929,11 +1052,16 @@ impl SettingsWindow {
                                         )
                                     };
                                     h_flex()
+                                        .debug_selector(|| "notifications-enabled-row".into())
                                         .gap_2()
                                         .child(StatusChip::labelled(tone, label))
                                         .child(
                                             Switch::new("notifications-enabled")
                                                 .checked(enabled)
+                                                .accessibility_label(tr(
+                                                    "item.notifications",
+                                                    &settings.language,
+                                                ))
                                                 .with_size(options.size())
                                                 .on_click(|checked: &bool, _, cx: &mut App| {
                                                     AppSettings::global_mut(cx)
@@ -1165,6 +1293,11 @@ impl SettingsWindow {
                                             cx.refresh_windows();
                                         },
                                     )
+                                    // The row carries the visible title, so
+                                    // the field's own label stays off — the
+                                    // aria label still names the control for
+                                    // screen readers (no placeholder fallback).
+                                    .aria_label(tr("item.username", &lang))
                                     // beUI's leading icon, muted like the
                                     // placeholder.
                                     .prefix(Rc::new(|_, _, cx| {
@@ -1702,9 +1835,6 @@ fn main() {
             .detach();
         });
 }
-
-#[cfg(test)]
-mod view_tests;
 
 #[cfg(test)]
 mod tests {
