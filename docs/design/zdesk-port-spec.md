@@ -160,6 +160,35 @@ remains registered but is no longer the theme family.
 | ⌘/Ctrl+B → toggle nav | `cmd-b` → `ToggleSidebar` flips `ShellState::collapsed` + `cx.refresh_windows()` — toggles 240px ⇄ 48px icon rail; same affordance as the titlebar `PanelLeft` ghost button (`src/main.rs:431,441-446`) |
 | Theme toggle | zdesk offers a controller; mono-desk keeps it Settings-only (Dark Mode switch, General page) — locked decision |
 
+## Settings control contracts (beUI P1 adoption)
+
+- **Input field** (`src/input_field.rs`, Profile → Username): the
+  vendored `Input` keeps its own chrome; the app composes label +
+  input + validation message. `FieldState` seeds validation at
+  mount (no shake) and re-validates whenever the value syncs from the
+  app (`sync_from_app`), so external writes/reset never leave a stale
+  error. The message row reserves a minimum line (`min_h`) and grows
+  for wrapped/localized text; it carries `Role::Alert` while it holds
+  an error. `InputFieldConfig` is construction-time only — remount on
+  page navigation picks up new labels. The input's accessible name is
+  `aria_label` (the row title), not the placeholder.
+- **Switch / checkbox rows** (General → Dark Mode, Startup → Launch
+  at login, Notifications → Enabled): app-side `Switch`/`Checkbox` via
+  `SettingField::render` carrying `.accessibility_label(row title)` +
+  `.on_reset(...)`; each has a unique `ElementId` and a
+  `debug_selector` on the wrapper for headless tests. Toggle is
+  click + keyboard (Space/Enter) driven and lands under reduced motion.
+- **Collapsed-rail tooltips**: vendored `SidebarMenuItem::collapsed_tooltip`
+  wires `managed_tooltip_at(Placement::Right, …)` for icon-only items —
+  the earlier "unavailable" note was wrong; the managed tooltip stack
+  drives the show/hide delay, verified in `src/view_tests.rs`.
+- **Notifications** (Notifications → Send test notification): push →
+  `window.notifications()` mounts on the window's notification layer;
+  the close button calls `Notification::dismiss`; the 5 s autohide is
+  driven by the toast advance task. A11y gap recorded: GPUI has no
+  `aria_live`/`aria_describedby`, so beUI's `role=alert` announcement
+  parity is **not** promised — same limit as the input message row.
+
 ## Deviations & non-portable
 
 - **`color-mix` frozen to hex.** zdesk re-derives all neutrals from
