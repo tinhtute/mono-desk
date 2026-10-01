@@ -7,6 +7,9 @@ edition = "2024"
 gpui-kit = "0.6"
 
 [dev-dependencies]
+# View-level tests render real components headlessly; feature unification is
+# test-build-only, the binary keeps default features.
+gpui-kit = { version = "0.6", features = ["test-support"] }
 serde_json = "1.0.151"
 # Same parser the font stack uses (`fontdb` → `ttf-parser`), so the wordmark
 # face test loads the embedded bytes exactly as the app does.
@@ -24,7 +27,12 @@ ttf-parser = "0.25"
 # - controls-cursor.patch: pointer cursor on interactive Button/Checkbox/Select/Switch.
 # - settings-collapsed-header.patch: keep the header slot (brand) when collapsed; hide only the search.
 # - settings-static-tree.patch: always-expanded settings tree — no caret/toggle, bold page labels,
-#   children only for pages with >=2 titled groups; children are iconless, so SettingGroup::icon
-#   (added above) is removed again here.
+# children only for pages with >=2 titled groups; children are iconless, so SettingGroup::icon
+# (added above) is removed again here.
+# - context-menu-release.patch: release the built PopupMenu on DismissEvent instead of retaining
+# it in ContextMenuSharedState (the state's subscription captures itself otherwise - a retain
+# cycle that leaks the menu entity).
+# - searchable-list-test-support.patch: `.test_support()` on searchable-list rows so the
+# gpui-kit test backend can observe popup rows (Select/Combobox items).
 [patch.crates-io]
 gpui-component = { path = "vendor/gpui-component" }

@@ -618,6 +618,27 @@ these are answered:
 - 2026-09-30 — new surfaces (Channels, Digest radio, Language select,
   context-menu, tabs) are owner-gated; combobox is dropped (no
   surface).
+- 2026-10-01 — owner decisions (~/quaqua/runs/beui-decisions.md):
+  (1) mixed checkbox approved on Notifications → Channels (All channels +
+  Email/Desktop/Digest); (2) Digest radio group approved, adds `digest`
+  state; (3) Language becomes a `Select` listbox, dropdown fallback kept;
+  (4) context menu is About “Copy version”, app-side, no vendor patch;
+  (5) tabs BUILT on the About page (Info / Licenses / Changelog);
+  (6) combobox KEPT — worker-chosen surface: new General → Region →
+  Time Zone, an in-menu-search `ComboboxState` over a curated IANA list
+  plus a localized “System” sentinel (a real long-list surface the
+  Language listbox does not need); (7) validation policy confirmed as
+  planned (immediate; no shake on mount; external write into error
+  shakes; reset to valid does not); (8) radio arrow-key selection +
+  app-side dot mark approved.
+- 2026-10-01 — worker decisions: Language moves to a new General →
+  Region group alongside Time Zone (was Appearance); `digest`,
+  `channel_*`, `timezone` persist via `persist.rs` (session-only was
+  rejected — StoredSettings is a trivially-extensible key–value file,
+  in allowed scope); tests mount `Settings` in a `SettingsHarness`
+  (pages via `SettingsWindow::setting_pages`, now `&App`-scoped),
+  navigate with `default_selected_index`; tab selection lives in
+  `use_keyed_state("about-tab")` (self-observing).
 
 ## Validation
 
@@ -638,6 +659,18 @@ claimed. Worker gates never launch the app.
   and re-grounded every path/API/line/test-count/token reference on
   the merged tree; gates re-run green (`make check` 31 s cold,
   `make test` 38 passed).
+- 2026-10-01 — `beui-p1-new-surfaces` + `beui-p1-conditional`
+  implemented on `quaqua/sude-beuip23`: Channels tri-state checkboxes
+  (composed on `gpui_base::Checkbox`, spring mark, focus ring,
+  indented children), Digest radio (composed `gpui_base::Radio`, dot
+  mark, arrow-key + roving-tab-stop group semantics), Language as
+  `Select` listbox under new General → Region group, Time Zone as
+  searchable `Combobox` (the kept-combobox surface), About context
+  menu (Copy version → clipboard) and About `TabBar`
+  (Info/Licenses/Changelog panels). `persist.rs` gains
+  `channel_*`/`digest`/`timezone`; `i18n.rs` gains all new keys in
+  en/vi/zh-CN/ja; `view_tests.rs` adds headless `#[gpui_kit::test]`
+  coverage.
 
 ## Current State
 

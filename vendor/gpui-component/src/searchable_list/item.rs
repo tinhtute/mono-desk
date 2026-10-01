@@ -2,6 +2,7 @@ use gpui::{
     AnyElement, App, ElementId, InteractiveElement as _, IntoElement, ParentElement, RenderOnce,
     StyleRefinement, Styled, Window, prelude::FluentBuilder,
 };
+use gpui_base::TestSupportExt as _;
 
 use crate::{
     ActiveTheme, Disableable, Icon, IconName, Selectable, Sizable, Size, StyleSized, StyledExt,
@@ -97,6 +98,7 @@ impl RenderOnce for SearchableListItemElement {
     fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
         h_flex()
             .id(self.id)
+            .test_support()
             .relative()
             .gap_x_1()
             .py_1()
