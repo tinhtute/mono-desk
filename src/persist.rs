@@ -45,6 +45,16 @@ pub struct StoredSettings {
     pub username: String,
     /// Display name shown on the profile page.
     pub display_name: String,
+    /// Notification channel: email.
+    pub channel_email: bool,
+    /// Notification channel: desktop.
+    pub channel_desktop: bool,
+    /// Notification channel: digest.
+    pub channel_digest: bool,
+    /// Digest cadence: `"immediate"`, `"daily"`, or `"weekly"`.
+    pub digest: String,
+    /// IANA time zone name, or `"system"` to follow the OS.
+    pub timezone: String,
 }
 
 impl Default for StoredSettings {
@@ -57,6 +67,11 @@ impl Default for StoredSettings {
             notifications_enabled: true,
             username: "ninja".to_string(),
             display_name: "Ninja".to_string(),
+            channel_email: true,
+            channel_desktop: true,
+            channel_digest: false,
+            digest: "immediate".to_string(),
+            timezone: "system".to_string(),
         }
     }
 }
@@ -149,6 +164,11 @@ pub fn serialize(s: &StoredSettings) -> String {
     ));
     out.push_str(&format!("username={}\n", escape(&s.username)));
     out.push_str(&format!("display_name={}\n", escape(&s.display_name)));
+    out.push_str(&format!("channel_email={}\n", s.channel_email));
+    out.push_str(&format!("channel_desktop={}\n", s.channel_desktop));
+    out.push_str(&format!("channel_digest={}\n", s.channel_digest));
+    out.push_str(&format!("digest={}\n", escape(&s.digest)));
+    out.push_str(&format!("timezone={}\n", escape(&s.timezone)));
     out
 }
 
@@ -205,6 +225,34 @@ pub fn parse(text: &str) -> Option<StoredSettings> {
             }
             "username" => s.username = unescape(value),
             "display_name" => s.display_name = unescape(value),
+            "channel_email" => {
+                if let Some(b) = parse_bool(value) {
+                    s.channel_email = b;
+                }
+            }
+            "channel_desktop" => {
+                if let Some(b) = parse_bool(value) {
+                    s.channel_desktop = b;
+                }
+            }
+            "channel_digest" => {
+                if let Some(b) = parse_bool(value) {
+                    s.channel_digest = b;
+                }
+            }
+            // Only known cadences stick; anything else falls back to the
+            // default rather than surfacing as an unselectable value.
+            "digest" => {
+                if let known @ ("immediate" | "daily" | "weekly") = unescape(value).as_str() {
+                    s.digest = known.to_string();
+                }
+            }
+            "timezone" => {
+                let tz = unescape(value);
+                if !tz.is_empty() {
+                    s.timezone = tz;
+                }
+            }
             _ => {} // unknown key: ignore
         }
     }
@@ -590,6 +638,11 @@ mod tests {
                 notifications_enabled: false,
                 username: "tinhpt".into(),
                 display_name: "Tinh Pham".into(),
+                channel_email: false,
+                channel_desktop: true,
+                channel_digest: true,
+                digest: "weekly".into(),
+                timezone: "Asia/Tokyo".into(),
             },
         ] {
             assert_eq!(parse(&serialize(&s)), Some(s));
@@ -607,10 +660,15 @@ mod tests {
             // backslash, newline, CR, `=`, leading/trailing spaces
             username: "a\\b\nc=d\re ".into(),
             display_name: "  日本語 🎉 =x\\ ".into(),
+            channel_email: true,
+            channel_desktop: false,
+            channel_digest: true,
+            digest: "daily".into(),
+            timezone: "Europe/London".into(),
         };
         let text = serialize(&s);
         // Hostile bytes must not create extra lines.
-        assert_eq!(text.lines().count(), 8);
+        assert_eq!(text.lines().count(), 13);
         assert_eq!(parse(&text), Some(s));
         // Empty strings round-trip too.
         let empty = StoredSettings::default();
@@ -638,12 +696,17 @@ mod tests {
                     font_size=banana\n\
                     font_size=NaN\n\
                     font_size=inf\n\
+                    digest=bogus\n\
+                    timezone=\n\
+                    timezone=Asia/Tokyo\n\
                     language=vi\n";
         let s = parse(text).unwrap();
         assert!(s.dark_mode); // last valid wins
         assert_eq!(s.language, "vi");
         assert_eq!(s.font_size, 14.0); // malformed + non-finite skipped → default
         assert!(!s.launch_at_login); // missing key → default
+        assert_eq!(s.digest, "immediate"); // unknown cadence → default
+        assert_eq!(s.timezone, "Asia/Tokyo"); // empty skipped, valid wins
     }
 
     #[test]

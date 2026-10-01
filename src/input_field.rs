@@ -25,9 +25,10 @@ use gpui_kit::component::{
     ActiveTheme, Sizable, Size, StyledExt, Theme, h_flex, label::Label, v_flex,
 };
 use gpui_kit::{
-    AnyElement, App, AppContext as _, Context, ElementId, Entity, Hsla, IntoElement,
-    ParentElement as _, Pixels, Render, SharedString, StyleRefinement, Styled as _, Subscription,
-    Window, px,
+    AnyElement, App, AppContext as _, Context, ElementId, Entity, Hsla, InteractiveElement as _,
+    IntoElement, ParentElement as _, Pixels, Render, Role, SharedString,
+    StatefulInteractiveElement as _, StyleRefinement, Styled as _, Subscription,
+    TestSupportExt as _, Window, px,
 };
 
 /// How long the error shake runs.
@@ -212,11 +213,22 @@ pub type ValueReader = Rc<dyn Fn(&App) -> SharedString>;
 pub type ValueWriter = Rc<dyn Fn(SharedString, &mut App)>;
 
 /// Everything an [`InputFieldView`] needs from its owner.
+///
+/// The config is construction-time only: [`InputFieldView::keyed`] keeps the
+/// first keyed `FieldSlot` it creates, so a config passed on a later render is
+/// ignored — a mounted field does not react to a changed label, placeholder,
+/// validator, or `aria_label`. That is acceptable today: locale changes happen
+/// on the General page while the field lives on Profile, and page navigation
+/// remounts it. Revisit if a mounted field ever needs a live label.
 #[derive(Clone)]
 pub struct InputFieldConfig {
     /// Label above the input. `None` when the surrounding layout already
     /// labels the field — a settings row's title, for example.
     pub label: Option<SharedString>,
+    /// Accessible name for the input itself (`Input::aria_label`). Pass the
+    /// row title when `label` is `None`, or the control's only name falls back
+    /// to the placeholder.
+    pub aria_label: Option<SharedString>,
     /// Placeholder shown while the input is empty.
     pub placeholder: SharedString,
     /// Keep the message row's height while there is no message, so the layout
@@ -244,6 +256,7 @@ impl InputFieldConfig {
     ) -> Self {
         Self {
             label: None,
+            aria_label: None,
             placeholder: placeholder.into(),
             reserve_message_line: false,
             prefix: None,
@@ -252,6 +265,12 @@ impl InputFieldConfig {
             get_value: Rc::new(get_value),
             set_value: Rc::new(set_value),
         }
+    }
+
+    /// Set the input's accessible name (`Input::aria_label`).
+    pub fn aria_label(mut self, label: impl Into<SharedString>) -> Self {
+        self.aria_label = Some(label.into());
+        self
     }
 
     /// Reserve the message row's line while there is no message.
@@ -295,9 +314,11 @@ pub(crate) fn status_ink(status: FieldStatus, theme: &Theme) -> Hsla {
 ///
 /// `InputState::set_value` emits no [`InputEvent::Change`], so validation
 /// cannot ride on the input event alone: a value written from outside the
-/// field — the initial value, a page reset, any external write — would
-/// otherwise keep the message the previous value earned. The result is
-/// adopted without shaking, because the user did not type this value.
+/// field — a page reset, any external write — would otherwise keep the
+/// message the previous value earned. The new value is validated through
+/// `set_validation`, so an external write that *lands in* an error plays the
+/// shake like a fresh error entry, while a reset back to a valid value just
+/// clears the stale message.
 fn reconcile(
     current: &str,
     value: &SharedString,
@@ -307,7 +328,7 @@ fn reconcile(
     if current == value.as_ref() {
         return None;
     }
-    field.adopt_validation(validate(value));
+    field.set_validation(validate(value));
     Some(value.clone())
 }
 
@@ -324,6 +345,9 @@ struct FieldSlot(Entity<InputFieldView>);
 /// The view owns the [`InputState`] and the [`FieldState`]; the app's own
 /// value stays the source of truth through `get_value` / `set_value`.
 pub struct InputFieldView {
+    /// The keyed element id, reused for the message row's `ElementId` and the
+    /// debug selector.
+    id: ElementId,
     input: Entity<InputState>,
     field: FieldState,
     config: InputFieldConfig,
@@ -344,13 +368,19 @@ impl InputFieldView {
         id: impl Into<ElementId>,
         config: InputFieldConfig,
     ) -> Entity<Self> {
-        let slot = window.use_keyed_state(id, cx, |window, cx| {
-            FieldSlot(cx.new(|cx| Self::new(window, cx, config)))
+        let id = id.into();
+        let slot = window.use_keyed_state(id.clone(), cx, |window, cx| {
+            FieldSlot(cx.new(|cx| Self::new(window, cx, id, config)))
         });
         slot.read(cx).0.clone()
     }
 
-    fn new(window: &mut Window, cx: &mut Context<Self>, config: InputFieldConfig) -> Self {
+    fn new(
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        id: ElementId,
+        config: InputFieldConfig,
+    ) -> Self {
         let initial = (config.get_value)(cx);
         let input = cx.new(|cx| {
             InputState::new(window, cx)
@@ -382,6 +412,7 @@ impl InputFieldView {
         let mut field = FieldState::new();
         field.adopt_validation((config.validate)(&initial));
         Self {
+            id,
             input,
             field,
             config,
@@ -420,6 +451,9 @@ impl InputFieldView {
             .with_size(self.size)
             .disabled(self.field.is_disabled())
             .w_full();
+        if let Some(label) = self.config.aria_label.clone() {
+            input = input.aria_label(label);
+        }
         if let Some(prefix) = self
             .config
             .prefix
@@ -460,9 +494,23 @@ impl InputFieldView {
             return None;
         }
 
-        // `h_5` is `text_sm`'s line height, so the reserved line and the
-        // filled one are the same height.
-        let mut row = h_flex().h_5().w_full().text_sm().text_color(ink);
+        // `min_h` (not `h`) reserves a line that can still grow when a wrapped
+        // or localized message needs a second line. The row carries
+        // `Role::Alert` only while it holds an error — the nearest GPUI analog
+        // to beUI's `role="alert"` (there is no `aria-live`/`aria-describedby`).
+        let mut row = h_flex()
+            .id(ElementId::NamedChild(
+                std::sync::Arc::new(self.id.clone()),
+                "message".into(),
+            ))
+            .test_support()
+            .min_h_5()
+            .w_full()
+            .text_sm()
+            .text_color(ink);
+        if matches!(status, FieldStatus::Error) {
+            row = row.role(Role::Alert);
+        }
         if let Some(message) = message {
             row = row.child(Label::new(message).text_sm().text_color(ink));
         }
@@ -470,12 +518,14 @@ impl InputFieldView {
     }
 }
 
-impl Render for InputFieldView {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        // The app stays the source of truth: mirror its value so an external
-        // write (a page reset, say) shows up on the next render. The mirror
-        // also re-runs the validation — `set_value` emits no `Change`, so
-        // otherwise the message would outlive the value it described.
+impl InputFieldView {
+    /// Mirror the app-owned value into the field when they diverge.
+    ///
+    /// The app stays the source of truth: an external write (a page reset,
+    /// say) shows up on the next render. The mirror also re-runs the
+    /// validation — `set_value` emits no `Change`, so otherwise the message
+    /// would outlive the value it described.
+    fn sync_from_app(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let value = (self.config.get_value)(cx);
         let current = self.input.read(cx).value();
         if let Some(next) = reconcile(
@@ -487,9 +537,18 @@ impl Render for InputFieldView {
             self.input
                 .update(cx, |input, cx| input.set_value(next, window, cx));
         }
+    }
+}
+
+impl Render for InputFieldView {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.sync_from_app(window, cx);
 
         let status = self.field.status();
-        let mut field = v_flex().w_full().gap_1();
+        let mut field = v_flex()
+            .debug_selector(|| format!("input-field:{}", self.id))
+            .w_full()
+            .gap_1();
         if let Some(label) = self.config.label.clone() {
             field = field.child(Label::new(label).text_sm());
         }
@@ -711,5 +770,309 @@ mod tests {
                 assert_eq!(status_ink(status, &theme), theme.muted_foreground);
             }
         }
+    }
+}
+
+/// View-level tests: the field is mounted in a real headless window and
+/// driven through focus, text input and external writes — the audit's five
+/// behavioral proofs that the model tests cannot see.
+#[cfg(test)]
+mod view {
+    use super::*;
+    use crate::test_env;
+    use gpui_kit::component::{Root, WindowExt};
+    use gpui_kit::test::{ElementSnapshot, TestWindowExt};
+    use gpui_kit::{
+        EntityInputHandler as _, Focusable as _, TestAppContext, VisualTestContext, div,
+    };
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    /// The rule used by every view test: empty is idle, under three
+    /// characters is an error, anything else is a success.
+    fn demo_validate(value: &str) -> Option<Validation> {
+        match value.chars().count() {
+            0 => None,
+            n if n < 3 => Some(Validation::Error("too short".into())),
+            _ => Some(Validation::Success("ok".into())),
+        }
+    }
+
+    /// Minimal host view: mounts the real [`InputFieldView::keyed`] path on
+    /// every render so `use_keyed_state` is exercised exactly like the
+    /// settings page does.
+    struct Host {
+        config: InputFieldConfig,
+        view: Rc<RefCell<Option<Entity<InputFieldView>>>>,
+    }
+
+    impl Render for Host {
+        fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            let view = InputFieldView::keyed(window, cx, "test-field", self.config.clone());
+            *self.view.borrow_mut() = Some(view.clone());
+            div().child(view)
+        }
+    }
+
+    /// Mount the field mirroring `cell` and hand back its entity plus the
+    /// visual test context.
+    fn mount<'cx>(
+        cx: &'cx mut TestAppContext,
+        initial: &str,
+    ) -> (
+        Rc<RefCell<SharedString>>,
+        Entity<InputFieldView>,
+        &'cx mut VisualTestContext,
+    ) {
+        test_env::install();
+        cx.update(gpui_kit::init);
+        let cell = Rc::new(RefCell::new(SharedString::from(initial.to_string())));
+        let slot = Rc::new(RefCell::new(None));
+        let config = InputFieldConfig::new(
+            "handle",
+            demo_validate,
+            {
+                let cell = cell.clone();
+                move |_: &App| cell.borrow().clone()
+            },
+            {
+                let cell = cell.clone();
+                move |value: SharedString, _: &mut App| {
+                    *cell.borrow_mut() = value;
+                }
+            },
+        )
+        .aria_label("Username")
+        .reserve_message_line();
+        let (_, cx) = cx.add_window_view({
+            let slot = slot.clone();
+            move |window, cx| Root::new(cx.new(|_| Host { config, view: slot }), window, cx)
+        });
+        cx.update(|window, cx| window.render_frame(cx));
+        let view = slot
+            .borrow()
+            .clone()
+            .expect("the host render must mount the field");
+        (cell, view, cx)
+    }
+
+    /// Focus the input, then append text through the real `InputHandler` path
+    /// (`replace_text_in_range` — the same call the platform input handler
+    /// makes, which is what emits `InputEvent::Change`).
+    ///
+    /// The insert lives in its own `update`: the `Change` emit is delivered
+    /// when the update flushes, and rendering in between would sync the
+    /// pre-write app value back over the input before the subscriber ran.
+    fn type_text(cx: &mut VisualTestContext, field: &Entity<InputFieldView>, text: &str) {
+        cx.update(|window, cx| {
+            let focus = field.read(cx).input.read(cx).focus_handle(cx);
+            focus.focus(window, cx);
+        });
+        cx.run_until_parked();
+        cx.update(|window, cx| {
+            assert!(
+                window.has_focused_input(cx),
+                "the field's input must hold focus before typing"
+            );
+            field.update(cx, |field, cx| {
+                field.input.update(cx, |input, cx| {
+                    input.replace_text_in_range(None, text, window, cx);
+                });
+            });
+        });
+        cx.run_until_parked();
+        cx.update(|window, cx| window.render_frame(cx));
+    }
+
+    /// Delete every character, like a user backspacing the whole field.
+    fn clear_text(cx: &mut VisualTestContext, field: &Entity<InputFieldView>) {
+        cx.update(|window, cx| {
+            let len = field.read(cx).input.read(cx).value().chars().count();
+            field.update(cx, |field, cx| {
+                field.input.update(cx, |input, cx| {
+                    // `Rope` counts UTF-8 chars for the view tests' ASCII.
+                    input.replace_text_in_range(Some(0..len), "", window, cx);
+                });
+            });
+        });
+        cx.run_until_parked();
+        cx.update(|window, cx| window.render_frame(cx));
+    }
+
+    /// The message row snapshot for this field (registered under
+    /// `NamedChild(field-id, "message")`).
+    fn message_row(window: &Window, field_id: &ElementId) -> ElementSnapshot {
+        window.find(ElementId::NamedChild(
+            std::sync::Arc::new(field_id.clone()),
+            "message".into(),
+        ))
+    }
+
+    /// Smoke: the field mirrors the cell, typing writes the cell back and the
+    /// input exposes the config's accessible name.
+    #[gpui_kit::test]
+    fn mirrors_value_types_and_names_the_input(cx: &mut TestAppContext) {
+        let (cell, field, cx) = mount(cx, "ninja");
+
+        // Construction mirrored the stored value into the input.
+        field.read_with(cx, |field, cx| {
+            assert_eq!(field.input.read(cx).value(), "ninja");
+            assert_eq!(field.field.status(), FieldStatus::Success);
+            assert_eq!(field.field.shake_generation(), 0);
+        });
+
+        type_text(cx, &field, "ab");
+        // `replace_text_in_range` inserts at the cursor (index 0 here).
+        assert_eq!(cell.borrow().as_ref(), "abninja");
+
+        // The vendored `BaseInput` is registered as `("input", entity-id)` and
+        // carries the row title as its accessible name.
+        let entity_id = field.read_with(cx, |field, _| field.input.entity_id());
+        cx.update(|window, _| {
+            let snapshot = window.find(("input", entity_id));
+            assert_eq!(snapshot.value(), Some("abninja"));
+            assert_eq!(snapshot.label(), Some("Username"));
+        });
+    }
+
+    /// 1. A user edit updates the app value and validates immediately, in both
+    /// directions: error first, success after.
+    #[gpui_kit::test]
+    fn user_edit_updates_value_and_validation(cx: &mut TestAppContext) {
+        let (cell, field, cx) = mount(cx, "");
+
+        type_text(cx, &field, "ab");
+        assert_eq!(cell.borrow().as_ref(), "ab");
+        field.read_with(cx, |field, _| {
+            assert_eq!(field.field.status(), FieldStatus::Error);
+            assert_eq!(field.field.shake_generation(), 1);
+        });
+
+        type_text(cx, &field, "ninja");
+        assert_eq!(cell.borrow().as_ref(), "abninja");
+        field.read_with(cx, |field, _| {
+            assert_eq!(field.field.status(), FieldStatus::Success);
+            // No new error entry → no new shake.
+            assert_eq!(field.field.shake_generation(), 1);
+        });
+    }
+
+    /// 2. Reset (an external write) to a valid value clears the stale error
+    /// without shaking — `InputState::set_value` emits no `Change`, so the
+    /// sync path owns the revalidation.
+    #[gpui_kit::test]
+    fn external_write_to_valid_clears_stale_error(cx: &mut TestAppContext) {
+        let (cell, field, cx) = mount(cx, "");
+
+        type_text(cx, &field, "ab");
+        field.read_with(cx, |field, _| {
+            assert_eq!(field.field.status(), FieldStatus::Error);
+        });
+
+        // The reset handler's effect: write the stored default and refresh.
+        *cell.borrow_mut() = "ninja".into();
+        cx.update(|_, cx| cx.refresh_windows());
+        cx.update(|window, cx| window.render_frame(cx));
+
+        field.read_with(cx, |field, cx| {
+            assert_eq!(field.input.read(cx).value(), "ninja");
+            assert_eq!(field.field.status(), FieldStatus::Success);
+            // Only the typed error shook; the reset did not re-shake.
+            assert_eq!(field.field.shake_generation(), 1);
+        });
+    }
+
+    /// 3. An external write that lands *in* an error updates text and status,
+    /// and the fresh error entry shakes once.
+    #[gpui_kit::test]
+    fn external_write_into_error_updates_and_shakes(cx: &mut TestAppContext) {
+        let (cell, field, cx) = mount(cx, "ninja");
+
+        *cell.borrow_mut() = "zz".into();
+        cx.update(|_, cx| cx.refresh_windows());
+        cx.update(|window, cx| window.render_frame(cx));
+
+        field.read_with(cx, |field, cx| {
+            assert_eq!(field.input.read(cx).value(), "zz");
+            assert_eq!(field.field.status(), FieldStatus::Error);
+            assert_eq!(field.field.shake_generation(), 1);
+        });
+    }
+
+    /// 4. Mount policy: an invalid stored value seeds the error message for
+    /// presentation but never bumps the shake generation — no shake on mount.
+    /// A valid stored value seeds success.
+    #[gpui_kit::test]
+    fn mount_seeds_validation_without_shaking(cx: &mut TestAppContext) {
+        let (_, field, _) = mount(cx, "ab");
+        field.read_with(cx, |field, _| {
+            assert_eq!(field.field.status(), FieldStatus::Error);
+            assert_eq!(field.field.shake_generation(), 0);
+        });
+
+        let (_, field, _) = mount(cx, "ninja");
+        field.read_with(cx, |field, _| {
+            assert_eq!(field.field.status(), FieldStatus::Success);
+            assert_eq!(field.field.shake_generation(), 0);
+        });
+    }
+
+    /// 5. Clearing back into an error is a new error entry (shake replays),
+    /// and under `reduce_motion` the shake renders at rest — the field's
+    /// painted origin never moves.
+    #[gpui_kit::test]
+    fn repeat_error_shakes_again_and_honors_reduce_motion(cx: &mut TestAppContext) {
+        let (cell, field, cx) = mount(cx, "");
+        type_text(cx, &field, "ab");
+        field.read_with(cx, |field, _| {
+            assert_eq!(field.field.shake_generation(), 1);
+        });
+
+        // Clearing the field lands on the empty (idle) state…
+        clear_text(cx, &field);
+        field.read_with(cx, |field, _| {
+            assert_eq!(field.field.status(), FieldStatus::Idle);
+        });
+        type_text(cx, &field, "xy");
+        field.read_with(cx, |field, _| {
+            assert_eq!(field.field.status(), FieldStatus::Error);
+            assert_eq!(field.field.shake_generation(), 2);
+        });
+
+        // Reduced motion: the shake reports its terminal offset, so the field
+        // stays exactly where it was laid out.
+        cx.update(|_, cx| cx.set_reduce_motion(true));
+        cx.update(|window, cx| window.render_frame(cx));
+        let bounds = cx
+            .debug_bounds("input-field:test-field")
+            .expect("the field root registers a debug selector");
+        // A second render at rest must agree: no travel under reduced motion.
+        cx.update(|window, cx| window.render_frame(cx));
+        assert_eq!(cx.debug_bounds("input-field:test-field"), Some(bounds));
+        // The app value is unaffected by the a11y flag.
+        assert_eq!(cell.borrow().as_ref(), "xy");
+    }
+
+    /// The reserved message row keeps its line while empty and switches to
+    /// `Role::Alert` while it carries an error.
+    #[gpui_kit::test]
+    fn message_row_grows_and_alerts_on_error(cx: &mut TestAppContext) {
+        let (_, field, cx) = mount(cx, "");
+        let field_id = field.read_with(cx, |field, _| field.id.clone());
+
+        cx.update(|window, _| {
+            let row = message_row(window, &field_id);
+            assert!(row.visible());
+            assert_ne!(row.role(), Some(Role::Alert));
+            // The reserved empty line keeps `text_sm`'s height (~20px).
+            assert!(row.bounds().size.height >= px(19.));
+        });
+
+        // A typed error marks the row as an alert.
+        type_text(cx, &field, "ab");
+        cx.update(|window, _| {
+            let row = message_row(window, &field_id);
+            assert_eq!(row.role(), Some(Role::Alert));
+        });
     }
 }

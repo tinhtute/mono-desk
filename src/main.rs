@@ -1,25 +1,40 @@
+use std::rc::Rc;
+
+use gpui_kit::ElementId;
+use gpui_kit::base::{self as base, StyledExt as _, spring};
 use gpui_kit::component::{
-    ActiveTheme, AxisExt as _, Disableable, Icon, IconName, Root, Sizable, Size, Theme, ThemeMode,
-    TitleBar, WindowExt,
+    ActiveTheme, AxisExt as _, Disableable, Icon, IconName, IconNamed as _, Root, Sizable, Size,
+    Theme, ThemeMode, ThemeStyled as _, TitleBar, WindowExt,
     button::Button,
+    checkbox::Checkbox,
+    combobox::{Combobox, ComboboxEvent, ComboboxState},
     h_flex,
     label::Label,
+    menu::{ContextMenuExt as _, PopupMenuItem},
     notification::Notification,
-    setting::{NumberFieldOptions, SettingField, SettingGroup, SettingItem, SettingPage, Settings},
+    searchable_list::{SearchableListDelegate, SearchableListItem, SearchableVec},
+    select::{Select, SelectEvent, SelectState},
+    setting::{
+        NumberFieldOptions, RenderOptions, SettingField, SettingGroup, SettingItem, SettingPage,
+        Settings,
+    },
     switch::Switch,
+    tab::{Tab, TabBar},
     v_flex,
 };
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{AnimationExt, Pixels, SpringAnimation, SpringConfig};
 use gpui_kit::{
-    App, AppContext as _, Bounds, Context, FocusHandle, Focusable, FontWeight, Global, IntoElement,
-    KeyBinding, Menu, MenuItem, ParentElement as _, Render, SharedString, StyleRefinement,
-    Styled as _, TitlebarOptions, Window, WindowBounds, WindowDecorations, WindowOptions, div, img,
-    point, px, size,
+    AnyElement, App, AppContext as _, Axis, Bounds, ClipboardItem, Context, Entity, FocusHandle,
+    Focusable, FontWeight, Global, InteractiveElement as _, IntoElement, KeyBinding, Menu,
+    MenuItem, ParentElement as _, Render, SharedString, StyleRefinement, Styled as _, Subscription,
+    TitlebarOptions, Window, WindowBounds, WindowDecorations, WindowOptions, div, img, point, px,
+    relative, size, svg,
 };
 use input_field::{FieldStatus, InputFieldConfig, InputFieldView, Validation};
 use shell::{AppShell, ShellState};
 use status_chip::{StatusChip, StatusIcon, StatusTone};
-use std::rc::Rc;
+use tokens::UiTokens;
 
 mod assets;
 mod cadence;
@@ -29,6 +44,37 @@ mod persist;
 mod shell;
 mod status_chip;
 mod theme;
+mod tokens;
+
+#[cfg(test)]
+mod view_tests;
+
+/// Test-only environment isolation.
+///
+/// View tests drive the real settings rows, whose handlers call
+/// `persist::save` / `persist::autostart_converge`. Both resolve through
+/// `$XDG_CONFIG_HOME`/`$HOME` at call time, so redirecting them to a per-
+/// process temp dir keeps the owner's `~/.config` untouched.
+#[cfg(test)]
+pub(crate) mod test_env {
+    /// Redirect `HOME` and `XDG_CONFIG_HOME` to a scratch dir. Safe to call
+    /// from every test; only the first call does anything.
+    pub(crate) fn install() {
+        static ONCE: std::sync::Once = std::sync::Once::new();
+        ONCE.call_once(|| {
+            let root = std::env::temp_dir().join(format!("mono-desk-test-{}", std::process::id()));
+            std::fs::create_dir_all(&root).expect("test scratch dir");
+            // SAFETY: `set_var` can race other threads' `getenv`; the first
+            // view test runs this before any test window (and therefore any
+            // persist/font worker thread) exists, and the vars are never
+            // touched again.
+            unsafe {
+                std::env::set_var("XDG_CONFIG_HOME", &root);
+                std::env::set_var("HOME", &root);
+            }
+        });
+    }
+}
 
 use i18n::tr;
 use persist::StoredSettings;
@@ -88,6 +134,102 @@ fn username_rule(value: &str) -> UsernameRule {
     }
     UsernameRule::Valid
 }
+/// How often digest notifications arrive (the Notifications → Digest radio).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DigestCadence {
+    Immediate,
+    Daily,
+    Weekly,
+}
+
+impl DigestCadence {
+    /// The value persisted and used as each radio's key.
+    fn value(self) -> &'static str {
+        match self {
+            Self::Immediate => "immediate",
+            Self::Daily => "daily",
+            Self::Weekly => "weekly",
+        }
+    }
+
+    /// The i18n key for the radio's label.
+    fn label_key(self) -> &'static str {
+        match self {
+            Self::Immediate => "digest.immediate",
+            Self::Daily => "digest.daily",
+            Self::Weekly => "digest.weekly",
+        }
+    }
+
+    /// Parse a stored value; unknown text falls back to `Immediate` (the same
+    /// whitelist `persist::parse` applies).
+    fn parse(value: &str) -> Self {
+        match value {
+            "daily" => Self::Daily,
+            "weekly" => Self::Weekly,
+            _ => Self::Immediate,
+        }
+    }
+
+    const ALL: [Self; 3] = [Self::Immediate, Self::Daily, Self::Weekly];
+}
+
+/// One toggleable notification channel (the Channels group checkboxes).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Channel {
+    Email,
+    Desktop,
+    Digest,
+}
+
+impl Channel {
+    const ALL: [Self; 3] = [Self::Email, Self::Desktop, Self::Digest];
+
+    fn id(self) -> &'static str {
+        match self {
+            Self::Email => "channel-email",
+            Self::Desktop => "channel-desktop",
+            Self::Digest => "channel-digest",
+        }
+    }
+
+    fn label_key(self) -> &'static str {
+        match self {
+            Self::Email => "item.channel_email",
+            Self::Desktop => "item.channel_desktop",
+            Self::Digest => "item.channel_digest",
+        }
+    }
+
+    fn get(self, s: &AppSettings) -> bool {
+        match self {
+            Self::Email => s.channel_email,
+            Self::Desktop => s.channel_desktop,
+            Self::Digest => s.channel_digest,
+        }
+    }
+
+    fn set(self, s: &mut AppSettings, enabled: bool) {
+        match self {
+            Self::Email => s.channel_email = enabled,
+            Self::Desktop => s.channel_desktop = enabled,
+            Self::Digest => s.channel_digest = enabled,
+        }
+    }
+}
+
+/// Parent "All channels" state: checked when every child is on, unchecked when
+/// none is, mixed in between — the only genuine indeterminate surface in the
+/// app. Pure so the tri-state mapping is unit-testable without a window.
+fn channels_state(s: &AppSettings) -> base::CheckboxState {
+    let on = Channel::ALL.iter().filter(|c| c.get(s)).count();
+    match on {
+        0 => base::CheckboxState::Unchecked,
+        3 => base::CheckboxState::Checked,
+        _ => base::CheckboxState::Indeterminate,
+    }
+}
+
 /// Application state, stored as a GPUI global so `SettingField` closures can
 /// reach it through `&App` / `&mut App`.
 struct AppSettings {
@@ -98,6 +240,11 @@ struct AppSettings {
     notifications_enabled: bool,
     username: SharedString,
     display_name: SharedString,
+    channel_email: bool,
+    channel_desktop: bool,
+    channel_digest: bool,
+    digest: DigestCadence,
+    timezone: SharedString,
 }
 
 impl Default for AppSettings {
@@ -113,6 +260,12 @@ impl Default for AppSettings {
             notifications_enabled: true,
             username: "ninja".into(),
             display_name: "Ninja".into(),
+            channel_email: true,
+            channel_desktop: true,
+            // One child off: the Channels parent opens in its mixed state.
+            channel_digest: false,
+            digest: DigestCadence::Immediate,
+            timezone: "system".into(),
         }
     }
 }
@@ -143,6 +296,11 @@ impl AppSettings {
             notifications_enabled: s.notifications_enabled,
             username: s.username.into(),
             display_name: s.display_name.into(),
+            channel_email: s.channel_email,
+            channel_desktop: s.channel_desktop,
+            channel_digest: s.channel_digest,
+            digest: DigestCadence::parse(&s.digest),
+            timezone: s.timezone.into(),
         }
     }
 
@@ -155,6 +313,11 @@ impl AppSettings {
             notifications_enabled: self.notifications_enabled,
             username: self.username.to_string(),
             display_name: self.display_name.to_string(),
+            channel_email: self.channel_email,
+            channel_desktop: self.channel_desktop,
+            channel_digest: self.channel_digest,
+            digest: self.digest.value().to_string(),
+            timezone: self.timezone.to_string(),
         }
     }
 }
@@ -162,6 +325,577 @@ impl AppSettings {
 /// Persists the current settings; errors are logged inside `persist::save`.
 fn save_settings(cx: &App) {
     persist::save(&AppSettings::global(cx).to_stored());
+}
+
+// MARK: beUI P1 composed controls
+//
+// These build on `gpui_base` primitives (unstyled `Checkbox`/`Radio`) or the
+// vendored `Select`/`Combobox` states — no vendor patch needed. Indicator
+// sizes, colors and the `spring_control` mark fade mirror the vendored
+// `checkbox.rs`/`radio.rs` so composed controls sit next to vendored ones
+// without a visual seam.
+
+/// Indicator box edge for a composed checkbox/radio, matching the vendored
+/// sizing (`size_3`/`size_3p5`/`size_4` are 12/14/16 px at the 14px rem; Large
+/// is 18px, `rems(1.125)`).
+fn indicator_box_px(size: Size) -> Pixels {
+    match size {
+        Size::XSmall => px(12.),
+        Size::Small => px(14.),
+        Size::Large => px(18.),
+        _ => px(16.),
+    }
+}
+
+/// The Channels checkboxes, composed on `gpui_base::Checkbox` so the "All
+/// channels" parent can carry `Indeterminate` — the vendored `Checkbox` is
+/// boolean-only. The mark (check or minus) fades in via the shared
+/// `spring_control` token; under `reduce_motion` the spring resolves
+/// immediately, so the mark appears without motion.
+#[allow(clippy::too_many_arguments)]
+fn channel_checkbox(
+    id: &'static str,
+    label: SharedString,
+    state: base::CheckboxState,
+    disabled: bool,
+    indented: bool,
+    size: Size,
+    on_toggle: impl Fn(bool, &mut App) + 'static,
+    window: &mut Window,
+    cx: &mut App,
+) -> impl IntoElement {
+    let focus_handle = window
+        .use_keyed_state(id, cx, |_, cx| cx.focus_handle())
+        .read(cx)
+        .clone();
+    let is_focused = focus_handle.is_focused(window);
+    let checked = state == base::CheckboxState::Checked;
+    let mixed = state == base::CheckboxState::Indeterminate;
+    let marked = checked || mixed;
+
+    // Mirrors the vendored indicator: input border over the input background
+    // unchecked, `primary` border + fill when marked, halved when disabled.
+    let mut border_color = if marked {
+        cx.theme().primary
+    } else {
+        cx.theme().input
+    };
+    if disabled {
+        border_color = border_color.opacity(0.5);
+    }
+    let radius = cx.theme().radius.min(px(4.));
+    let mark_color = if disabled {
+        cx.theme().primary_foreground.opacity(0.5)
+    } else {
+        cx.theme().primary_foreground
+    };
+    let box_px = indicator_box_px(size);
+
+    // Same fade spring as the vendored check icon; keyed per control so a
+    // child's toggle doesn't replay the parent's animation.
+    let opacity = spring(
+        (id, "mark"),
+        if marked { 1f32 } else { 0f32 },
+        cx.theme().motion_tokens().spring_control,
+        window,
+        cx,
+    );
+
+    base::Checkbox::new(id)
+        .state(state)
+        .disabled(disabled)
+        .track_focus(&focus_handle)
+        .accessibility_label(label.clone())
+        .on_change(move |next, _, _, cx| {
+            on_toggle(next == base::CheckboxState::Checked, cx);
+            save_settings(cx);
+            cx.refresh_windows();
+        })
+        .h_flex()
+        .gap_2()
+        .items_center()
+        .line_height(relative(1.))
+        .when(!disabled, |this| this.cursor_pointer())
+        .when(disabled, |this| {
+            this.text_color(cx.theme().muted_foreground)
+        })
+        .rounded(radius * 0.5)
+        .when(is_focused, |this| this.focus_ring_style(window, cx))
+        .when(indented, |this| this.pl_6())
+        .child(
+            div()
+                .size(box_px)
+                .flex_shrink_0()
+                .border_1()
+                .rounded(radius)
+                .border_color(border_color)
+                .when(!marked, |this| this.bg(cx.theme().input_background()))
+                .when(marked, |this| {
+                    this.bg(if disabled {
+                        cx.theme().primary.opacity(0.5)
+                    } else {
+                        cx.theme().primary
+                    })
+                })
+                .child(
+                    div()
+                        .size_full()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .opacity(opacity)
+                        .text_color(mark_color)
+                        .child(
+                            svg()
+                                .map(|this| match size {
+                                    Size::XSmall => this.size_2(),
+                                    Size::Small => this.size_2p5(),
+                                    Size::Large => this.size_3p5(),
+                                    _ => this.size_3(),
+                                })
+                                .path(if mixed {
+                                    IconName::Minus.path()
+                                } else {
+                                    IconName::Check.path()
+                                }),
+                        ),
+                ),
+        )
+        .child(div().line_height(relative(1.2)).child(label))
+        .into_any_element()
+}
+
+/// One option of the Digest radio group, composed on `gpui_base::Radio` with
+/// the beUI mark — a ring with a fading inner dot, not the vendored check
+/// glyph. Arrow keys (Up/Left/Down/Right) move selection and focus between
+/// siblings, and only the selected option is a tab stop (roving tabindex).
+#[allow(clippy::too_many_arguments)]
+fn digest_radio(
+    cadence: DigestCadence,
+    handles: Vec<FocusHandle>,
+    selected: DigestCadence,
+    disabled: bool,
+    size: Size,
+    label: &'static str,
+    window: &mut Window,
+    cx: &mut App,
+) -> impl IntoElement {
+    let ix = DigestCadence::ALL
+        .iter()
+        .position(|c| *c == cadence)
+        .unwrap_or(0);
+    let checked = cadence == selected;
+    let id: &'static str = match cadence {
+        DigestCadence::Immediate => "digest-immediate",
+        DigestCadence::Daily => "digest-daily",
+        DigestCadence::Weekly => "digest-weekly",
+    };
+    let focus_handle = handles[ix].clone();
+    let is_focused = focus_handle.is_focused(window);
+
+    let mut border_color = if checked {
+        cx.theme().primary
+    } else {
+        cx.theme().input
+    };
+    let mut dot_color = cx.theme().primary;
+    if disabled {
+        border_color = border_color.opacity(0.5);
+        dot_color = dot_color.opacity(0.5);
+    }
+    let box_px = indicator_box_px(size);
+    let opacity = spring(
+        (id, "dot"),
+        if checked { 1f32 } else { 0f32 },
+        cx.theme().motion_tokens().spring_control,
+        window,
+        cx,
+    );
+
+    base::Radio::new(id)
+        .checked(checked)
+        .disabled(disabled)
+        .track_focus(&focus_handle)
+        // Roving tab stop: `digest` always holds a value, so Tab reaches the
+        // selected option and arrows move between options.
+        .tab_stop(checked)
+        .set_position(ix + 1, DigestCadence::ALL.len())
+        .accessibility_label(SharedString::from(label))
+        .on_key_down(move |event, window, cx| {
+            let delta = match event.keystroke.key.as_str() {
+                "up" | "left" => -1isize,
+                "down" | "right" => 1isize,
+                _ => return,
+            };
+            window.prevent_default();
+            let len = DigestCadence::ALL.len() as isize;
+            let next_ix = ((ix as isize + delta).rem_euclid(len)) as usize;
+            AppSettings::global_mut(cx).digest = DigestCadence::ALL[next_ix];
+            save_settings(cx);
+            handles[next_ix].focus(window, cx);
+            cx.refresh_windows();
+        })
+        .on_change(move |_, _, window, cx| {
+            window.prevent_default();
+            AppSettings::global_mut(cx).digest = cadence;
+            save_settings(cx);
+            cx.refresh_windows();
+        })
+        .h_flex()
+        .gap_x_2()
+        .items_center()
+        .line_height(relative(1.))
+        .when(!disabled, |this| this.cursor_pointer())
+        .when(disabled, |this| {
+            this.text_color(cx.theme().muted_foreground)
+        })
+        .rounded(cx.theme().radius * 0.5)
+        .when(is_focused, |this| this.focus_ring_style(window, cx))
+        .child(
+            div()
+                .size(box_px)
+                .flex_shrink_0()
+                .rounded_full_style(cx)
+                .border_1()
+                .border_color(border_color)
+                .bg(cx.theme().input_background())
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(
+                    div()
+                        .size(box_px * 0.5)
+                        .rounded_full_style(cx)
+                        .bg(dot_color)
+                        .opacity(opacity),
+                ),
+        )
+        .child(div().line_height(relative(1.2)).child(label))
+        .into_any_element()
+}
+
+/// A language row for the Select listbox. `title()` is the endonym, which is
+/// also the committed accessible value.
+#[derive(Clone, Debug)]
+struct LanguageItem {
+    code: SharedString,
+    name: SharedString,
+}
+
+impl SearchableListItem for LanguageItem {
+    type Value = SharedString;
+
+    fn title(&self) -> SharedString {
+        self.name.clone()
+    }
+
+    fn value(&self) -> &Self::Value {
+        &self.code
+    }
+}
+
+fn language_items() -> SearchableVec<LanguageItem> {
+    SearchableVec::new(vec![
+        LanguageItem {
+            code: "en".into(),
+            name: "English".into(),
+        },
+        LanguageItem {
+            code: "vi".into(),
+            name: "Tiếng Việt".into(),
+        },
+        LanguageItem {
+            code: "zh-CN".into(),
+            name: "简体中文".into(),
+        },
+        LanguageItem {
+            code: "ja".into(),
+            name: "日本語".into(),
+        },
+    ])
+}
+
+/// Keyed-state slot holding the Language `SelectState` and the subscription
+/// that commits `SelectEvent::Confirm` into `AppSettings.language`. Living in
+/// keyed state keeps the open menu and cursor across page re-renders.
+struct LanguageSelectSlot {
+    state: Entity<SelectState<SearchableVec<LanguageItem>>>,
+    _subscription: Subscription,
+}
+
+/// The Language field as a `Select` listbox (owner decision 3, replacing the
+/// dropdown menu). The slot is created once per window; render reconciles the
+/// selection with the global so reset/external writes show up — the same
+/// contract the input field follows.
+fn language_field(label: SharedString) -> SettingField<SharedString> {
+    SettingField::render(move |options, window, cx| {
+        let slot = window.use_keyed_state("language-select-state", cx, |window, cx| {
+            let delegate = language_items();
+            let selected = delegate.position(&AppSettings::global(cx).language);
+            let state = cx.new(|cx| SelectState::new(delegate, selected, window, cx));
+            // Commit on Enter/click: write the global, switch the component
+            // locale, persist, re-render.
+            let subscription = cx.subscribe_in(
+                &state,
+                window,
+                |_, _, event: &SelectEvent<SearchableVec<LanguageItem>>, _, cx| {
+                    let SelectEvent::Confirm(value) = event;
+                    if let Some(lang) = value {
+                        AppSettings::global_mut(cx).language = lang.clone();
+                        gpui_kit::component::set_locale(component_locale(lang));
+                        save_settings(cx);
+                        cx.refresh_windows();
+                    }
+                },
+            );
+            LanguageSelectSlot {
+                state,
+                _subscription: subscription,
+            }
+        });
+        let state = slot.read(cx).state.clone();
+        // The global is the source of truth: adopt reset/external writes.
+        let want = AppSettings::global(cx).language.clone();
+        if state.read(cx).selected_value() != Some(&want) {
+            state.update(cx, |state, cx| state.set_selected_value(&want, window, cx));
+        }
+        div()
+            .id("language-select")
+            .when(options.layout().is_horizontal(), |this| this.w_64())
+            .child(
+                Select::new(&state)
+                    .id("language-select-control")
+                    .accessibility_label(label.clone())
+                    .with_size(options.size())
+                    .disabled(options.is_disabled()),
+            )
+    })
+    .on_reset(
+        {
+            let default = AppSettings::default().language;
+            move |cx: &App| AppSettings::global(cx).language != default
+        },
+        {
+            let default = AppSettings::default().language;
+            move |_window, cx: &mut App| {
+                AppSettings::global_mut(cx).language = default.clone();
+                gpui_kit::component::set_locale(component_locale(&default));
+                save_settings(cx);
+                cx.refresh_windows();
+            }
+        },
+    )
+}
+
+/// A time zone row for the Combobox. `title()` is localized for the "system"
+/// sentinel and the IANA name otherwise; `matches` also searches the IANA
+/// code so "bangkok" and "GMT+7"-style fragments both hit.
+#[derive(Clone, Debug)]
+struct TimezoneItem {
+    value: SharedString,
+    title: SharedString,
+}
+
+impl SearchableListItem for TimezoneItem {
+    type Value = SharedString;
+
+    fn title(&self) -> SharedString {
+        self.title.clone()
+    }
+
+    fn value(&self) -> &Self::Value {
+        &self.value
+    }
+
+    fn matches(&self, query: &str) -> bool {
+        let q = query.to_lowercase();
+        self.title.to_lowercase().contains(&q) || self.value.to_lowercase().contains(&q)
+    }
+}
+
+/// The combobox's options: a localized "follow system" sentinel plus a
+/// curated set of IANA zones spanning the offset range — long enough that
+/// the search field earns its keep (owner decision 6: combobox kept here).
+fn timezone_items(lang: &str) -> SearchableVec<TimezoneItem> {
+    let item = |value: &'static str| TimezoneItem {
+        value: value.into(),
+        title: value.into(),
+    };
+    SearchableVec::new(vec![
+        TimezoneItem {
+            value: "system".into(),
+            title: tr("tz.system", lang).into(),
+        },
+        item("Pacific/Auckland"),
+        item("Pacific/Honolulu"),
+        item("America/Anchorage"),
+        item("America/Los_Angeles"),
+        item("America/Denver"),
+        item("America/Chicago"),
+        item("America/New_York"),
+        item("America/Sao_Paulo"),
+        item("Atlantic/Reykjavik"),
+        item("Europe/London"),
+        item("Europe/Berlin"),
+        item("Europe/Kyiv"),
+        item("Africa/Cairo"),
+        item("Asia/Dubai"),
+        item("Asia/Kolkata"),
+        item("Asia/Bangkok"),
+        item("Asia/Saigon"),
+        item("Asia/Singapore"),
+        item("Asia/Tokyo"),
+        item("Australia/Sydney"),
+    ])
+}
+
+/// Keyed-state slot for the Timezone combobox: the `ComboboxState`, the
+/// `Confirm` subscription that commits into `AppSettings.timezone`, and the
+/// locale the delegate's sentinel title was built in.
+struct TimezoneComboSlot {
+    state: Entity<ComboboxState<SearchableVec<TimezoneItem>>>,
+    items_lang: SharedString,
+    _subscription: Subscription,
+}
+
+/// The Time Zone field: the app's one searchable surface, so it carries the
+/// beUI combobox. Single-select with an in-menu search input; commits on
+/// `Confirm` (item pick or popover close, both paths emit it).
+fn timezone_field(
+    placeholder: &'static str,
+    search_placeholder: &'static str,
+) -> SettingField<SharedString> {
+    SettingField::render(move |options, window, cx| {
+        let lang = AppSettings::global(cx).language.clone();
+        let slot = window.use_keyed_state("timezone-combo-state", cx, |window, cx| {
+            let delegate = timezone_items(&lang);
+            let selected = delegate
+                .position(&AppSettings::global(cx).timezone)
+                .into_iter()
+                .collect();
+            let state =
+                cx.new(|cx| ComboboxState::new(delegate, selected, window, cx).searchable(true));
+            let subscription = cx.subscribe_in(
+                &state,
+                window,
+                |_, _, event: &ComboboxEvent<SearchableVec<TimezoneItem>>, _, cx| {
+                    if let ComboboxEvent::Confirm(values) = event
+                        && let Some(tz) = values.first()
+                    {
+                        AppSettings::global_mut(cx).timezone = tz.clone();
+                        save_settings(cx);
+                        cx.refresh_windows();
+                    }
+                },
+            );
+            TimezoneComboSlot {
+                state,
+                items_lang: lang.clone(),
+                _subscription: subscription,
+            }
+        });
+        let state = slot.read(cx).state.clone();
+        // The sentinel's title is localized: rebuild the delegate when the
+        // locale changed since the slot was created.
+        if slot.read(cx).items_lang != lang {
+            let delegate = timezone_items(&lang);
+            slot.update(cx, |slot, _| slot.items_lang = lang.clone());
+            state.update(cx, |state, cx| state.set_items(delegate, window, cx));
+        }
+        let want = AppSettings::global(cx).timezone.clone();
+        if state.read(cx).selected_value().as_ref() != Some(&want) {
+            state.update(cx, |state, cx| {
+                state.set_selected_values(std::slice::from_ref(&want), window, cx)
+            });
+        }
+        div()
+            .id("timezone-combo")
+            .debug_selector(|| "timezone-combo".into())
+            .when(options.layout().is_horizontal(), |this| this.w_64())
+            .child(
+                Combobox::new(&state)
+                    .placeholder(placeholder)
+                    .search_placeholder(search_placeholder)
+                    .with_size(options.size())
+                    .disabled(options.is_disabled()),
+            )
+    })
+    .on_reset(
+        {
+            let default = AppSettings::default().timezone;
+            move |cx: &App| AppSettings::global(cx).timezone != default
+        },
+        {
+            let default = AppSettings::default().timezone;
+            move |_window, cx: &mut App| {
+                AppSettings::global_mut(cx).timezone = default.clone();
+                save_settings(cx);
+                cx.refresh_windows();
+            }
+        },
+    )
+}
+
+/// The Dark Mode switch's effect: flip the theme, remember the choice, and
+/// re-apply the derived overrides — shared by the row's click handler and the
+/// page reset so the two cannot drift.
+fn set_dark_mode(val: bool, cx: &mut App) {
+    let mode = if val {
+        ThemeMode::Dark
+    } else {
+        ThemeMode::Light
+    };
+    Theme::change(mode, None, cx);
+    AppSettings::global_mut(cx).dark_mode = val;
+    apply_font_size(cx);
+    save_settings(cx);
+    cx.refresh_windows();
+}
+
+/// The Launch at login checkbox's effect — shared by the row's click handler
+/// and the page reset.
+fn set_launch_at_login(val: bool, cx: &mut App) {
+    AppSettings::global_mut(cx).launch_at_login = val;
+    persist::autostart_converge(val);
+    save_settings(cx);
+}
+
+/// The settings-row `Switch`.
+///
+/// `SettingField::switch` renders a bare vendored control with no accessible
+/// name; composing the control here keeps the field's `on_reset` semantics
+/// while every switch row carries its row title as the `accessibility_label`.
+/// `test_support` on the underlying `gpui_base` control makes the role,
+/// toggled state and label observable in view tests.
+fn settings_switch(
+    id: impl Into<ElementId>,
+    checked: bool,
+    accessibility_label: impl Into<SharedString>,
+    options: &RenderOptions,
+    on_click: impl Fn(&bool, &mut Window, &mut App) + 'static,
+) -> Switch {
+    Switch::new(id)
+        .checked(checked)
+        .accessibility_label(accessibility_label)
+        .disabled(options.is_disabled())
+        .with_size(options.size())
+        .on_click(on_click)
+}
+
+/// The settings-row `Checkbox`; same reasoning as [`settings_switch`].
+fn settings_checkbox(
+    id: impl Into<ElementId>,
+    checked: bool,
+    accessibility_label: impl Into<SharedString>,
+    options: &RenderOptions,
+    on_click: impl Fn(&bool, &mut Window, &mut App) + 'static,
+) -> Checkbox {
+    Checkbox::new(id)
+        .checked(checked)
+        .accessibility_label(accessibility_label)
+        .disabled(options.is_disabled())
+        .with_size(options.size())
+        .on_click(on_click)
 }
 
 struct SettingsWindow {
@@ -177,7 +911,7 @@ impl SettingsWindow {
         }
     }
 
-    fn setting_pages(&self, cx: &mut Context<Self>) -> Vec<SettingPage> {
+    fn setting_pages(cx: &App) -> Vec<SettingPage> {
         let lang = AppSettings::global(cx).language.clone();
         let defaults = AppSettings::default();
         // Copied out of `defaults` so the reset closure of the element field
@@ -194,44 +928,32 @@ impl SettingsWindow {
                         .items(vec![
                             SettingItem::new(
                                 tr("item.dark_mode", &lang),
-                                SettingField::switch(
-                                    |cx: &App| cx.theme().mode.is_dark(),
-                                    |val: bool, cx: &mut App| {
-                                        let mode = if val {
-                                            ThemeMode::Dark
-                                        } else {
-                                            ThemeMode::Light
-                                        };
-                                        Theme::change(mode, None, cx);
-                                        AppSettings::global_mut(cx).dark_mode = val;
-                                        apply_font_size(cx);
-                                        save_settings(cx);
-                                        cx.refresh_windows();
+                                SettingField::render({
+                                    let label = tr("item.dark_mode", &lang);
+                                    move |options, _window, cx| {
+                                        div().debug_selector(|| "dark-mode-row".into()).child(
+                                            settings_switch(
+                                                "dark-mode-switch",
+                                                cx.theme().mode.is_dark(),
+                                                label,
+                                                options,
+                                                move |checked: &bool, _, cx: &mut App| {
+                                                    set_dark_mode(*checked, cx);
+                                                },
+                                            ),
+                                        )
+                                    }
+                                })
+                                // An element field carries no typed value, so
+                                // the page reset needs the handler explicitly.
+                                .on_reset(
+                                    move |cx: &App| cx.theme().mode.is_dark() != defaults.dark_mode,
+                                    move |_window, cx: &mut App| {
+                                        set_dark_mode(defaults.dark_mode, cx);
                                     },
-                                )
-                                .default_value(false),
+                                ),
                             )
                             .description(tr("item.dark_mode.desc", &lang)),
-                            SettingItem::new(
-                                tr("item.language", &lang),
-                                SettingField::dropdown(
-                                    vec![
-                                        ("en".into(), "English".into()),
-                                        ("vi".into(), "Tiếng Việt".into()),
-                                        ("zh-CN".into(), "简体中文".into()),
-                                        ("ja".into(), "日本語".into()),
-                                    ],
-                                    |cx: &App| AppSettings::global(cx).language.clone(),
-                                    |val: SharedString, cx: &mut App| {
-                                        AppSettings::global_mut(cx).language = val.clone();
-                                        gpui_kit::component::set_locale(component_locale(&val));
-                                        save_settings(cx);
-                                        cx.refresh_windows();
-                                    },
-                                )
-                                .default_value(defaults.language.clone()),
-                            )
-                            .description(tr("item.language.desc", &lang)),
                             SettingItem::new(
                                 tr("item.font_size", &lang),
                                 SettingField::number_input(
@@ -256,19 +978,54 @@ impl SettingsWindow {
                             .description(tr("item.font_size.desc", &lang)),
                         ]),
                     SettingGroup::new()
+                        .title(tr("group.region", &lang))
+                        .items(vec![
+                            SettingItem::new(
+                                tr("item.language", &lang),
+                                language_field(SharedString::from(tr("item.language", &lang))),
+                            )
+                            .description(tr("item.language.desc", &lang)),
+                            SettingItem::new(
+                                tr("item.timezone", &lang),
+                                timezone_field(
+                                    tr("tz.placeholder", &lang),
+                                    tr("tz.search_placeholder", &lang),
+                                ),
+                            )
+                            .description(tr("item.timezone.desc", &lang)),
+                        ]),
+                    SettingGroup::new()
                         .title(tr("group.startup", &lang))
                         .items(vec![
                             SettingItem::new(
                                 tr("item.launch_at_login", &lang),
-                                SettingField::checkbox(
-                                    |cx: &App| AppSettings::global(cx).launch_at_login,
-                                    |val: bool, cx: &mut App| {
-                                        AppSettings::global_mut(cx).launch_at_login = val;
-                                        persist::autostart_converge(val);
-                                        save_settings(cx);
+                                SettingField::render({
+                                    let label = tr("item.launch_at_login", &lang);
+                                    move |options, _window, cx| {
+                                        div().debug_selector(|| "launch-at-login-row".into()).child(
+                                            settings_checkbox(
+                                                "launch-at-login-checkbox",
+                                                AppSettings::global(cx).launch_at_login,
+                                                label,
+                                                options,
+                                                move |checked: &bool, _, cx: &mut App| {
+                                                    set_launch_at_login(*checked, cx);
+                                                },
+                                            ),
+                                        )
+                                    }
+                                })
+                                // An element field carries no typed value, so
+                                // the page reset needs the handler explicitly.
+                                .on_reset(
+                                    move |cx: &App| {
+                                        AppSettings::global(cx).launch_at_login
+                                            != defaults.launch_at_login
                                     },
-                                )
-                                .default_value(defaults.launch_at_login),
+                                    move |_window, cx: &mut App| {
+                                        set_launch_at_login(defaults.launch_at_login, cx);
+                                    },
+                                ),
                             )
                             .description(tr("item.launch_at_login.desc", &lang)),
                         ]),
@@ -297,11 +1054,16 @@ impl SettingsWindow {
                                         )
                                     };
                                     h_flex()
+                                        .debug_selector(|| "notifications-enabled-row".into())
                                         .gap_2()
                                         .child(StatusChip::labelled(tone, label))
                                         .child(
                                             Switch::new("notifications-enabled")
                                                 .checked(enabled)
+                                                .accessibility_label(tr(
+                                                    "item.notifications",
+                                                    &settings.language,
+                                                ))
                                                 .with_size(options.size())
                                                 .on_click(|checked: &bool, _, cx: &mut App| {
                                                     AppSettings::global_mut(cx)
@@ -327,6 +1089,150 @@ impl SettingsWindow {
                             )
                             .description(tr("item.notifications.desc", &lang)),
                         ]),
+                    SettingGroup::new().title(tr("group.channels", &lang)).item(
+                        SettingItem::new(
+                            tr("group.channels", &lang),
+                            SettingField::render(|options, window, cx| {
+                                let settings = AppSettings::global(cx);
+                                let disabled =
+                                    options.is_disabled() || !settings.notifications_enabled;
+                                let size = options.size();
+                                let lang = settings.language.clone();
+                                let parent_state = channels_state(settings);
+                                // Snapshot child states before handing `cx`
+                                // and `window` to the control builders —
+                                // `use_keyed_state` inside needs `&mut`.
+                                let children: Vec<_> = Channel::ALL
+                                    .iter()
+                                    .map(|channel| {
+                                        (
+                                            *channel,
+                                            tr(channel.label_key(), &lang),
+                                            channel.get(settings),
+                                        )
+                                    })
+                                    .collect();
+                                let parent = channel_checkbox(
+                                    "channels-all",
+                                    tr("item.channel_all", &lang).into(),
+                                    parent_state,
+                                    disabled,
+                                    false,
+                                    size,
+                                    |next, cx| {
+                                        for channel in Channel::ALL {
+                                            channel.set(AppSettings::global_mut(cx), next);
+                                        }
+                                    },
+                                    window,
+                                    cx,
+                                );
+                                v_flex()
+                                    .id("channels-group")
+                                    .gap_2()
+                                    .w_full()
+                                    // Parent: activating from mixed or checked
+                                    // selects all; from unchecked does nothing
+                                    // to a no-selection — it selects all.
+                                    .child(parent)
+                                    .children(children.into_iter().map(|(channel, label, on)| {
+                                        channel_checkbox(
+                                            channel.id(),
+                                            label.into(),
+                                            if on {
+                                                base::CheckboxState::Checked
+                                            } else {
+                                                base::CheckboxState::Unchecked
+                                            },
+                                            disabled,
+                                            true,
+                                            size,
+                                            move |next, cx| {
+                                                channel.set(AppSettings::global_mut(cx), next);
+                                            },
+                                            window,
+                                            cx,
+                                        )
+                                        .into_any_element()
+                                    }))
+                            })
+                            .on_reset(
+                                |cx: &App| {
+                                    let settings = AppSettings::global(cx);
+                                    Channel::ALL
+                                        .iter()
+                                        .any(|c| c.get(settings) != c.get(&AppSettings::default()))
+                                },
+                                |_window, cx: &mut App| {
+                                    let defaults = AppSettings::default();
+                                    let settings = AppSettings::global_mut(cx);
+                                    for channel in Channel::ALL {
+                                        channel.set(settings, channel.get(&defaults));
+                                    }
+                                    save_settings(cx);
+                                    cx.refresh_windows();
+                                },
+                            ),
+                        )
+                        .description(tr("item.channels.desc", &lang))
+                        .layout(Axis::Vertical),
+                    ),
+                    SettingGroup::new().title(tr("group.digest", &lang)).item(
+                        SettingItem::new(
+                            tr("group.digest", &lang),
+                            SettingField::render(|options, window, cx| {
+                                let (selected, lang, size) = {
+                                    let settings = AppSettings::global(cx);
+                                    (settings.digest, settings.language.clone(), options.size())
+                                };
+                                let disabled = options.is_disabled()
+                                    || !AppSettings::global(cx).notifications_enabled;
+                                // One handle per option, keyed in the window
+                                // so arrow-key handling can move focus.
+                                let handles: Vec<FocusHandle> = DigestCadence::ALL
+                                    .iter()
+                                    .map(|c| {
+                                        window
+                                            .use_keyed_state(c.value(), cx, |_, cx| {
+                                                cx.focus_handle()
+                                            })
+                                            .read(cx)
+                                            .clone()
+                                    })
+                                    .collect();
+                                base::RadioGroup::new("digest-radio-group")
+                                    .flex()
+                                    .flex_col()
+                                    .gap_2()
+                                    .children(DigestCadence::ALL.map(|cadence| {
+                                        digest_radio(
+                                            cadence,
+                                            handles.clone(),
+                                            selected,
+                                            disabled,
+                                            size,
+                                            tr(cadence.label_key(), &lang),
+                                            window,
+                                            cx,
+                                        )
+                                        .into_any_element()
+                                    }))
+                            })
+                            .on_reset(
+                                |cx: &App| {
+                                    AppSettings::global(cx).digest != AppSettings::default().digest
+                                },
+                                |_window, cx: &mut App| {
+                                    AppSettings::global_mut(cx).digest =
+                                        AppSettings::default().digest;
+                                    save_settings(cx);
+                                    cx.refresh_windows();
+                                },
+                            ),
+                        )
+                        .description(tr("item.digest.desc", &lang))
+                        .layout(Axis::Vertical),
+                    ),
                     SettingGroup::new().title(tr("group.actions", &lang)).item(
                         SettingItem::new(
                             tr("item.test_notification", &lang),
@@ -389,6 +1295,11 @@ impl SettingsWindow {
                                             cx.refresh_windows();
                                         },
                                     )
+                                    // The row carries the visible title, so
+                                    // the field's own label stays off — the
+                                    // aria label still names the control for
+                                    // screen readers (no placeholder fallback).
+                                    .aria_label(tr("item.username", &lang))
                                     // beUI's leading icon, muted like the
                                     // placeholder.
                                     .prefix(Rc::new(|_, _, cx| {
@@ -492,12 +1403,35 @@ impl SettingsWindow {
             SettingPage::new(tr("page.about", &lang))
                 .icon(Icon::new(IconName::Info))
                 .groups(vec![
-                    SettingGroup::new().item(SettingItem::render(|_options, _window, cx| {
+                    SettingGroup::new().item(SettingItem::render(|_options, window, cx| {
+                        let lang = AppSettings::global(cx).language.clone();
+                        // The About tab selection lives in keyed window state;
+                        // `use_keyed_state` self-observes so writes re-render.
+                        let tab_ix = window.use_keyed_state("about-tab", cx, |_, _| 0usize);
                         v_flex()
+                            .id("about-brand-card")
                             .gap_3()
                             .w_full()
                             .items_center()
                             .justify_center()
+                            // Owner decision 4: the brand block carries the
+                            // app's context-menu surface (Copy version).
+                            .context_menu(move |menu, _menu_window, cx| {
+                                menu.item(
+                                    PopupMenuItem::new(tr(
+                                        "action.copy_version",
+                                        &AppSettings::global(cx).language,
+                                    ))
+                                    .icon(IconName::Copy)
+                                    .on_click(
+                                        move |_, _, cx| {
+                                            cx.write_to_clipboard(ClipboardItem::new_string(
+                                                env!("CARGO_PKG_VERSION").to_string(),
+                                            ));
+                                        },
+                                    ),
+                                )
+                            })
                             .child(img("brand/brand-mark.png").size(px(64.)))
                             .child(
                                 div()
@@ -511,7 +1445,7 @@ impl SettingsWindow {
                                     .child("settings-demo"),
                             )
                             .child(
-                                Label::new(tr("about.tagline", &AppSettings::global(cx).language))
+                                Label::new(tr("about.tagline", &lang))
                                     .text_sm()
                                     .text_color(cx.theme().muted_foreground),
                             )
@@ -523,12 +1457,51 @@ impl SettingsWindow {
                                     StatusTone::Scheduled,
                                     format!(
                                         "{} {}",
-                                        tr("status.version", &AppSettings::global(cx).language),
+                                        tr("status.version", &lang),
                                         env!("CARGO_PKG_VERSION")
                                     ),
                                 )
                                 .icon(StatusIcon::Tag),
                             )
+                            .child(
+                                // Owner decision 5: the app builds a real
+                                // `TabBar` (Info / Licenses / Changelog). The
+                                // vendored TabBar scrolls and closes like a
+                                // document tab strip; for settings-style
+                                // pinned tabs `menu(false)` hides its
+                                // dropdown — the three tabs fit at every
+                                // supported font size (32px max: 3 short
+                                // labels ≪ the panel width).
+                                TabBar::new("about-tabs")
+                                    .underline()
+                                    .pt_2()
+                                    .w_full()
+                                    .with_size(Size::Small)
+                                    .menu(false)
+                                    .selected_index(*tab_ix.read(cx))
+                                    .justify_center()
+                                    .child(Tab::new().label(tr("about.tab.info", &lang)))
+                                    .child(Tab::new().label(tr("about.tab.licenses", &lang)))
+                                    .child(Tab::new().label(tr("about.tab.changelog", &lang)))
+                                    .on_click(move |ix: &usize, _, cx| {
+                                        tab_ix.update(cx, |s, _| *s = *ix);
+                                    }),
+                            )
+                    })),
+                    SettingGroup::new().item(SettingItem::render(|_options, window, cx| {
+                        let lang = AppSettings::global(cx).language.clone();
+                        let ix = *window
+                            .use_keyed_state("about-tab", cx, |_, _| 0usize)
+                            .read(cx);
+                        div()
+                            .id("about-tab-panel")
+                            .w_full()
+                            .pt_2()
+                            .child(match ix.min(2) {
+                                0 => about_info_panel(&lang, cx),
+                                1 => about_licenses_panel(&lang, cx),
+                                _ => about_changelog_panel(&lang, cx),
+                            })
                     })),
                     SettingGroup::new()
                         .title(tr("group.links", &lang))
@@ -586,6 +1559,44 @@ fn component_locale(lang: &str) -> &str {
         "zh" => "zh-CN",
         other => other,
     }
+}
+
+/// Info tab panel: a short prose paragraph about the demo.
+fn about_info_panel(lang: &str, cx: &App) -> AnyElement {
+    div()
+        .w_full()
+        .max_w(px(480.))
+        .mx_auto()
+        .text_color(cx.theme().muted_foreground)
+        .child(tr("about.info.body", lang))
+        .into_any_element()
+}
+
+/// Licenses tab panel: the bundled licenses as quiet muted lines.
+fn about_licenses_panel(lang: &str, cx: &App) -> AnyElement {
+    v_flex()
+        .w_full()
+        .max_w(px(480.))
+        .mx_auto()
+        .gap_2()
+        .text_color(cx.theme().muted_foreground)
+        .children([
+            tr("about.licenses.0", lang),
+            tr("about.licenses.1", lang),
+            tr("about.licenses.2", lang),
+        ])
+        .into_any_element()
+}
+
+/// Changelog tab panel: the release highlight, muted like release notes.
+fn about_changelog_panel(lang: &str, cx: &App) -> AnyElement {
+    div()
+        .w_full()
+        .max_w(px(480.))
+        .mx_auto()
+        .text_color(cx.theme().muted_foreground)
+        .child(tr("about.changelog.0", lang))
+        .into_any_element()
 }
 
 impl Focusable for SettingsWindow {
@@ -669,12 +1680,14 @@ impl Render for SettingsWindow {
                     .border_0()
                     .text_color(cx.theme().muted_foreground),
             )
-            // Raised pill on the active sidebar item.
+            // Raised pill on the active sidebar item: the app-owned `sm`
+            // elevation from the resolved token snapshot (O1).
             .active_item_style(
                 &StyleRefinement::default()
                     .bg(cx.theme().group_box)
                     .border_1()
-                    .border_color(cx.theme().border),
+                    .border_color(cx.theme().border)
+                    .shadow(cx.global::<UiTokens>().shadow.sm.clone()),
             )
             // Raised zdesk card around the settings content: rounded,
             // stroked, lighter than the window base, with a 6px inset on all
@@ -689,7 +1702,7 @@ impl Render for SettingsWindow {
                     .m(px(6.))
                     .overflow_hidden(),
             )
-            .pages(self.setting_pages(cx))
+            .pages(Self::setting_pages(cx))
             // One spring drives the sidebar panel's width; the element id
             // preserves spring state across frames, so a mid-flight toggle
             // retargets with its current velocity instead of restarting.
