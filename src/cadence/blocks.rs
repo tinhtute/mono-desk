@@ -32,12 +32,13 @@ pub fn card(cx: &App) -> Div {
 /// The rounded-square line-icon tile in front of every card title.
 pub fn icon_tile(icon: IconName, cx: &App) -> Div {
     div()
+        .flex()
+        .items_center()
+        .justify_center()
         .size(px(36.))
         .flex_shrink_0()
         .rounded(px(10.))
         .bg(cx.theme().accent)
-        .items_center()
-        .justify_center()
         .text_color(cx.theme().foreground)
         .child(Icon::new(icon).with_size(Size::Size(px(18.))))
 }
@@ -454,14 +455,15 @@ impl RenderOnce for CadenceCheckbox {
         div()
             .id(self.id)
             .cursor_pointer()
+            .flex()
+            .items_center()
+            .justify_center()
             .size(px(18.))
             .flex_shrink_0()
             .rounded(px(5.))
             .border_1()
             .border_color(border)
             .bg(bg)
-            .items_center()
-            .justify_center()
             .on_click(move |_, window, cx| {
                 on_click(&!checked, window, cx);
             })
@@ -506,11 +508,11 @@ impl RenderOnce for CadenceToggle {
         div()
             .id(self.id)
             .cursor_pointer()
+            .flex()
             .w(px(40.))
             .h(px(22.))
             .rounded_full()
             .px(px(2.))
-            .flex()
             .items_center()
             .when(checked, |this| this.justify_end())
             .when(!checked, |this| this.justify_start())
@@ -537,6 +539,7 @@ impl RenderOnce for CadenceToggle {
 pub fn pie_avatar(frac: f32, size: Pixels, cx: &App) -> Div {
     let frac = frac.clamp(0., 1.);
     div()
+        .relative()
         .size(size)
         .rounded_full()
         .overflow_hidden()
