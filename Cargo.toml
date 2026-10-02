@@ -38,5 +38,8 @@ ttf-parser = "0.25"
 # - combobox-value-change.patch: detect a Combobox selection change by item value, not by
 # row index — a filtered list reuses indices, so clicking a filtered row that lands on the
 # selected row's index was treated as "no change" (no Change/Confirm, no close).
+# - settings-search-terms.patch: SettingItem::is_match requires every whitespace-separated
+# query term to appear in the item's words (title + description + keywords), instead of
+# matching the whole query as one substring — so "appearance zoom" finds Font Size.
 [patch.crates-io]
 gpui-component = { path = "vendor/gpui-component" }

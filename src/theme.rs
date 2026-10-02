@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 
-use gpui_kit::component::{Theme, ThemeRegistry};
-use gpui_kit::{App, px};
+use gpui_kit::component::{Colorize as _, Theme, ThemeMode, ThemeRegistry};
+use gpui_kit::{App, Hsla, WindowAppearance, px};
 
 use crate::tokens::UiTokens;
 
@@ -32,6 +32,101 @@ pub fn clamp_font_size(size: f64) -> f64 {
     size.clamp(FONT_SIZE_MIN, FONT_SIZE_MAX)
 }
 
+/// How the app picks its theme: one mode always, or as the system does.
+///
+/// `ThemeMode` itself has only `Light`/`Dark` — it is the framework's
+/// resolved state. This is the app's *choice*, which can also be "follow
+/// the OS", so the two cannot be the same type.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Appearance {
+    #[default]
+    Light,
+    Dark,
+    System,
+}
+
+impl Appearance {
+    /// The persisted `key=value` word. Stable — it is written to disk.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Appearance::Light => "light",
+            Appearance::Dark => "dark",
+            Appearance::System => "system",
+        }
+    }
+
+    /// Parse a persisted word. `None` for anything else, so a hand-edited
+    /// file falls back to the default rather than becoming unselectable.
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "light" => Some(Appearance::Light),
+            "dark" => Some(Appearance::Dark),
+            "system" => Some(Appearance::System),
+            _ => None,
+        }
+    }
+
+    /// The mode to show: the chosen one, or the system's when `System`.
+    pub fn resolve(self, system: WindowAppearance) -> ThemeMode {
+        match self {
+            Appearance::Light => ThemeMode::Light,
+            Appearance::Dark => ThemeMode::Dark,
+            Appearance::System => ThemeMode::from(system),
+        }
+    }
+}
+
+/// Named accent presets, each drawn from a base hue the palette already
+/// carries, so a chosen accent still sits inside the graphite scheme.
+///
+/// The words are persisted, so they are stable; the colors are not.
+pub const ACCENT_PRESETS: [(&str, &str); 6] = [
+    ("teal", "#124b68"),
+    ("blue", "#2e6fd0"),
+    ("green", "#1f7a45"),
+    ("violet", "#8d6be7"),
+    ("amber", "#935f06"),
+    ("red", "#bb1b1b"),
+];
+
+/// Parse a stored accent — `#RRGGBB` — or `None` for the theme's own.
+///
+/// Anything unparseable is `None`, so a hand-edited file falls back to the
+/// shipped palette rather than to an arbitrary color.
+pub fn accent_from_str(s: &str) -> Option<Hsla> {
+    Hsla::parse_hex(s).ok()
+}
+
+/// Write `accent` onto the theme's brand tokens.
+///
+/// The picked color drives the **primary** family and the focus ring — the
+/// tokens that read as "the accent" (primary buttons, selection, focus).
+/// It deliberately does not touch `colors.accent`, which in this framework
+/// is the neutral hover wash behind list and menu rows, not a brand color.
+///
+/// The shipped palette lightens hover and active in light mode and darkens
+/// them in dark mode; the derived shades keep that direction.
+fn write_accent(theme: &mut Theme, accent: Hsla) {
+    let shade = |amount: f32| {
+        if theme.mode.is_dark() {
+            accent.darken(amount)
+        } else {
+            accent.lighten(amount)
+        }
+    };
+    theme.colors.primary = accent;
+    theme.colors.primary_hover = shade(0.08);
+    theme.colors.primary_active = shade(0.20);
+    theme.colors.ring = accent;
+    // Readable on the accent: near-black on a light color, white otherwise.
+    theme.colors.primary_foreground = Hsla {
+        h: 0.0,
+        s: 0.0,
+        l: if accent.l > 0.6 { 0.15 } else { 1.0 },
+        a: 1.0,
+    };
+}
+
 /// Write the app's theme overrides onto `theme`.
 ///
 /// Crate-visible so the token tests can exercise the override path on a bare
@@ -42,6 +137,9 @@ pub fn clamp_font_size(size: f64) -> f64 {
 ///   control's border and reads as too heavy here; with the flag off,
 ///   `ThemeStyled::focus_ring_style` keeps only the 1px border tinted with
 ///   `theme.ring`, which costs no space and cannot be clipped.
+///
+/// The accent is applied by [`apply_overrides`] instead, so this stays a
+/// font-size/ring concern and its existing callers do not move.
 pub(crate) fn write_overrides(theme: &mut Theme, font_size: f64) {
     theme.font_size = px(clamp_font_size(font_size) as f32);
     theme.focus_ring = false;
@@ -50,20 +148,25 @@ pub(crate) fn write_overrides(theme: &mut Theme, font_size: f64) {
 /// Apply the app's theme overrides to the live theme.
 ///
 /// `Theme::change` rebuilds the theme from the config, so this must run after
-/// every mode switch (and once at startup, from [`install`]). `sync_base`
-/// rebuilds the Base tokens the components read, `Root` re-derives the window
-/// rem size from `theme.font_size` on the next paint, and [`UiTokens::sync`]
+/// every mode switch (and once at startup, from [`install`]) — otherwise both
+/// the font size and the accent silently revert. `sync_base` rebuilds the
+/// Base tokens the components read, `Root` re-derives the window rem size
+/// from `theme.font_size` on the next paint, and [`UiTokens::sync`]
 /// re-resolves the app's elevation snapshot from the rebuilt theme.
-pub fn apply_overrides(font_size: f64, cx: &mut App) {
-    write_overrides(Theme::global_mut(cx), font_size);
+pub fn apply_overrides(font_size: f64, accent: Option<Hsla>, cx: &mut App) {
+    let theme = Theme::global_mut(cx);
+    write_overrides(theme, font_size);
+    if let Some(accent) = accent {
+        write_accent(theme, accent);
+    }
     Theme::sync_base(cx);
     UiTokens::sync(cx);
 }
 
 /// Loads the embedded `mono-light` / `mono-dark` theme set, makes it the
-/// active light/dark pair, and applies the app's overrides for `font_size`.
-/// Call once in `main()` after `gpui_kit::init(cx)`.
-pub fn install(cx: &mut App, font_size: f64) {
+/// active light/dark pair, and applies the app's overrides for `font_size`
+/// and `accent`. Call once in `main()` after `gpui_kit::init(cx)`.
+pub fn install(cx: &mut App, font_size: f64, accent: Option<Hsla>) {
     ThemeRegistry::global_mut(cx)
         .load_themes_from_str(MONO_THEMES)
         .expect("failed to parse embedded assets/themes/mono.json");
@@ -102,7 +205,7 @@ pub fn install(cx: &mut App, font_size: f64) {
 
     let mode = Theme::global(cx).mode;
     Theme::change(mode, None, cx);
-    apply_overrides(font_size, cx);
+    apply_overrides(font_size, accent, cx);
 }
 
 #[cfg(test)]
@@ -112,10 +215,11 @@ mod tests {
 
     use super::MONO_THEMES;
     use super::{
-        FONT_SIZE_MAX, FONT_SIZE_MIN, XANH_MONO_SEMIBOLD_ITALIC, clamp_font_size, write_overrides,
+        ACCENT_PRESETS, Appearance, FONT_SIZE_MAX, FONT_SIZE_MIN, XANH_MONO_SEMIBOLD_ITALIC,
+        accent_from_str, clamp_font_size, write_accent, write_overrides,
     };
-    use gpui_kit::component::{Theme, ThemeMode, ThemeSet};
-    use gpui_kit::{px, rems};
+    use gpui_kit::component::{Colorize as _, Theme, ThemeMode, ThemeSet};
+    use gpui_kit::{Hsla, WindowAppearance, px, rems};
 
     /// The wordmarks ask for `Xanh Mono` at `FontWeight::SEMIBOLD`, and GPUI
     /// never synthesizes bold — so the request only reads as SemiBold if the
@@ -172,6 +276,106 @@ mod tests {
         write_overrides(&mut theme, 1.0);
         assert!(!theme.focus_ring);
         assert_eq!(theme.font_size, px(FONT_SIZE_MIN as f32));
+    }
+
+    /// An accent drives the brand tokens — primary, its derived shades, and
+    /// the focus ring — and leaves the framework's neutral list-hover wash
+    /// (`colors.accent`) alone, which is not what "accent" means to a user.
+    #[test]
+    fn accent_drives_the_primary_family_and_the_ring() {
+        let accent = Hsla::parse_hex("#2e6fd0").unwrap();
+        for mode in [ThemeMode::Light, ThemeMode::Dark] {
+            let mut theme = mono_theme(mode);
+            let wash_before = theme.colors.accent;
+
+            write_accent(&mut theme, accent);
+
+            assert_eq!(theme.colors.primary, accent, "{mode:?}: primary");
+            assert_eq!(theme.colors.ring, accent, "{mode:?}: ring");
+            assert_eq!(
+                theme.colors.accent, wash_before,
+                "{mode:?}: hover wash untouched"
+            );
+            // The derived shades move away from the accent, in the direction
+            // the shipped palette uses for this mode.
+            let hover = theme.colors.primary_hover;
+            let active = theme.colors.primary_active;
+            if mode.is_dark() {
+                assert!(hover.l < accent.l, "{mode:?}: hover darkens");
+                assert!(active.l < hover.l, "{mode:?}: active darkens further");
+            } else {
+                assert!(hover.l > accent.l, "{mode:?}: hover lightens");
+                assert!(active.l > hover.l, "{mode:?}: active lightens further");
+            }
+        }
+    }
+
+    /// The label on the accent stays readable: near-black on a light color,
+    /// white on a dark one.
+    #[test]
+    fn accent_foreground_stays_readable() {
+        let light_accent = Hsla::parse_hex("#f6d55c").unwrap();
+        let dark_accent = Hsla::parse_hex("#124b68").unwrap();
+        for (accent, expected_l) in [(light_accent, 0.15), (dark_accent, 1.0)] {
+            let mut theme = mono_theme(ThemeMode::Light);
+            write_accent(&mut theme, accent);
+            let fg = theme.colors.primary_foreground;
+            assert_eq!(fg.l, expected_l, "foreground lightness for {accent:?}");
+            assert_eq!(fg.a, 1.0, "the foreground is opaque");
+        }
+    }
+
+    /// A stored accent round-trips, and junk falls back to the theme's own
+    /// color rather than to something arbitrary.
+    #[test]
+    fn stored_accent_parses_or_falls_back() {
+        for (_, hex) in ACCENT_PRESETS {
+            assert!(accent_from_str(hex).is_some(), "{hex} must parse");
+        }
+        assert!(accent_from_str("").is_none());
+        assert!(accent_from_str("not-a-color").is_none());
+        assert!(accent_from_str("#GGGGGG").is_none());
+    }
+
+    /// The appearance choice resolves to a mode: Light and Dark ignore the
+    /// system, System follows it — including the two `Vibrant` appearances
+    /// macOS reports for translucent windows.
+    #[test]
+    fn appearance_resolves_against_the_system() {
+        for (system, expected) in [
+            (WindowAppearance::Light, ThemeMode::Light),
+            (WindowAppearance::Dark, ThemeMode::Dark),
+            (WindowAppearance::VibrantLight, ThemeMode::Light),
+            (WindowAppearance::VibrantDark, ThemeMode::Dark),
+        ] {
+            assert_eq!(Appearance::Light.resolve(system), ThemeMode::Light);
+            assert_eq!(Appearance::Dark.resolve(system), ThemeMode::Dark);
+            assert_eq!(Appearance::System.resolve(system), expected);
+        }
+    }
+
+    /// The persisted word round-trips, and anything else is rejected so a
+    /// hand-edited file cannot produce an unselectable value.
+    #[test]
+    fn appearance_words_round_trip_and_reject_junk() {
+        for appearance in [Appearance::Light, Appearance::Dark, Appearance::System] {
+            assert_eq!(Appearance::parse(appearance.as_str()), Some(appearance));
+        }
+        assert_eq!(Appearance::parse("Light"), None);
+        assert_eq!(Appearance::parse("auto"), None);
+        assert_eq!(Appearance::parse(""), None);
+    }
+
+    /// The default must mirror `AppSettings::default()`, which starts in
+    /// light mode — a stored-settings default that disagreed would silently
+    /// flip the theme on a missing config file.
+    #[test]
+    fn appearance_default_matches_the_app_default() {
+        assert_eq!(Appearance::default(), Appearance::Light);
+        assert_eq!(
+            Appearance::default().resolve(WindowAppearance::Dark),
+            ThemeMode::Light
+        );
     }
 
     /// The app's own palette, resolved the way `Theme::change` resolves it.

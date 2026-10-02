@@ -3,10 +3,11 @@ use std::rc::Rc;
 use gpui_kit::ElementId;
 use gpui_kit::base::{self as base, StyledExt as _, spring};
 use gpui_kit::component::{
-    ActiveTheme, AxisExt as _, Disableable, Icon, IconName, IconNamed as _, Root, Sizable, Size,
-    Theme, ThemeMode, ThemeStyled as _, TitleBar, WindowExt,
-    button::Button,
+    ActiveTheme, AxisExt as _, Colorize as _, Disableable, Icon, IconName, IconNamed as _, Root,
+    Sizable, Size, Theme, ThemeStyled as _, TitleBar, WindowExt,
+    button::{Button, ButtonVariants as _},
     checkbox::Checkbox,
+    color_picker::{ColorPicker, ColorPickerEvent, ColorPickerState},
     combobox::{Combobox, ComboboxEvent, ComboboxState},
     h_flex,
     label::Label,
@@ -14,10 +15,8 @@ use gpui_kit::component::{
     notification::Notification,
     searchable_list::{SearchableListDelegate, SearchableListItem, SearchableVec},
     select::{Select, SelectEvent, SelectState},
-    setting::{
-        NumberFieldOptions, RenderOptions, SettingField, SettingGroup, SettingItem, SettingPage,
-        Settings,
-    },
+    setting::{RenderOptions, SettingField, SettingGroup, SettingItem, SettingPage, Settings},
+    slider::{Slider, SliderEvent, SliderState, SliderValue},
     switch::Switch,
     tab::{Tab, TabBar},
     v_flex,
@@ -26,14 +25,15 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{AnimationExt, Pixels, SpringAnimation, SpringConfig};
 use gpui_kit::{
     AnyElement, App, AppContext as _, Axis, Bounds, ClipboardItem, Context, Entity, FocusHandle,
-    Focusable, FontWeight, Global, InteractiveElement as _, IntoElement, KeyBinding, Menu,
-    MenuItem, ParentElement as _, Render, SharedString, StyleRefinement, Styled as _, Subscription,
-    TitlebarOptions, Window, WindowBounds, WindowDecorations, WindowOptions, div, img, point, px,
-    relative, size, svg,
+    Focusable, FontWeight, Global, Hsla, InteractiveElement as _, IntoElement, KeyBinding, Menu,
+    MenuItem, ParentElement as _, Render, SharedString, StatefulInteractiveElement as _,
+    StyleRefinement, Styled as _, Subscription, TitlebarOptions, Window, WindowBounds,
+    WindowDecorations, WindowOptions, div, img, point, px, relative, size, svg,
 };
 use input_field::{FieldStatus, InputFieldConfig, InputFieldView, Validation};
 use shell::{AppShell, ShellState};
 use status_chip::{StatusChip, StatusIcon, StatusTone};
+use theme::Appearance;
 use tokens::UiTokens;
 
 mod assets;
@@ -233,7 +233,9 @@ fn channels_state(s: &AppSettings) -> base::CheckboxState {
 /// Application state, stored as a GPUI global so `SettingField` closures can
 /// reach it through `&App` / `&mut App`.
 struct AppSettings {
-    dark_mode: bool,
+    appearance: Appearance,
+    /// Brand accent, or `None` for the theme's own. Persisted as `#RRGGBB`.
+    accent: Option<Hsla>,
     language: SharedString,
     font_size: f64,
     launch_at_login: bool,
@@ -250,7 +252,8 @@ struct AppSettings {
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
-            dark_mode: false,
+            appearance: Appearance::default(),
+            accent: None,
             language: "en".into(),
             // Matches the theme's `font.size` (14px) so the applied default
             // preserves the approved visual baseline. `theme::tests` pins the
@@ -285,7 +288,8 @@ impl AppSettings {
 impl AppSettings {
     fn from_stored(s: StoredSettings) -> Self {
         Self {
-            dark_mode: s.dark_mode,
+            appearance: Appearance::parse(&s.appearance).unwrap_or_default(),
+            accent: theme::accent_from_str(&s.accent),
             language: s.language.into(),
             font_size: if s.font_size.is_finite() {
                 s.font_size
@@ -306,7 +310,11 @@ impl AppSettings {
 
     fn to_stored(&self) -> StoredSettings {
         StoredSettings {
-            dark_mode: self.dark_mode,
+            appearance: self.appearance.as_str().to_string(),
+            accent: self
+                .accent
+                .map(|accent| accent.to_hex())
+                .unwrap_or_default(),
             language: self.language.to_string(),
             font_size: self.font_size,
             launch_at_login: self.launch_at_login,
@@ -687,6 +695,398 @@ fn language_field(label: SharedString) -> SettingField<SharedString> {
     )
 }
 
+/// Keyed-state slot holding the Accent `ColorPickerState` and the
+/// subscription that commits `ColorPickerEvent::Change` into
+/// `AppSettings.accent`. Living in keyed state keeps the open popover and its
+/// sliders across page re-renders.
+struct AccentPickerSlot {
+    state: Entity<ColorPickerState>,
+    _subscription: Subscription,
+}
+
+/// The Accent field: the palette's named presets as swatches, plus the
+/// vendored `ColorPicker` for any other color.
+///
+/// The global is the source of truth — a page reset or an external write is
+/// adopted on the next render, the same contract `language_field` follows.
+/// Picking writes through `set_accent`, which re-applies the theme overrides
+/// so the change is visible immediately.
+fn accent_field(label: SharedString) -> SettingField<SharedString> {
+    SettingField::render(move |options, window, cx| {
+        let slot = window.use_keyed_state("accent-picker-state", cx, |window, cx| {
+            let initial = AppSettings::global(cx)
+                .accent
+                .unwrap_or_else(|| cx.theme().colors.primary);
+            let state = cx.new(|cx| ColorPickerState::new(window, cx).default_value(initial));
+            let subscription =
+                cx.subscribe_in(&state, window, |_, _, event: &ColorPickerEvent, _, cx| {
+                    // The event has one variant today; `set_accent(None)`
+                    // would mean "back to the theme's own", which the picker
+                    // does not currently offer.
+                    let ColorPickerEvent::Change(value) = event;
+                    set_accent(*value, cx);
+                });
+            AccentPickerSlot {
+                state,
+                _subscription: subscription,
+            }
+        });
+        let state = slot.read(cx).state.clone();
+        let selected = AppSettings::global(cx).accent;
+        if let Some(selected) = selected
+            && state.read(cx).value() != Some(selected)
+        {
+            state.update(cx, |state, cx| state.set_value(selected, window, cx));
+        }
+        let presets: Vec<(SharedString, Hsla)> = theme::ACCENT_PRESETS
+            .iter()
+            .map(|(name, hex)| {
+                (
+                    SharedString::from(*name),
+                    theme::accent_from_str(hex).expect("presets are valid hex"),
+                )
+            })
+            .collect();
+        div()
+            .id("accent-control")
+            .when(options.layout().is_horizontal(), |this| this.w_64())
+            .child(
+                h_flex()
+                    .gap_2()
+                    .items_center()
+                    .debug_selector(|| "accent-row".into())
+                    .children(
+                        presets
+                            .iter()
+                            .map(|(name, color)| {
+                                accent_swatch(name, *color, selected == Some(*color), cx)
+                            })
+                            .collect::<Vec<_>>(),
+                    )
+                    .child(
+                        ColorPicker::new(&state)
+                            .featured_colors(presets.iter().map(|(_, color)| *color).collect())
+                            .accessibility_label(label.clone())
+                            .with_size(options.size()),
+                    ),
+            )
+    })
+    .on_reset(
+        |cx: &App| AppSettings::global(cx).accent.is_some(),
+        |_window, cx: &mut App| set_accent(None, cx),
+    )
+}
+
+/// Keyed-state slot holding the Font Size `SliderState` and the subscription
+/// that commits it into `AppSettings.font_size`.
+struct FontSizeSlot {
+    state: Entity<SliderState>,
+    _subscription: Subscription,
+}
+
+/// Whether the Font Size setting still holds its default — the reset
+/// affordance is inert while it does.
+fn font_size_at_default(size: f64) -> bool {
+    size == AppSettings::default().font_size
+}
+
+/// The Font Size field: a slider over the app's 8–32 clamp, a preview line
+/// drawn at the chosen size, and a reset that is inert at the default.
+///
+/// The slider reports continuously while dragging, so the live theme is
+/// updated on every `Change` but the file is written only on `Release` —
+/// a drag would otherwise rewrite the config dozens of times.
+fn font_size_field(label: SharedString) -> SettingField<SharedString> {
+    SettingField::render(move |options, window, cx| {
+        let slot = window.use_keyed_state("font-size-slider-state", cx, |window, cx| {
+            // Read before `cx.new`: the closure must not borrow the app.
+            let initial = AppSettings::global(cx).font_size as f32;
+            let state = cx.new(|_| {
+                SliderState::new()
+                    .min(theme::FONT_SIZE_MIN as f32)
+                    .max(theme::FONT_SIZE_MAX as f32)
+                    .step(1.0)
+                    .default_value(initial)
+            });
+            let subscription =
+                cx.subscribe_in(&state, window, |_, _, event: &SliderEvent, _window, cx| {
+                    let (value, persist) = match event {
+                        SliderEvent::Change(value) => (value, false),
+                        SliderEvent::Release(value) => (value, true),
+                    };
+                    let SliderValue::Single(size) = value else {
+                        return;
+                    };
+                    // Same boundary guard the NumberField needed: a non-finite
+                    // value would poison `px()`/`set_rem_size`.
+                    let Some(size) = normalize_font_size(*size as f64) else {
+                        return;
+                    };
+                    AppSettings::global_mut(cx).font_size = size;
+                    apply_font_size(cx);
+                    if persist {
+                        save_settings(cx);
+                    }
+                    cx.refresh_windows();
+                });
+            FontSizeSlot {
+                state,
+                _subscription: subscription,
+            }
+        });
+        let state = slot.read(cx).state.clone();
+        // The global is the source of truth: adopt reset/external writes.
+        let want = AppSettings::global(cx).font_size as f32;
+        let SliderValue::Single(shown) = state.read(cx).value() else {
+            unreachable!("the font size slider is single-valued")
+        };
+        if shown != want {
+            state.update(cx, |state, cx| {
+                state.set_value(want, window, cx);
+            });
+        }
+        let size = AppSettings::global(cx).font_size;
+        div()
+            .id("font-size-control")
+            .when(options.layout().is_horizontal(), |this| this.w_64())
+            .child(
+                v_flex()
+                    .gap_2()
+                    .debug_selector(|| "font-size-row".into())
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .items_center()
+                            .child(
+                                div().flex_1().min_w_0().child(
+                                    Slider::new(&state)
+                                        .horizontal()
+                                        .disabled(options.is_disabled()),
+                                ),
+                            )
+                            .child(div().flex_none().child(format!("{size:.0} px")))
+                            .child(
+                                Button::new("font-size-reset")
+                                    .ghost()
+                                    .icon(IconName::RotateCw)
+                                    .accessibility_label(label.clone())
+                                    .disabled(font_size_at_default(size))
+                                    .on_click(|_, _, cx| {
+                                        AppSettings::global_mut(cx).font_size =
+                                            AppSettings::default().font_size;
+                                        apply_font_size(cx);
+                                        save_settings(cx);
+                                        cx.refresh_windows();
+                                    }),
+                            ),
+                    )
+                    .child(
+                        div().flex().child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .text_size(px(size as f32))
+                                .child(tr("preview.sample", &AppSettings::global(cx).language)),
+                        ),
+                    ),
+            )
+    })
+    .on_reset(
+        |cx: &App| !font_size_at_default(AppSettings::global(cx).font_size),
+        |_window, cx: &mut App| {
+            AppSettings::global_mut(cx).font_size = AppSettings::default().font_size;
+            apply_font_size(cx);
+            save_settings(cx);
+            cx.refresh_windows();
+        },
+    )
+}
+
+/// One setting whose current value differs from its default.
+///
+/// `key` is an i18n key; the two values are already-formatted words, because
+/// the panel only has to show them, not compare them.
+struct ChangedSetting {
+    key: &'static str,
+    current: String,
+    default: String,
+}
+
+/// Every setting that differs from `AppSettings::default()`.
+///
+/// Computed app-side: the app owns both sides of the comparison, so this
+/// needs no vendor access and cannot drift from what the pages actually show.
+/// A setting is included only when its *effective* value differs — a
+/// hand-edited config that already equals the default is not "changed".
+fn changed_settings(cx: &App) -> Vec<ChangedSetting> {
+    let now = AppSettings::global(cx);
+    let default = AppSettings::default();
+    let mut changed = Vec::new();
+    let mut push = |key: &'static str, differs: bool, current: String, default: String| {
+        if differs {
+            changed.push(ChangedSetting {
+                key,
+                current,
+                default,
+            });
+        }
+    };
+
+    push(
+        "item.appearance",
+        now.appearance != default.appearance,
+        now.appearance.as_str().to_string(),
+        default.appearance.as_str().to_string(),
+    );
+    push(
+        "item.accent",
+        now.accent != default.accent,
+        now.accent
+            .map(|accent| accent.to_hex())
+            .unwrap_or_else(|| tr("reset.theme_default", &now.language).to_string()),
+        tr("reset.theme_default", &default.language).to_string(),
+    );
+    push(
+        "item.font_size",
+        now.font_size != default.font_size,
+        format!("{:.0} px", now.font_size),
+        format!("{:.0} px", default.font_size),
+    );
+    push(
+        "item.language",
+        now.language != default.language,
+        now.language.to_string(),
+        default.language.to_string(),
+    );
+    push(
+        "item.launch_at_login",
+        now.launch_at_login != default.launch_at_login,
+        on_off(now.launch_at_login, &now.language),
+        on_off(default.launch_at_login, &default.language),
+    );
+    push(
+        "item.notifications",
+        now.notifications_enabled != default.notifications_enabled,
+        on_off(now.notifications_enabled, &now.language),
+        on_off(default.notifications_enabled, &default.language),
+    );
+    push(
+        "item.username",
+        now.username != default.username,
+        now.username.to_string(),
+        default.username.to_string(),
+    );
+    push(
+        "item.display_name",
+        now.display_name != default.display_name,
+        now.display_name.to_string(),
+        default.display_name.to_string(),
+    );
+    changed
+}
+
+/// `On`/`Off` in the owner's language.
+fn on_off(value: bool, lang: &SharedString) -> String {
+    tr(if value { "state.on" } else { "state.off" }, lang).to_string()
+}
+
+/// Revert everything the reset panel lists, in one pass.
+fn reset_everything(cx: &mut App) {
+    let default = AppSettings::default();
+    let language = default.language.clone();
+    *AppSettings::global_mut(cx) = default;
+    gpui_kit::component::set_locale(component_locale(&language));
+    theme::install(
+        cx,
+        AppSettings::global(cx).font_size,
+        AppSettings::global(cx).accent,
+    );
+    apply_appearance(AppSettings::global(cx).appearance, cx);
+    persist::autostart_converge(AppSettings::global(cx).launch_at_login);
+    save_settings(cx);
+    cx.refresh_windows();
+}
+
+/// The Reset page: every setting that differs from its default, a way back
+/// for each, and a "Reset all" that asks twice. With nothing changed it says
+/// so rather than drawing an empty box.
+fn reset_page(cx: &App) -> SettingPage {
+    let lang = AppSettings::global(cx).language.clone();
+    let changed = changed_settings(cx);
+    let muted = cx.theme().muted_foreground;
+    let has_changes = !changed.is_empty();
+    let mut group = SettingGroup::new().title(tr("group.changed", &lang));
+
+    if changed.is_empty() {
+        group = group.item(
+            SettingItem::new(
+                tr("reset.nothing", &lang),
+                SettingField::render(|_, _, _| div()),
+            )
+            .description(tr("reset.nothing.desc", &lang)),
+        );
+    } else {
+        for each in changed {
+            let key = each.key;
+            let words = format!("{} → {}", each.current, each.default);
+            group = group.item(
+                SettingItem::new(
+                    tr(key, &lang),
+                    SettingField::render(move |_, _, _| {
+                        div().text_color(muted).child(words.clone())
+                    }),
+                )
+                .description(tr(key, &lang)),
+            );
+        }
+    }
+
+    // "Reset all" asks twice: the first press arms it, the second reverts.
+    // The armed flag lives in keyed state so it survives re-renders.
+    let label: SharedString = tr("reset.all", &lang).into();
+    let armed_label: SharedString = tr("reset.all.confirm", &lang).into();
+    group = group.item(
+        SettingItem::new(
+            label.clone(),
+            SettingField::render(move |_, window, cx| {
+                let armed = window.use_keyed_state("reset-all-armed", cx, |_, _| ResetArmed(false));
+                let is_armed = armed.read(cx).0;
+                let text = if is_armed {
+                    armed_label.clone()
+                } else {
+                    label.clone()
+                };
+                div().child(
+                    Button::new("reset-all")
+                        .label(text)
+                        .disabled(!has_changes)
+                        .on_click(move |_, _, cx| {
+                            if is_armed {
+                                reset_everything(cx);
+                            } else {
+                                armed.update(cx, |armed, cx| {
+                                    armed.0 = true;
+                                    cx.notify();
+                                });
+                            }
+                        }),
+                )
+            }),
+        )
+        .description(tr("reset.all.desc", &lang)),
+    );
+
+    SettingPage::new(tr("page.reset", &lang))
+        .icon(Icon::new(IconName::RotateCw))
+        .resettable(false)
+        .groups(vec![group])
+}
+
+/// Keyed state for the two-press "Reset all".
+struct ResetArmed(bool);
+
+impl Global for ResetArmed {}
+
 /// A time zone row for the Combobox. `title()` is localized for the "system"
 /// sentinel and the IANA name otherwise; `matches` also searches the IANA
 /// code so "bangkok" and "GMT+7"-style fragments both hit.
@@ -836,20 +1236,65 @@ fn timezone_field(
     )
 }
 
-/// The Dark Mode switch's effect: flip the theme, remember the choice, and
-/// re-apply the derived overrides — shared by the row's click handler and the
-/// page reset so the two cannot drift.
-fn set_dark_mode(val: bool, cx: &mut App) {
-    let mode = if val {
-        ThemeMode::Dark
-    } else {
-        ThemeMode::Light
-    };
+/// The single funnel for every theme-mode write.
+///
+/// `Theme::change` rebuilds the theme from the config, which resets
+/// `font_size` **and** the accent to their config values, so
+/// `apply_font_size` (which applies both) must follow it on every path —
+/// startup, the segmented control, and the OS observer alike. Routing them
+/// all here is what keeps a mode flip from silently dropping a non-default
+/// font size (see `docs/memory/gpui-component-setting-field-pitfalls.md`
+/// item 3).
+///
+/// Deliberately does not persist: a caller that represents a user choice adds
+/// `save_settings`, and startup must not rewrite the file it just read.
+fn apply_appearance(appearance: Appearance, cx: &mut App) {
+    let mode = appearance.resolve(cx.window_appearance());
     Theme::change(mode, None, cx);
-    AppSettings::global_mut(cx).dark_mode = val;
+    apply_font_size(cx);
+    cx.refresh_windows();
+}
+
+/// The Appearance control's effect: remember the choice, then funnel it.
+/// Shared by the row's handler and the page reset so the two cannot drift.
+fn set_appearance(appearance: Appearance, cx: &mut App) {
+    AppSettings::global_mut(cx).appearance = appearance;
+    apply_appearance(appearance, cx);
+    save_settings(cx);
+}
+
+/// The Accent control's effect: remember the color and re-apply the theme
+/// overrides. No `Theme::change` is needed — the accent is written on top of
+/// the resolved palette, so it survives mode switches through
+/// `apply_overrides`.
+fn set_accent(accent: Option<Hsla>, cx: &mut App) {
+    AppSettings::global_mut(cx).accent = accent;
     apply_font_size(cx);
     save_settings(cx);
     cx.refresh_windows();
+}
+
+/// One clickable accent swatch. `selected` draws the focus ring color as its
+/// border, so the current choice is visible without a checkmark.
+fn accent_swatch(name: &SharedString, color: Hsla, selected: bool, cx: &App) -> impl IntoElement {
+    let theme = cx.theme();
+    let border = if selected {
+        theme.colors.ring
+    } else {
+        theme.colors.border
+    };
+    let debug: SharedString = format!("accent-{name}").into();
+    div()
+        .id(ElementId::Name(debug.clone()))
+        .debug_selector(move || debug.to_string())
+        .size(px(20.))
+        .flex_none()
+        .rounded_full()
+        .bg(color)
+        .border_1()
+        .border_color(border)
+        .cursor_pointer()
+        .on_click(move |_, _, cx| set_accent(Some(color), cx))
 }
 
 /// The Launch at login checkbox's effect — shared by the row's click handler
@@ -882,6 +1327,46 @@ fn settings_switch(
         .on_click(on_click)
 }
 
+/// The icon a segment shows. `Sun`/`Moon` carry Light/Dark; the catalog has
+/// no monitor glyph, so System borrows `Cpu` — "this machine decides".
+fn appearance_icon(appearance: Appearance) -> IconName {
+    match appearance {
+        Appearance::Light => IconName::Sun,
+        Appearance::Dark => IconName::Moon,
+        Appearance::System => IconName::Cpu,
+    }
+}
+
+/// The Appearance row's control: Light / Dark / System as one segmented
+/// control, the chosen segment drawn as the raised pill.
+///
+/// Composed from vendored `Button`s rather than a new vendor control —
+/// `Button::toggled` is exactly the segment state, and the phase's surfaces
+/// allow no new vendor patch.
+fn appearance_segmented(
+    selected: Appearance,
+    labels: [(Appearance, SharedString); 3],
+    options: &RenderOptions,
+    on_pick: impl Fn(Appearance, &mut Window, &mut App) + Clone + 'static,
+) -> impl IntoElement {
+    h_flex()
+        .gap_1()
+        .debug_selector(|| "appearance-segmented".into())
+        .children(labels.into_iter().map(move |(appearance, label)| {
+            let on_pick = on_pick.clone();
+            let debug: SharedString = format!("appearance-{}", appearance.as_str()).into();
+            Button::new(ElementId::Name(debug.clone()))
+                .debug_selector(move || debug.to_string())
+                .label(label.clone())
+                .icon(appearance_icon(appearance))
+                .accessibility_label(label)
+                .toggled(appearance == selected)
+                .disabled(options.is_disabled())
+                .with_size(options.size())
+                .on_click(move |_, window, cx| on_pick(appearance, window, cx))
+        }))
+}
+
 /// The settings-row `Checkbox`; same reasoning as [`settings_switch`].
 fn settings_checkbox(
     id: impl Into<ElementId>,
@@ -903,9 +1388,24 @@ struct SettingsWindow {
 }
 
 impl SettingsWindow {
-    fn new(_window: &mut Window, cx: &mut Context<Self>) -> Self {
+    fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         cx.set_global(ShellState::default());
         cx.set_global(cadence::DemoState::demo());
+        // `System` follows the OS while the app runs. The observer lives on
+        // the window rather than in the row, so the theme still flips when
+        // the Appearance row is off screen or the page is filtered away.
+        window
+            .observe_window_appearance(|window, cx| {
+                // An explicit Light or Dark ignores the OS entirely.
+                if AppSettings::global(cx).appearance != Appearance::System {
+                    return;
+                }
+                let mode = Appearance::System.resolve(window.appearance());
+                if cx.theme().mode != mode {
+                    set_appearance(Appearance::System, cx);
+                }
+            })
+            .detach();
         Self {
             focus_handle: cx.focus_handle(),
         }
@@ -927,19 +1427,21 @@ impl SettingsWindow {
                         .title(tr("group.appearance", &lang))
                         .items(vec![
                             SettingItem::new(
-                                tr("item.dark_mode", &lang),
+                                tr("item.appearance", &lang),
                                 SettingField::render({
-                                    let label = tr("item.dark_mode", &lang);
+                                    let labels: [(Appearance, SharedString); 3] = [
+                                        (Appearance::Light, tr("appearance.light", &lang).into()),
+                                        (Appearance::Dark, tr("appearance.dark", &lang).into()),
+                                        (Appearance::System, tr("appearance.system", &lang).into()),
+                                    ];
                                     move |options, _window, cx| {
-                                        div().debug_selector(|| "dark-mode-row".into()).child(
-                                            settings_switch(
-                                                "dark-mode-switch",
-                                                cx.theme().mode.is_dark(),
-                                                label,
+                                        let selected = AppSettings::global(cx).appearance;
+                                        div().debug_selector(|| "appearance-row".into()).child(
+                                            appearance_segmented(
+                                                selected,
+                                                labels.clone(),
                                                 options,
-                                                move |checked: &bool, _, cx: &mut App| {
-                                                    set_dark_mode(*checked, cx);
-                                                },
+                                                |each, _window, cx| set_appearance(each, cx),
                                             ),
                                         )
                                     }
@@ -947,35 +1449,34 @@ impl SettingsWindow {
                                 // An element field carries no typed value, so
                                 // the page reset needs the handler explicitly.
                                 .on_reset(
-                                    move |cx: &App| cx.theme().mode.is_dark() != defaults.dark_mode,
+                                    move |cx: &App| {
+                                        AppSettings::global(cx).appearance != defaults.appearance
+                                    },
                                     move |_window, cx: &mut App| {
-                                        set_dark_mode(defaults.dark_mode, cx);
+                                        set_appearance(defaults.appearance, cx);
                                     },
                                 ),
                             )
-                            .description(tr("item.dark_mode.desc", &lang)),
+                            .description(tr("item.appearance.desc", &lang))
+                            .keywords(["theme", "mode", "dark", "light", "system"]),
+                            SettingItem::new(
+                                tr("item.accent", &lang),
+                                accent_field(tr("item.accent", &lang).into()),
+                            )
+                            .description(tr("item.accent.desc", &lang))
+                            .keywords([
+                                "color",
+                                "colour",
+                                "brand",
+                                "primary",
+                                "highlight",
+                            ]),
                             SettingItem::new(
                                 tr("item.font_size", &lang),
-                                SettingField::number_input(
-                                    NumberFieldOptions {
-                                        min: theme::FONT_SIZE_MIN,
-                                        max: theme::FONT_SIZE_MAX,
-                                        ..Default::default()
-                                    },
-                                    |cx: &App| AppSettings::global(cx).font_size,
-                                    |val: f64, cx: &mut App| {
-                                        let Some(size) = normalize_font_size(val) else {
-                                            return;
-                                        };
-                                        AppSettings::global_mut(cx).font_size = size;
-                                        apply_font_size(cx);
-                                        save_settings(cx);
-                                        cx.refresh_windows();
-                                    },
-                                )
-                                .default_value(defaults.font_size),
+                                font_size_field(tr("item.font_size", &lang).into()),
                             )
-                            .description(tr("item.font_size.desc", &lang)),
+                            .description(tr("item.font_size.desc", &lang))
+                            .keywords(["text", "size", "zoom", "scale"]),
                         ]),
                     SettingGroup::new()
                         .title(tr("group.region", &lang))
@@ -984,7 +1485,12 @@ impl SettingsWindow {
                                 tr("item.language", &lang),
                                 language_field(SharedString::from(tr("item.language", &lang))),
                             )
-                            .description(tr("item.language.desc", &lang)),
+                            .description(tr("item.language.desc", &lang))
+                            .keywords([
+                                "locale",
+                                "translation",
+                                "i18n",
+                            ]),
                             SettingItem::new(
                                 tr("item.timezone", &lang),
                                 timezone_field(
@@ -992,7 +1498,8 @@ impl SettingsWindow {
                                     tr("tz.search_placeholder", &lang),
                                 ),
                             )
-                            .description(tr("item.timezone.desc", &lang)),
+                            .description(tr("item.timezone.desc", &lang))
+                            .keywords(["tz", "clock", "time", "region"]),
                         ]),
                     SettingGroup::new()
                         .title(tr("group.startup", &lang))
@@ -1027,7 +1534,13 @@ impl SettingsWindow {
                                     },
                                 ),
                             )
-                            .description(tr("item.launch_at_login.desc", &lang)),
+                            .description(tr("item.launch_at_login.desc", &lang))
+                            .keywords([
+                                "startup",
+                                "boot",
+                                "autostart",
+                                "login",
+                            ]),
                         ]),
                 ]),
             SettingPage::new(tr("page.notifications", &lang))
@@ -1057,21 +1570,18 @@ impl SettingsWindow {
                                         .debug_selector(|| "notifications-enabled-row".into())
                                         .gap_2()
                                         .child(StatusChip::labelled(tone, label))
-                                        .child(
-                                            Switch::new("notifications-enabled")
-                                                .checked(enabled)
-                                                .accessibility_label(tr(
-                                                    "item.notifications",
-                                                    &settings.language,
-                                                ))
-                                                .with_size(options.size())
-                                                .on_click(|checked: &bool, _, cx: &mut App| {
-                                                    AppSettings::global_mut(cx)
-                                                        .notifications_enabled = *checked;
-                                                    save_settings(cx);
-                                                    cx.refresh_windows();
-                                                }),
-                                        )
+                                        .child(settings_switch(
+                                            "notifications-enabled",
+                                            enabled,
+                                            tr("item.notifications", &settings.language),
+                                            options,
+                                            |checked: &bool, _, cx: &mut App| {
+                                                AppSettings::global_mut(cx).notifications_enabled =
+                                                    *checked;
+                                                save_settings(cx);
+                                                cx.refresh_windows();
+                                            },
+                                        ))
                                 })
                                 // An element field carries no typed value, so
                                 // the page reset needs the handler explicitly.
@@ -1087,7 +1597,8 @@ impl SettingsWindow {
                                     },
                                 ),
                             )
-                            .description(tr("item.notifications.desc", &lang)),
+                            .description(tr("item.notifications.desc", &lang))
+                            .keywords(["alerts", "notify", "push"]),
                         ]),
                     SettingGroup::new().title(tr("group.channels", &lang)).item(
                         SettingItem::new(
@@ -1175,6 +1686,7 @@ impl SettingsWindow {
                             ),
                         )
                         .description(tr("item.channels.desc", &lang))
+                        .keywords(["delivery", "routes", "email", "desktop"])
                         .layout(Axis::Vertical),
                     ),
                     SettingGroup::new().title(tr("group.digest", &lang)).item(
@@ -1231,6 +1743,7 @@ impl SettingsWindow {
                             ),
                         )
                         .description(tr("item.digest.desc", &lang))
+                        .keywords(["summary", "frequency", "cadence"])
                         .layout(Axis::Vertical),
                     ),
                     SettingGroup::new().title(tr("group.actions", &lang)).item(
@@ -1261,7 +1774,8 @@ impl SettingsWindow {
                                     })
                             }),
                         )
-                        .description(tr("item.test_notification.desc", &lang)),
+                        .description(tr("item.test_notification.desc", &lang))
+                        .keywords(["preview", "sample", "try"]),
                     ),
                 ]),
             SettingPage::new(tr("page.profile", &lang))
@@ -1370,7 +1884,8 @@ impl SettingsWindow {
                                     },
                                 ),
                             )
-                            .description(tr("item.username.desc", &lang)),
+                            .description(tr("item.username.desc", &lang))
+                            .keywords(["login", "handle", "account", "name"]),
                             SettingItem::new(
                                 tr("item.display_name", &lang),
                                 SettingField::input(
@@ -1383,7 +1898,8 @@ impl SettingsWindow {
                                 )
                                 .default_value(defaults.display_name.clone()),
                             )
-                            .description(tr("item.display_name.desc", &lang)),
+                            .description(tr("item.display_name.desc", &lang))
+                            .keywords(["nickname", "name", "profile"]),
                             SettingItem::new(
                                 tr("item.preview", &lang),
                                 SettingField::render(|_options, _window, cx| {
@@ -1396,10 +1912,12 @@ impl SettingsWindow {
                                     )
                                 }),
                             )
-                            .description(tr("item.preview.desc", &lang)),
+                            .description(tr("item.preview.desc", &lang))
+                            .keywords(["sample", "example", "avatar", "profile"]),
                         ]),
                 ),
             cadence::showcase::page(&lang),
+            reset_page(cx),
             SettingPage::new(tr("page.about", &lang))
                 .icon(Icon::new(IconName::Info))
                 .groups(vec![
@@ -1522,7 +2040,8 @@ impl SettingsWindow {
                                         })
                                 }),
                             )
-                            .description(tr("item.website.desc", &lang)),
+                            .description(tr("item.website.desc", &lang))
+                            .keywords(["link", "url", "home", "docs"]),
                             SettingItem::new(
                                 tr("item.about", &lang),
                                 SettingField::render(|options, _window, cx| {
@@ -1544,7 +2063,8 @@ impl SettingsWindow {
                                         })
                                 }),
                             )
-                            .description(tr("item.about.desc", &lang)),
+                            .description(tr("item.about.desc", &lang))
+                            .keywords(["version", "build", "info", "credits"]),
                         ]),
                 ]),
         ]
@@ -1610,7 +2130,8 @@ impl Focusable for SettingsWindow {
 /// `ThemeConfig`. `Root::render` pushes `Theme.font_size` into
 /// `window.set_rem_size`, so the whole UI scales from this one value.
 fn apply_font_size(cx: &mut App) {
-    theme::apply_overrides(AppSettings::global(cx).font_size, cx);
+    let settings = AppSettings::global(cx);
+    theme::apply_overrides(settings.font_size, settings.accent, cx);
 }
 
 /// Guards the font-size boundary: the vendored `NumberField` parses
@@ -1768,17 +2289,18 @@ fn main() {
             gpui_kit::init(cx);
             cx.set_global(AppSettings::from_stored(persist::load()));
             let settings = AppSettings::global(cx);
-            let dark_mode = settings.dark_mode;
+            let appearance = settings.appearance;
+            let accent = settings.accent;
             let font_size = settings.font_size;
             let language = settings.language.clone();
             let launch_at_login = settings.launch_at_login;
             // Theme set + overrides (font size, focus ring), then the stored
             // mode, locale and autostart state.
-            theme::install(cx, font_size);
-            if dark_mode {
-                Theme::change(ThemeMode::Dark, None, cx);
-                apply_font_size(cx);
-            }
+            theme::install(cx, font_size, accent);
+            // The same funnel the control uses, so startup cannot drift from
+            // it. `System` resolves against the OS here, before any window
+            // exists.
+            apply_appearance(appearance, cx);
             gpui_kit::component::set_locale(component_locale(&language));
             persist::autostart_converge(launch_at_login);
             // ⌘Q: gpui ships no default Quit action or menu item, and macOS

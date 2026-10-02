@@ -31,8 +31,12 @@ const AUTOSTART_MARKER: &str = "<key>MonoDeskManaged</key>";
 /// 14.0, never 0.0 which would collapse `set_rem_size` to zero).
 #[derive(Clone, Debug, PartialEq)]
 pub struct StoredSettings {
-    /// Dark theme enabled.
-    pub dark_mode: bool,
+    /// Accent color as `#RRGGBB`, or empty for the theme's own brand color.
+    pub accent: String,
+    /// Theme choice: `"light"`, `"dark"`, or `"system"` to follow the OS.
+    /// Replaces the pre-2026-10 `dark_mode` boolean, which [`parse`] still
+    /// accepts as a fallback.
+    pub appearance: String,
     /// UI locale: `"en"`, `"vi"`, `"zh-CN"`, or `"ja"`.
     pub language: String,
     /// UI font size; finite, expected `8.0..=32.0`.
@@ -60,7 +64,8 @@ pub struct StoredSettings {
 impl Default for StoredSettings {
     fn default() -> Self {
         Self {
-            dark_mode: false,
+            accent: String::new(),
+            appearance: "light".to_string(),
             language: "en".to_string(),
             font_size: 14.0,
             launch_at_login: false,
@@ -154,7 +159,8 @@ pub fn serialize(s: &StoredSettings) -> String {
     let mut out = String::new();
     out.push_str(SETTINGS_MARKER);
     out.push('\n');
-    out.push_str(&format!("dark_mode={}\n", s.dark_mode));
+    out.push_str(&format!("accent={}\n", escape(&s.accent)));
+    out.push_str(&format!("appearance={}\n", escape(&s.appearance)));
     out.push_str(&format!("language={}\n", escape(&s.language)));
     out.push_str(&format!("font_size={}\n", s.font_size));
     out.push_str(&format!("launch_at_login={}\n", s.launch_at_login));
@@ -190,6 +196,9 @@ pub fn parse(text: &str) -> Option<StoredSettings> {
         return None;
     }
     let mut s = StoredSettings::default();
+    // Set once an explicit `appearance` line lands, so a legacy `dark_mode`
+    // line later in the file cannot override a newer choice.
+    let mut saw_appearance = false;
     for line in lines {
         if line.is_empty() || line.starts_with('#') {
             continue;
@@ -198,9 +207,27 @@ pub fn parse(text: &str) -> Option<StoredSettings> {
             continue;
         };
         match key.trim() {
+            // Only known appearances stick; anything else falls back to the
+            // default rather than surfacing as an unselectable value.
+            "appearance" => {
+                if let known @ ("light" | "dark" | "system") = unescape(value).as_str() {
+                    s.appearance = known.to_string();
+                    saw_appearance = true;
+                }
+            }
+            // Written before 2026-10: still honoured when the file carries no
+            // `appearance` line, so an existing config keeps its mode.
             "dark_mode" => {
-                if let Some(b) = parse_bool(value) {
-                    s.dark_mode = b;
+                if !saw_appearance && let Some(b) = parse_bool(value) {
+                    s.appearance = if b { "dark" } else { "light" }.to_string();
+                }
+            }
+            // Any string is kept; the app validates it and falls back to the
+            // theme's own color. Empty means "no override".
+            "accent" => {
+                let accent = unescape(value);
+                if !accent.is_empty() {
+                    s.accent = accent;
                 }
             }
             "language" => s.language = unescape(value),
@@ -631,7 +658,8 @@ mod tests {
         for s in [
             StoredSettings::default(),
             StoredSettings {
-                dark_mode: true,
+                accent: "#2e6fd0".into(),
+                appearance: "system".into(),
                 language: "zh-CN".into(),
                 font_size: 13.5,
                 launch_at_login: true,
@@ -652,7 +680,8 @@ mod tests {
     #[test]
     fn round_trip_hostile_strings() {
         let s = StoredSettings {
-            dark_mode: true,
+            accent: "#bb1b1b".into(),
+            appearance: "dark".into(),
             language: "ja".into(),
             font_size: 8.0,
             launch_at_login: false,
@@ -668,7 +697,7 @@ mod tests {
         };
         let text = serialize(&s);
         // Hostile bytes must not create extra lines.
-        assert_eq!(text.lines().count(), 13);
+        assert_eq!(text.lines().count(), 14);
         assert_eq!(parse(&text), Some(s));
         // Empty strings round-trip too.
         let empty = StoredSettings::default();
@@ -691,8 +720,8 @@ mod tests {
                     \n\
                     unknown_key=1\n\
                     no-equals-line\n\
-                    dark_mode=maybe\n\
-                    dark_mode=true\n\
+                    appearance=maybe\n\
+                    appearance=system\n\
                     font_size=banana\n\
                     font_size=NaN\n\
                     font_size=inf\n\
@@ -701,12 +730,34 @@ mod tests {
                     timezone=Asia/Tokyo\n\
                     language=vi\n";
         let s = parse(text).unwrap();
-        assert!(s.dark_mode); // last valid wins
+        assert_eq!(s.appearance, "system"); // unknown word skipped, last valid wins
         assert_eq!(s.language, "vi");
         assert_eq!(s.font_size, 14.0); // malformed + non-finite skipped → default
         assert!(!s.launch_at_login); // missing key → default
         assert_eq!(s.digest, "immediate"); // unknown cadence → default
         assert_eq!(s.timezone, "Asia/Tokyo"); // empty skipped, valid wins
+    }
+
+    /// A config written before 2026-10 carries `dark_mode` instead of
+    /// `appearance`; it must still select the mode the owner chose, and an
+    /// explicit `appearance` must win regardless of line order.
+    #[test]
+    fn legacy_dark_mode_still_selects_an_appearance() {
+        let parsed = |body: &str| {
+            parse(&format!("{SETTINGS_MARKER}\n{body}"))
+                .unwrap()
+                .appearance
+        };
+
+        assert_eq!(parsed("dark_mode=true\n"), "dark");
+        assert_eq!(parsed("dark_mode=false\n"), "light");
+        assert_eq!(parsed("dark_mode=maybe\n"), "light"); // malformed → default
+
+        // An explicit appearance wins, whichever line comes first.
+        assert_eq!(parsed("dark_mode=true\nappearance=system\n"), "system");
+        assert_eq!(parsed("appearance=system\ndark_mode=true\n"), "system");
+        // An unknown appearance word leaves the legacy key in charge.
+        assert_eq!(parsed("appearance=bogus\ndark_mode=true\n"), "dark");
     }
 
     #[test]
@@ -750,7 +801,7 @@ mod tests {
         // Corrupt-but-managed file is healed by save.
         fs::write(&path, "# managed-by: mono-desk\n@@@garbage").unwrap();
         let s = StoredSettings {
-            dark_mode: true,
+            appearance: "dark".into(),
             language: "vi".into(),
             font_size: 20.0,
             ..StoredSettings::default()
@@ -760,7 +811,7 @@ mod tests {
 
         // Second save overwrites a healthy managed file.
         let s2 = StoredSettings {
-            dark_mode: false,
+            appearance: "system".into(),
             ..s.clone()
         };
         assert!(save_to(&path, &s2));

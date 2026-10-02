@@ -30,7 +30,9 @@ use gpui_kit::{
 use std::time::Duration;
 
 use crate::shell::ShellState;
+use crate::theme::Appearance;
 use crate::{AppSettings, DigestCadence, SettingsWindow, persist, test_env, theme};
+use gpui_kit::component::ActiveTheme as _;
 
 /// The bounds of the first visible observed element anywhere below `ancestor`
 /// in its element path — for controls like the vendored `Combobox` that never
@@ -145,7 +147,11 @@ fn app_window(cx: &mut TestAppContext) -> &mut VisualTestContext {
     test_env::install();
     cx.update(|cx| {
         gpui_kit::init(cx);
-        theme::install(cx, AppSettings::default().font_size);
+        theme::install(
+            cx,
+            AppSettings::default().font_size,
+            AppSettings::default().accent,
+        );
         cx.set_global(AppSettings::default());
     });
     let (_, cx) = cx.add_window_view(|window, cx| {
@@ -176,8 +182,13 @@ fn tab_to(cx: &mut VisualTestContext, id: &'static str) {
 
 /// Advance the test clock, run the shared scheduler to completion (the toast
 /// advance task + timers both live on it), then repaint the window.
+///
+/// The clock and the scheduler run **outside** `update`: driving them while
+/// the app is borrowed panics the moment any scheduled task reaches for the
+/// app — which is exactly what a `BlinkCursor` does when an input's cursor
+/// pauses, so an eager `InputState` anywhere in the tree would trip it.
 fn advance(cx: &mut VisualTestContext, by: Duration) {
-    cx.update(|_, cx| cx.background_executor().advance_clock(by));
+    cx.executor().advance_clock(by);
     cx.run_until_parked();
     cx.update(|window, cx| window.render_frame(cx));
 }
@@ -209,7 +220,7 @@ impl Render for SettingsHarness {
         div().size_full().child(
             Settings::new("test-settings")
                 // Page order mirrors `setting_pages`: 0 General, 1
-                // Notifications, 2 Profile, 3 Finance, 4 About.
+                // Notifications, 2 Profile, 3 Finance, 4 Reset, 5 About.
                 .default_selected_index(SelectIndex {
                     page_ix: self.page_ix,
                     group_ix: None,
@@ -244,39 +255,176 @@ where
 }
 
 #[gpui_kit::test]
-fn dark_mode_switch_click_keyboard_a11y_and_reset(cx: &mut TestAppContext) {
+fn appearance_segmented_click_keyboard_a11y_and_reset(cx: &mut TestAppContext) {
     let cx = app_window(cx);
 
+    // Three named segments, in the order the control draws them.
     cx.update(|window, _| {
-        let switch = window.find("dark-mode-switch");
-        assert_eq!(switch.role(), Some(gpui_kit::Role::Switch));
-        assert_eq!(switch.label(), Some("Dark Mode"));
-        assert_eq!(switch.checked(), Some(false));
+        for (id, label) in [
+            ("appearance-light", "Light"),
+            ("appearance-dark", "Dark"),
+            ("appearance-system", "System"),
+        ] {
+            assert_eq!(
+                window.find(id).label(),
+                Some(label),
+                "{id} carries its segment name"
+            );
+        }
     });
 
-    // Click toggles once and writes the global.
-    cx.update(|window, cx| window.click("dark-mode-switch", cx));
-    assert!(cx.update(|_, cx| AppSettings::global(cx).dark_mode));
-    cx.update(|window, _| {
-        assert_eq!(window.find("dark-mode-switch").checked(), Some(true));
-    });
+    // Click Dark: the global records the choice and the theme follows it.
+    cx.update(|window, cx| window.click("appearance-dark", cx));
+    assert_eq!(
+        cx.update(|_, cx| AppSettings::global(cx).appearance),
+        Appearance::Dark
+    );
+    assert!(
+        cx.update(|_, cx| cx.theme().mode.is_dark()),
+        "picking Dark repaints the theme"
+    );
 
-    // Tab focus + Space toggles back; Enter toggles again.
-    tab_to(cx, "dark-mode-switch");
-    cx.update(|window, cx| press_key(window, cx, "space"));
-    assert!(!cx.update(|_, cx| AppSettings::global(cx).dark_mode));
-    cx.update(|window, cx| press_key(window, cx, "enter"));
-    assert!(cx.update(|_, cx| AppSettings::global(cx).dark_mode));
+    // Click Light: the other explicit segment.
+    cx.update(|window, cx| window.click("appearance-light", cx));
+    assert_eq!(
+        cx.update(|_, cx| AppSettings::global(cx).appearance),
+        Appearance::Light
+    );
+    assert!(!cx.update(|_, cx| cx.theme().mode.is_dark()));
 
-    // Page reset (General is resettable) restores the default.
+    // Click System: the global holds the *choice*, not the resolved mode, so
+    // the OS stays in charge and a later OS flip still moves the theme.
+    cx.update(|window, cx| window.click("appearance-system", cx));
+    assert_eq!(
+        cx.update(|_, cx| AppSettings::global(cx).appearance),
+        Appearance::System
+    );
+
+    // Page reset (General is resettable) restores the default choice.
     cx.update(|window, cx| {
         window.render_frame(cx);
         window.click("reset", cx);
     });
-    assert!(!cx.update(|_, cx| AppSettings::global(cx).dark_mode));
-    cx.update(|window, _| {
-        assert_eq!(window.find("dark-mode-switch").checked(), Some(false));
+    assert_eq!(
+        cx.update(|_, cx| AppSettings::global(cx).appearance),
+        Appearance::default()
+    );
+}
+
+/// The Reset page lists exactly the settings that differ from the defaults,
+/// in a fixed order, and nothing else.
+#[gpui_kit::test]
+fn reset_panel_lists_only_what_changed(cx: &mut TestAppContext) {
+    let cx = app_window(cx);
+
+    // A fresh app differs from its own defaults nowhere.
+    let empty = cx.update(|_, cx| crate::changed_settings(cx).len());
+    assert_eq!(empty, 0, "nothing changed on a fresh app");
+
+    // Move two settings, one of them back-to-front in the list order.
+    cx.update(|_, cx| {
+        AppSettings::global_mut(cx).font_size = 20.0;
+        AppSettings::global_mut(cx).notifications_enabled = false;
     });
+    let keys = cx.update(|_, cx| {
+        crate::changed_settings(cx)
+            .iter()
+            .map(|each| each.key)
+            .collect::<Vec<_>>()
+    });
+    assert_eq!(
+        keys,
+        vec!["item.font_size", "item.notifications"],
+        "only the two moved settings, in panel order"
+    );
+
+    // Putting one back drops it from the list.
+    cx.update(|_, cx| {
+        AppSettings::global_mut(cx).font_size = AppSettings::default().font_size;
+    });
+    let keys = cx.update(|_, cx| {
+        crate::changed_settings(cx)
+            .iter()
+            .map(|each| each.key)
+            .collect::<Vec<_>>()
+    });
+    assert_eq!(keys, vec!["item.notifications"]);
+}
+
+/// The sidebar search matcher (`settings-search-terms.patch`), ported from
+/// Ely's pinned cases: every whitespace-separated term must land somewhere in
+/// the lowercased haystack — title, description and `keywords` joined — where
+/// the vendored matcher used to require the whole query as one substring.
+#[test]
+fn search_matcher_requires_every_term() {
+    use gpui_kit::component::setting::SettingItem;
+
+    // The real haystacks `is_match` builds, spelled out.
+    let font_size = "font size interface text size. text size zoom scale";
+    let appearance =
+        "appearance always light or dark, or follow the system. theme mode dark light system";
+
+    // One word behaves exactly as the old whole-string `contains` did.
+    assert!(SettingItem::query_matches(font_size, "size"));
+    assert!(SettingItem::query_matches(font_size, "SIZE"));
+
+    // Every term must land, across title and keywords.
+    assert!(SettingItem::query_matches(font_size, "text zoom"));
+    // A term belonging to a different item does not.
+    assert!(!SettingItem::query_matches(font_size, "theme zoom"));
+    // Order does not matter.
+    assert!(SettingItem::query_matches(appearance, "dark appearance"));
+
+    // An empty query matches everything here; `is_match` is what turns that
+    // into "not searching" and keeps custom elements visible.
+    assert!(SettingItem::query_matches(font_size, ""));
+    assert!(SettingItem::query_matches(font_size, "   "));
+}
+
+/// The Font Size row's reset affordance is inert exactly at the default, so
+/// it cannot offer a no-op and cannot go missing once the size moves.
+#[test]
+fn font_size_reset_is_inert_at_the_default_only() {
+    let default = AppSettings::default().font_size;
+    assert!(crate::font_size_at_default(default));
+    assert!(!crate::font_size_at_default(default - 1.0));
+    assert!(!crate::font_size_at_default(default + 1.0));
+    // The clamp bounds are not the default, so reset stays available there.
+    assert!(!crate::font_size_at_default(theme::FONT_SIZE_MIN));
+    assert!(!crate::font_size_at_default(theme::FONT_SIZE_MAX));
+}
+
+/// `Theme::change` rebuilds the theme from the config, which resets
+/// `font_size` to the config value. Every mode path must therefore run the
+/// same funnel; if one forgets, a non-default font size silently snaps back
+/// to 14 on the next mode flip.
+#[gpui_kit::test]
+fn mode_flip_keeps_a_non_default_font_size(cx: &mut TestAppContext) {
+    let cx = app_window(cx);
+
+    // A non-default size, written the way the Font Size row writes it.
+    cx.update(|_, cx| {
+        AppSettings::global_mut(cx).font_size = 20.0;
+        crate::apply_font_size(cx);
+    });
+    assert_eq!(
+        cx.update(|_, cx| cx.theme().font_size),
+        gpui_kit::px(20.),
+        "the size reaches the live theme"
+    );
+
+    // Each flip goes through the funnel and must leave the size alone.
+    for appearance in [Appearance::Dark, Appearance::Light, Appearance::System] {
+        cx.update(|_, cx| crate::set_appearance(appearance, cx));
+        assert_eq!(
+            cx.update(|_, cx| cx.theme().font_size),
+            gpui_kit::px(20.),
+            "a {appearance:?} flip must not reset the font size"
+        );
+    }
+
+    // The size the app persists is the one the owner chose, not the config's.
+    assert_eq!(cx.update(|_, cx| AppSettings::global(cx).font_size), 20.0);
 }
 
 /// Same contract for the Launch at login checkbox, plus the autostart side
@@ -392,16 +540,25 @@ fn disabled_controls_are_inert(cx: &mut TestAppContext) {
 }
 
 /// Reduced motion: the switch spring reports its terminal value, so a toggle
-/// still lands instantly with no thumb travel.
+/// still lands instantly with no thumb travel. The Appearance row is a
+/// segmented control now, but the switch spring still runs on the other rows.
 #[gpui_kit::test]
 fn switch_toggle_lands_under_reduce_motion(cx: &mut TestAppContext) {
     let cx = app_window(cx);
     cx.update(|_, cx| cx.set_reduce_motion(true));
 
-    cx.update(|window, cx| window.click("dark-mode-switch", cx));
-    assert!(cx.update(|_, cx| AppSettings::global(cx).dark_mode));
+    // The Notifications row still carries a switch; under reduced motion its
+    // thumb reports the terminal value instead of travelling. The Appearance
+    // row is a segmented control now, so the switch under test lives on the
+    // second page.
+    let point = sidebar_item_bounds(cx, 1).center();
+    cx.simulate_click(point, Modifiers::default());
+    cx.update(|window, cx| window.render_frame(cx));
+
+    cx.update(|window, cx| window.click("notifications-enabled", cx));
+    assert!(!cx.update(|_, cx| AppSettings::global(cx).notifications_enabled));
     cx.update(|window, _| {
-        assert_eq!(window.find("dark-mode-switch").checked(), Some(true));
+        assert_eq!(window.find("notifications-enabled").checked(), Some(false));
     });
 }
 
@@ -747,7 +904,7 @@ async fn timezone_combobox_searches_and_commits(cx: &mut TestAppContext) {
 fn about_context_menu_escape_dismisses(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     cx.update(|cx| cx.set_global(AppSettings::default()));
-    let handle = open_settings(cx, 4);
+    let handle = open_settings(cx, 5);
     cx.update_window(handle.into(), |_, window, cx| {
         window.render_frame(cx);
         click_at_position(
@@ -781,7 +938,7 @@ fn about_context_menu_escape_dismisses(cx: &mut TestAppContext) {
 fn about_tabs_swap_panels(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     cx.update(|cx| cx.set_global(AppSettings::default()));
-    with_settings(cx, 4, |window, cx| {
+    with_settings(cx, 5, |window, cx| {
         assert_eq!(
             window.within("about-tabs").find(0usize).selected(),
             Some(true)
@@ -807,7 +964,7 @@ fn about_tabs_swap_panels(cx: &mut TestAppContext) {
 fn about_context_menu_copies_version(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     cx.update(|cx| cx.set_global(AppSettings::default()));
-    let handle = open_settings(cx, 4);
+    let handle = open_settings(cx, 5);
     cx.update_window(handle.into(), |_, window, cx| {
         window.render_frame(cx);
         // The card is a scope segment (the ContextMenu's hitbox), not an
