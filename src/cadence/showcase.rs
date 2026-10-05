@@ -222,15 +222,15 @@ fn purchase_orders(window: &mut Window, cx: &mut App) -> AnyElement {
                 .map(|(ix, (row, focus))| {
                     let PoRow {
                         on,
-                        code,
-                        supplier,
-                        sub,
+                        ref code,
+                        ref supplier,
+                        ref sub,
                         amount,
-                        gantt,
+                        ..
                     } = row;
                     let code_click = code.clone();
                     let code_check = code.clone();
-                    let code_key = code;
+                    let code_key = code.clone();
                     // Arrow keys move focus across the *visible* rows.
                     let prev = ix.checked_sub(1).map(|i| handles[i].clone());
                     let next = handles.get(ix + 1).cloned();
@@ -306,15 +306,15 @@ fn purchase_orders(window: &mut Window, cx: &mut App) -> AnyElement {
                                         .text_sm()
                                         .font_medium()
                                         .text_color(cx.theme().foreground)
-                                        .child(supplier),
+                                        .child(supplier.clone()),
                                 )
                                 .child(
-                                    mono(sub, cx)
+                                    mono(sub.clone(), cx)
                                         .text_sm()
                                         .text_color(cx.theme().muted_foreground),
                                 ),
                         )
-                        .child(gantt_cell(cx, gantt))
+                        .child(gantt_cell(cx, &row))
                         .child(
                             mono(usd(amount), cx)
                                 .w(px(80.))
@@ -596,38 +596,72 @@ fn sort_header(
         )
 }
 
-/// The gantt column of one table row: fixed 220px track with the "Today"
-/// marker line running through it (segmented per row, so it reads as one
-/// continuous line down the table).
-fn gantt_cell(cx: &App, segments: Vec<GanttSeg>) -> AnyElement {
+/// The gantt column of one table row: fixed 200px track with the "Today"
+/// marker line running through it. `.self_stretch()` fills the row's
+/// content box (rows center their children) and the line bleeds through
+/// the 8px row padding, so per-row segments join into one continuous
+/// line down the table (H5).
+fn gantt_cell(cx: &App, row: &PoRow) -> AnyElement {
+    let tips = row.gantt.iter().map(|seg| gantt_tip(seg, row)).collect();
     div()
         .w(px(200.))
         .relative()
+        .self_stretch()
+        .justify_center()
         .child(
             div()
                 .absolute()
                 .left(relative(0.5))
-                .top(px(-4.))
-                .bottom(px(-4.))
+                .top(px(-8.))
+                .bottom(px(-8.))
                 .w(px(1.))
                 .bg(Accent::solid(cx).alpha(0.35)),
         )
-        .child(Gantt::new(segments))
+        .child(
+            Gantt::new(
+                SharedString::from(format!("gantt-{}", row.code)),
+                row.gantt.clone(),
+            )
+            .tips(tips),
+        )
         .into_any_element()
 }
 
+/// Hover text for one gantt segment — the showcase's contextual labels
+/// (percentage + dollars for bars, estimate for the delivery marker).
+fn gantt_tip(seg: &GanttSeg, row: &PoRow) -> SharedString {
+    match *seg {
+        GanttSeg::Solid(f) => format!(
+            "Billed: {:.0}% ({}) · Paid Sep 14",
+            f * 100.,
+            usd(row.amount * f as f64)
+        )
+        .into(),
+        GanttSeg::Faint(f) => format!(
+            "Ordered: {:.0}% ({}) · Dispatched",
+            f * 100.,
+            usd(row.amount * f as f64)
+        )
+        .into(),
+        GanttSeg::Dashed(_) => "Pending Approval · Approval required".into(),
+        GanttSeg::Delivery => format!("Estimated Delivery: Oct 12 · {}", row.supplier).into(),
+    }
+}
+
 /// The gantt column header: week ticks either side of the "Today" pill,
-/// with the marker line running through the column.
+/// with the marker line bleeding through the row padding like the cells.
 fn gantt_head(cx: &App) -> AnyElement {
     div()
         .w(px(200.))
         .relative()
+        .self_stretch()
+        .justify_center()
         .child(
             div()
                 .absolute()
                 .left(relative(0.5))
-                .top(px(-4.))
-                .bottom(px(-4.))
+                .top(px(-8.))
+                .bottom(px(-8.))
                 .w(px(1.))
                 .bg(Accent::solid(cx).alpha(0.35)),
         )
@@ -1232,35 +1266,18 @@ fn owed_to_suppliers(cx: &App) -> AnyElement {
 
 fn expense_claims(cx: &App) -> AnyElement {
     let state = DemoState::global(cx);
-    let claims = [
-        (
-            IconName::Plane,
-            "Flights LIS → BER",
-            "Mara K. · Sep 18 · 4200 Travel",
-            "$412.00",
-        ),
-        (
-            IconName::Utensils,
-            "Client dinner · Lisbon",
-            "Mara K. · Sep 18 · 6230 Meals",
-            "$184.00",
-        ),
-        (
-            IconName::CarFront,
-            "Mileage · 214 km",
-            "Yuri G. · Sep 21 · 4250 Mileage",
-            "$688.00",
-        ),
-    ];
-    // Meter math: the unpaid claims are the "To Be Paid" share of the
-    // fixed Submitted total; marking a claim paid (Phase 8) fills the bar.
-    let to_pay = claims_to_pay_amount(state);
-    let reimbursed = CLAIMS_SUBMITTED - to_pay;
-    let fraction = if CLAIMS_SUBMITTED > 0. {
-        (reimbursed / CLAIMS_SUBMITTED) as f32
-    } else {
-        0.
+    let totals = claim_totals(&state.claims_paid);
+    let queue = match state.claims_tab {
+        0 => ClaimQueue::Own,
+        1 => ClaimQueue::Review,
+        _ => ClaimQueue::Pay,
     };
+    let rows: Vec<&ClaimRow> = CLAIMS.iter().filter(|c| c.queue == queue).collect();
+    let review_count = CLAIMS
+        .iter()
+        .filter(|c| c.queue == ClaimQueue::Review)
+        .count() as u64;
+    let to_pay = state.claims_to_pay_count();
 
     card(cx)
         .w(px(500.))
@@ -1270,10 +1287,7 @@ fn expense_claims(cx: &App) -> AnyElement {
                 "Expense claims",
                 "Reimbursements · September",
             )
-            .trailing(MonoPill::new(format!(
-                "{} to pay",
-                state.claims_to_pay_count()
-            ))),
+            .trailing(MonoPill::new(format!("{to_pay} to pay"))),
         )
         .child(
             h_flex()
@@ -1286,8 +1300,8 @@ fn expense_claims(cx: &App) -> AnyElement {
                         "claims-seg",
                         vec![
                             Segment::new("Your own"),
-                            Segment::new("To review").count(2),
-                            Segment::new("To pay").count(state.claims_to_pay_count() as u64),
+                            Segment::new("To review").count(review_count),
+                            Segment::new("To pay").count(to_pay as u64),
                         ],
                     )
                     .active(state.claims_tab)
@@ -1308,62 +1322,23 @@ fn expense_claims(cx: &App) -> AnyElement {
                     .child(
                         h_flex()
                             .gap_8()
-                            .child(
-                                v_flex()
-                                    .gap_1()
-                                    .child(
-                                        div()
-                                            .text_sm()
-                                            .text_color(cx.theme().muted_foreground)
-                                            .child("Submitted"),
-                                    )
-                                    .child(
-                                        mono(usd(CLAIMS_SUBMITTED), cx)
-                                            .text_xl()
-                                            .font_semibold()
-                                            .text_color(cx.theme().foreground),
-                                    ),
-                            )
-                            .child(
-                                v_flex()
-                                    .gap_1()
-                                    .child(
-                                        div()
-                                            .text_sm()
-                                            .text_color(cx.theme().muted_foreground)
-                                            .child("To Be Paid"),
-                                    )
-                                    .child(
-                                        mono(usd(to_pay), cx)
-                                            .text_xl()
-                                            .font_semibold()
-                                            .text_color(Accent::ink(cx)),
-                                    ),
-                            )
-                            .child(
-                                v_flex()
-                                    .gap_1()
-                                    .child(
-                                        div()
-                                            .text_sm()
-                                            .text_color(cx.theme().muted_foreground)
-                                            .child("Reimbursed"),
-                                    )
-                                    .child(
-                                        mono(usd(reimbursed), cx)
-                                            .text_xl()
-                                            .font_semibold()
-                                            .text_color(cx.theme().foreground),
-                                    ),
-                            ),
+                            .child(claim_stat("Submitted", totals.submitted, false, cx))
+                            .child(claim_stat("To Be Paid", totals.to_be_paid, true, cx))
+                            .child(claim_stat("Reimbursed", totals.reimbursed, false, cx)),
                     )
-                    .child(Meter::new("claims-meter", fraction).tip(format!(
-                        "Reimbursed: {} / {} ({:.1}%) · Remaining: {}",
-                        usd(reimbursed),
-                        usd(CLAIMS_SUBMITTED),
-                        fraction * 100.,
-                        usd(to_pay)
-                    ))),
+                    .child(
+                        Meter::new(
+                            "claims-meter",
+                            (totals.reimbursed / totals.submitted) as f32,
+                        )
+                        .tip(format!(
+                            "Reimbursed: {} / {} ({:.1}%) · Remaining: {}",
+                            usd(totals.reimbursed),
+                            usd(totals.submitted),
+                            (totals.reimbursed / totals.submitted) * 100.,
+                            usd(totals.to_be_paid)
+                        )),
+                    ),
             ),
         )
         .child(
@@ -1378,7 +1353,7 @@ fn expense_claims(cx: &App) -> AnyElement {
                         .child("Awaiting Payment"),
                 )
                 .child(
-                    mono(format!("{} claims", state.claims_to_pay_count()), cx)
+                    mono(format!("{to_pay} claims"), cx)
                         .text_sm()
                         .text_color(cx.theme().muted_foreground),
                 ),
@@ -1387,45 +1362,248 @@ fn expense_claims(cx: &App) -> AnyElement {
             v_flex()
                 .px_4()
                 .pb_4()
-                .children(claims.into_iter().enumerate().map(
-                    |(ix, (icon, title, sub, amount))| {
-                        h_flex()
-                            .gap_3()
-                            .items_center()
-                            .py_1p5()
-                            .child(icon_tile_sized(icon, px(32.), px(16.), px(8.), cx))
-                            .child(
-                                v_flex()
-                                    .flex_1()
-                                    .gap_0p5()
-                                    .child(
-                                        div()
-                                            .text_sm()
-                                            .font_medium()
-                                            .text_color(cx.theme().foreground)
-                                            .child(title),
-                                    )
-                                    .child(
-                                        div()
-                                            .text_sm()
-                                            .text_color(cx.theme().muted_foreground)
-                                            .child(sub),
-                                    ),
-                            )
-                            .child(
-                                mono(amount, cx)
-                                    .text_sm()
-                                    .font_medium()
-                                    .text_color(cx.theme().foreground),
-                            )
-                            .child(btn_secondary(
-                                SharedString::from(format!("claim-pay-{ix}")),
-                                "Pay",
-                            ))
+                .when(
+                    rows.is_empty() || (queue == ClaimQueue::Pay && to_pay == 0),
+                    |this| {
+                        this.child(
+                            div()
+                                .py_4()
+                                .text_sm()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(if queue == ClaimQueue::Pay {
+                                    "All claims settled"
+                                } else {
+                                    "Nothing in this queue"
+                                }),
+                        )
                     },
-                )),
+                )
+                .when(
+                    !(rows.is_empty() || (queue == ClaimQueue::Pay && to_pay == 0)),
+                    |this| {
+                        this.children(rows.into_iter().map(|claim| {
+                            let action: AnyElement = match claim.queue {
+                                ClaimQueue::Pay => {
+                                    let Some(pay_ix) = claim.pay_ix else {
+                                        unreachable!("Pay queue claims carry a claims_paid index");
+                                    };
+                                    if state.claims_paid[pay_ix] {
+                                        MonoPill::new("Paid")
+                                            .tone(PillTone::Neutral)
+                                            .into_any_element()
+                                    } else {
+                                        btn_secondary(
+                                            SharedString::from(format!("claim-pay-{pay_ix}")),
+                                            "Pay",
+                                        )
+                                        .on_click(move |_event, window, cx| {
+                                            DemoState::update(cx, |s| s.mark_claim_paid(pay_ix));
+                                            window.push_notification(
+                                                Notification::success(format!(
+                                                    "Processed {} reimbursement to {}",
+                                                    usd(claim.amount),
+                                                    claim.recipient
+                                                )),
+                                                cx,
+                                            );
+                                        })
+                                        .into_any_element()
+                                    }
+                                }
+                                ClaimQueue::Review => MonoPill::new("Needs review")
+                                    .tone(PillTone::Neutral)
+                                    .into_any_element(),
+                                ClaimQueue::Own => MonoPill::new("Submitted")
+                                    .tone(PillTone::Neutral)
+                                    .into_any_element(),
+                            };
+                            let paid = claim.pay_ix.is_some_and(|ix| state.claims_paid[ix]);
+                            h_flex()
+                                .gap_3()
+                                .items_center()
+                                .py_1p5()
+                                .when(paid, |this| this.opacity(0.55))
+                                .child(icon_tile_sized(claim.icon, px(32.), px(16.), px(8.), cx))
+                                .child(
+                                    v_flex()
+                                        .flex_1()
+                                        .gap_0p5()
+                                        .child(
+                                            div()
+                                                .text_sm()
+                                                .font_medium()
+                                                .text_color(cx.theme().foreground)
+                                                .child(claim.title),
+                                        )
+                                        .child(
+                                            // Numerals are the reference's mono
+                                            // subline (M6).
+                                            mono(claim.sub, cx)
+                                                .text_sm()
+                                                .text_color(cx.theme().muted_foreground),
+                                        ),
+                                )
+                                .child(
+                                    mono(usd(claim.amount), cx)
+                                        .text_sm()
+                                        .font_medium()
+                                        .text_color(cx.theme().foreground),
+                                )
+                                .child(action)
+                        }))
+                    },
+                ),
         )
         .into_any_element()
+}
+
+/// The claims card queues, in `Segmented` order.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ClaimQueue {
+    /// "Your own" — the viewer's personal submitted claims.
+    Own,
+    /// "To review" — awaiting manager sign-off.
+    Review,
+    /// "To pay" — awaiting reimbursement; `pay_ix` keys `claims_paid`.
+    Pay,
+}
+
+/// One claim row's static demo data.
+struct ClaimRow {
+    queue: ClaimQueue,
+    /// `claims_paid` slot — only `Pay` rows carry one.
+    pay_ix: Option<usize>,
+    icon: IconName,
+    title: &'static str,
+    /// "Mara K. · Sep 18 · 4200 Travel" — rendered via `mono` (M6).
+    sub: &'static str,
+    /// First name for the Pay toast ("… reimbursement to Mara").
+    recipient: &'static str,
+    amount: f64,
+}
+
+/// The reference's claim data plus the "Your own"/"To review" queues the
+/// segmented control filters to. The three `Pay` rows keep their original
+/// `claims_paid` indices.
+const CLAIMS: &[ClaimRow] = &[
+    ClaimRow {
+        queue: ClaimQueue::Own,
+        pay_ix: None,
+        icon: IconName::TrainFront,
+        title: "Rail pass · Cascais line",
+        sub: "Mara K. · Sep 12 · 4200 Travel",
+        recipient: "Mara",
+        amount: 96.00,
+    },
+    ClaimRow {
+        queue: ClaimQueue::Own,
+        pay_ix: None,
+        icon: IconName::Hotel,
+        title: "Hotel · Porto offsite",
+        sub: "Mara K. · Sep 15 · 4210 Lodging",
+        recipient: "Mara",
+        amount: 348.00,
+    },
+    ClaimRow {
+        queue: ClaimQueue::Review,
+        pay_ix: None,
+        icon: IconName::Plane,
+        title: "Flights BER → LHR",
+        sub: "Jonas P. · Sep 19 · 4200 Travel",
+        recipient: "Jonas",
+        amount: 524.00,
+    },
+    ClaimRow {
+        queue: ClaimQueue::Review,
+        pay_ix: None,
+        icon: IconName::Utensils,
+        title: "Team lunch · Berlin",
+        sub: "Priya S. · Sep 20 · 6230 Meals",
+        recipient: "Priya",
+        amount: 212.00,
+    },
+    ClaimRow {
+        queue: ClaimQueue::Pay,
+        pay_ix: Some(0),
+        icon: IconName::Plane,
+        title: "Flights LIS → BER",
+        sub: "Mara K. · Sep 18 · 4200 Travel",
+        recipient: "Mara",
+        amount: 412.00,
+    },
+    ClaimRow {
+        queue: ClaimQueue::Pay,
+        pay_ix: Some(1),
+        icon: IconName::Utensils,
+        title: "Client dinner · Lisbon",
+        sub: "Mara K. · Sep 18 · 6230 Meals",
+        recipient: "Mara",
+        amount: 184.00,
+    },
+    ClaimRow {
+        queue: ClaimQueue::Pay,
+        pay_ix: Some(2),
+        icon: IconName::CarFront,
+        title: "Mileage · 214 km",
+        sub: "Yuri G. · Sep 21 · 4250 Mileage",
+        recipient: "Yuri",
+        amount: 688.00,
+    },
+];
+
+/// Reimbursements already processed before this demo opened — the
+/// reference's "Reimbursed $1,032.40".
+const CLAIMS_REIMBURSED_BASE: f64 = 1_032.40;
+
+/// The stat trio behind Card 5's meter: every figure the Pay flow moves.
+struct ClaimTotals {
+    submitted: f64,
+    to_be_paid: f64,
+    reimbursed: f64,
+}
+
+/// Submitted / To Be Paid / Reimbursed under the current `claims_paid`
+/// bits: paying a claim moves its amount from To Be Paid to Reimbursed
+/// (and onto Submitted, which starts from the reference's $2,316.40).
+fn claim_totals(paid: &[bool; 3]) -> ClaimTotals {
+    let mut payable = 0.;
+    let mut paid_sum = 0.;
+    for claim in CLAIMS {
+        if let Some(ix) = claim.pay_ix {
+            payable += claim.amount;
+            if paid[ix] {
+                paid_sum += claim.amount;
+            }
+        }
+    }
+    ClaimTotals {
+        submitted: CLAIMS_REIMBURSED_BASE + payable + paid_sum,
+        to_be_paid: payable - paid_sum,
+        reimbursed: CLAIMS_REIMBURSED_BASE + paid_sum,
+    }
+}
+
+/// One column of the claims stat trio: muted label over a mono amount.
+/// `accent` inks the value with the accent (the "To Be Paid" figure).
+fn claim_stat(label: &'static str, amount: f64, accent: bool, cx: &App) -> Div {
+    v_flex()
+        .gap_1()
+        .child(
+            div()
+                .text_sm()
+                .text_color(cx.theme().muted_foreground)
+                .child(label),
+        )
+        .child(
+            mono(usd(amount), cx)
+                .text_xl()
+                .font_semibold()
+                .text_color(if accent {
+                    Accent::ink(cx)
+                } else {
+                    cx.theme().foreground
+                }),
+        )
 }
 
 // ---------------------------------------------------------------------------
@@ -1940,13 +2118,6 @@ fn assign_to_project(cx: &App) -> AnyElement {
 /// the reference's three fixed lines).
 const EXPENSE_AMOUNTS: [f64; 3] = [412.00, 388.00, 184.00];
 
-/// Card 5 claim amounts, parallel to the rows above — the demo data whose
-/// paid state drives the meter and stat trio.
-const CLAIM_AMOUNTS: [f64; 3] = [412.00, 184.00, 688.00];
-
-/// The reference's fixed "Submitted" total (claims + reimbursed balance).
-const CLAIMS_SUBMITTED: f64 = 2316.40;
-
 /// Filter histogram: ghost bars at the edges, accent bars in the selected
 /// $500–$12k window.
 const FILTER_HISTOGRAM: [f32; 28] = [
@@ -2012,17 +2183,6 @@ fn usd0(v: f64) -> String {
     usd(v.round()).trim_end_matches(".00").to_string()
 }
 
-/// Claims still awaiting reimbursement — the "To Be Paid" stat and the
-/// meter's empty span.
-fn claims_to_pay_amount(state: &DemoState) -> f64 {
-    CLAIM_AMOUNTS
-        .iter()
-        .zip(state.claims_paid.iter())
-        .filter(|(_, paid)| !**paid)
-        .map(|(v, _)| *v)
-        .sum()
-}
-
 /// Bar `ix` is the (ix + 1)th business day of the five-week window that
 /// opens Monday Sep 21, 2026 — weekends are skipped (`ix + 2*(ix/5)`).
 fn bill_date(ix: usize) -> String {
@@ -2046,7 +2206,10 @@ fn usd_k(v: u32) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{DemoState, bill_date, claims_to_pay_amount, usd, usd_k};
+    use super::{
+        CLAIMS, CLAIMS_REIMBURSED_BASE, ClaimQueue, GanttSeg, PoRow, bill_date, claim_totals,
+        gantt_tip, usd, usd_k,
+    };
 
     #[test]
     fn usd_formats_with_thousands_separator() {
@@ -2078,13 +2241,64 @@ mod tests {
         assert_eq!(usd_k(89_000), "$89k");
     }
 
+    /// Card 5's stat trio must move exactly one claim's amount per Pay:
+    /// the reference render (nothing paid) and the fully-settled end
+    /// state pin the math.
     #[test]
-    fn claims_to_pay_amount_tracks_paid_rows() {
-        let mut state = DemoState::demo();
-        assert_eq!(claims_to_pay_amount(&state), 1284.0);
-        state.mark_claim_paid(1);
-        assert_eq!(claims_to_pay_amount(&state), 1100.0);
-        state.claims_paid = [true; 3];
-        assert_eq!(claims_to_pay_amount(&state), 0.0);
+    fn claim_totals_follow_paid_bits() {
+        let payable: f64 = CLAIMS
+            .iter()
+            .filter(|c| c.queue == ClaimQueue::Pay)
+            .map(|c| c.amount)
+            .sum();
+        assert_eq!(payable, 1284.00);
+
+        let t = claim_totals(&[false; 3]);
+        assert_eq!(t.submitted, 2316.40);
+        assert_eq!(t.to_be_paid, 1284.00);
+        assert_eq!(t.reimbursed, CLAIMS_REIMBURSED_BASE);
+
+        // Paying the $412 claim shifts it To Be Paid → Reimbursed.
+        let t = claim_totals(&[true, false, false]);
+        assert_eq!(t.submitted, 2316.40 + 412.00);
+        assert_eq!(t.to_be_paid, 1284.00 - 412.00);
+        assert_eq!(t.reimbursed, CLAIMS_REIMBURSED_BASE + 412.00);
+
+        let t = claim_totals(&[true; 3]);
+        assert_eq!(t.to_be_paid, 0.0);
+        assert_eq!(t.reimbursed, CLAIMS_REIMBURSED_BASE + payable);
+    }
+
+    /// Every gantt segment renders a contextual tooltip; percentage and
+    /// dollars come from the row's own data.
+    #[test]
+    fn gantt_tips_cover_every_segment() {
+        let row = PoRow {
+            on: false,
+            code: "PO-0418".into(),
+            supplier: "Northwind Freight".into(),
+            sub: "PO-0418 · 100% billed".into(),
+            amount: 6120.00,
+            gantt: vec![
+                GanttSeg::Solid(0.42),
+                GanttSeg::Faint(0.2),
+                GanttSeg::Dashed(0.1),
+                GanttSeg::Delivery,
+            ],
+        };
+        let tips: Vec<String> = row
+            .gantt
+            .iter()
+            .map(|seg| gantt_tip(seg, &row).to_string())
+            .collect();
+        assert_eq!(
+            tips,
+            [
+                "Billed: 42% ($2,570.40) · Paid Sep 14",
+                "Ordered: 20% ($1,224.00) · Dispatched",
+                "Pending Approval · Approval required",
+                "Estimated Delivery: Oct 12 · Northwind Freight",
+            ]
+        );
     }
 }
