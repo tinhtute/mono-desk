@@ -747,46 +747,115 @@ pub enum GanttSeg {
     Delivery,
 }
 
-/// Gantt-style row bar: sequential pill segments with 2px gaps.
+/// Gantt-style row bar: sequential pill segments with 2px gaps. Each
+/// segment is a hover group: hovering raises it and reveals the matching
+/// tooltip pill (`.tips`), centered above the segment slot.
 #[derive(IntoElement)]
 pub struct Gantt {
+    id: SharedString,
     segments: Vec<GanttSeg>,
+    tips: Vec<SharedString>,
 }
 
 impl Gantt {
-    pub fn new(segments: Vec<GanttSeg>) -> Self {
-        Self { segments }
+    /// `id` bases the per-segment hover groups — it must be unique per row.
+    pub fn new(id: impl Into<SharedString>, segments: Vec<GanttSeg>) -> Self {
+        Self {
+            id: id.into(),
+            segments,
+            tips: Vec::new(),
+        }
+    }
+
+    /// Hover text per segment, in segment order. Missing entries render no
+    /// tooltip; extras are ignored.
+    pub fn tips(mut self, tips: Vec<impl Into<SharedString>>) -> Self {
+        self.tips = tips.into_iter().map(Into::into).collect();
+        self
     }
 }
 
 impl RenderOnce for Gantt {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let base = self.id;
         h_flex()
             .items_center()
             .gap(px(2.))
-            .children(self.segments.into_iter().map(|seg| {
+            .children(self.segments.into_iter().enumerate().map(|(ix, seg)| {
+                // The hover group name doubles as the segment's element id
+                // (a hitbox is what registers the group).
+                let hover = SharedString::from(format!("{base}-{ix}"));
+                let slot = |body: Div, tip: Option<Div>| {
+                    body.id(hover.clone())
+                        .group(hover.clone())
+                        .relative()
+                        .cursor_pointer()
+                        .hover(|s| s.opacity(0.8))
+                        .children(tip)
+                };
+                let tip_el = self.tips.get(ix).cloned().map(|text| {
+                    div()
+                        .absolute()
+                        .bottom(px(12.))
+                        .left_0()
+                        .right_0()
+                        .invisible()
+                        .group_hover(hover.clone(), |s| s.visible())
+                        .child(
+                            h_flex().justify_center().child(
+                                h_flex()
+                                    .flex_shrink_0()
+                                    .rounded(px(7.))
+                                    .bg(super::Accent::soft(cx))
+                                    .px_2()
+                                    .py(px(3.))
+                                    .text_color(super::Accent::ink(cx))
+                                    .child(
+                                        super::blocks::mono(text, cx).text_sm().whitespace_nowrap(),
+                                    ),
+                            ),
+                        )
+                });
                 match seg {
-                    GanttSeg::Solid(f) => pill(f).bg(super::Accent::solid(cx)),
-                    GanttSeg::Faint(f) => pill(f).bg(super::Accent::faint(cx)),
-                    GanttSeg::Dashed(f) => pill(f)
-                        .border_1()
-                        .border_color(cx.theme().muted_foreground.alpha(0.5)),
-                    GanttSeg::Delivery => div()
-                        .size(px(10.))
-                        .rounded_full()
-                        .border_2()
-                        .border_color(super::Accent::solid(cx))
-                        .bg(cx.theme().popover)
-                        .flex_shrink_0(),
+                    GanttSeg::Solid(f) => slot(
+                        div()
+                            .w(relative(f.clamp(0., 1.)))
+                            .h(px(8.))
+                            .rounded_full()
+                            .flex_shrink_0()
+                            .bg(super::Accent::solid(cx)),
+                        tip_el,
+                    ),
+                    GanttSeg::Faint(f) => slot(
+                        div()
+                            .w(relative(f.clamp(0., 1.)))
+                            .h(px(8.))
+                            .rounded_full()
+                            .flex_shrink_0()
+                            .bg(super::Accent::faint(cx)),
+                        tip_el,
+                    ),
+                    GanttSeg::Dashed(f) => slot(
+                        div()
+                            .w(relative(f.clamp(0., 1.)))
+                            .h(px(8.))
+                            .rounded_full()
+                            .flex_shrink_0()
+                            .border_1()
+                            .border_color(cx.theme().muted_foreground.alpha(0.5)),
+                        tip_el,
+                    ),
+                    GanttSeg::Delivery => slot(
+                        div()
+                            .size(px(10.))
+                            .rounded_full()
+                            .border_2()
+                            .border_color(super::Accent::solid(cx))
+                            .bg(cx.theme().popover)
+                            .flex_shrink_0(),
+                        tip_el,
+                    ),
                 }
             }))
     }
-}
-
-fn pill(frac: f32) -> Div {
-    div()
-        .w(relative(frac.clamp(0., 1.)))
-        .h(px(8.))
-        .rounded_full()
-        .flex_shrink_0()
 }
