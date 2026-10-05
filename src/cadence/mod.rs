@@ -187,7 +187,6 @@ pub enum PoStatus {
 }
 
 /// The sortable PO table columns (Card 1, Phase 6).
-#[allow(dead_code)] // variants constructed once Phase 6 wires the sort headers
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum PoSortField {
     Supplier,
@@ -195,7 +194,6 @@ pub enum PoSortField {
 }
 
 /// Asc/desc ordering for `po_sort`.
-#[allow(dead_code)] // variants constructed once Phase 6 wires the sort headers
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum SortDirection {
     Asc,
@@ -693,5 +691,42 @@ mod tests {
         assert_eq!(s.expenses_selected_count(), 0);
         s.rebill_clear();
         assert!(s.is_rebill_empty());
+    }
+
+    /// The select-all box toggles by *visible* rows and "Mark billed" moves
+    /// every selected PO to Billed, dropping the selection.
+    #[test]
+    fn po_select_all_and_mark_billed() {
+        use super::{DemoState, PoStatus};
+
+        let mut s = DemoState::demo();
+
+        // Tab Awaiting shows two rows; select-all picks only those two and
+        // leaves out the Billed row, which isn't on this tab.
+        s.po_tab = 2;
+        s.po_selected.clear();
+        s.po_set_visible_selected(true);
+        assert_eq!(s.po_selected_count(), 2);
+        assert!(s.po_is_selected("PO-0421") && s.po_is_selected("PO-0427"));
+        assert!(!s.po_is_selected("PO-0418"));
+
+        // All visible picked → the next click clears them all.
+        s.po_set_visible_selected(false);
+        assert_eq!(s.po_selected_count(), 0);
+
+        // Mark billed moves selected non-billed rows and clears selection;
+        // an already-billed row is a no-op.
+        s.po_tab = 0;
+        s.po_set_selected("PO-0421", true);
+        s.po_set_selected("PO-0418", true); // already Billed
+        assert_eq!(s.po_mark_billed_selected(), 1);
+        assert!(
+            s.po_items
+                .iter()
+                .all(|i| i.status == PoStatus::Billed || i.code == "PO-0427")
+        );
+        assert_eq!(s.po_selected_count(), 0);
+        // Nothing selected → no rows moved.
+        assert_eq!(s.po_mark_billed_selected(), 0);
     }
 }

@@ -4,13 +4,15 @@
 
 use gpui_kit::assets::IconName;
 use gpui_kit::component::{
-    ActiveTheme, Icon, Sizable, Size, StyledExt as _, h_flex,
+    ActiveTheme, Disableable, Icon, Sizable, Size, StyledExt as _, WindowExt as _, h_flex,
+    notification::Notification,
     setting::{SettingGroup, SettingItem, SettingPage},
     v_flex,
 };
 use gpui_kit::{
-    AnyElement, App, InteractiveElement as _, IntoElement, ParentElement as _, SharedString,
-    StatefulInteractiveElement as _, Styled as _, div, prelude::FluentBuilder as _, px, relative,
+    AnyElement, App, Div, ElementId, FocusHandle, InteractiveElement as _, IntoElement,
+    ParentElement as _, SharedString, Stateful, StatefulInteractiveElement as _, Styled as _,
+    Window, div, prelude::FluentBuilder as _, px, relative,
 };
 
 use super::blocks::{
@@ -22,7 +24,7 @@ use super::charts::{
     AgingBars, AgingGroup, BarChartMini, Gantt, GanttSeg, MiniBars, RangeSlider, Waffle, WaffleCell,
 };
 use super::controls::{Segment, Segmented, Tab, Tabs};
-use super::{Accent, DemoState};
+use super::{Accent, DemoState, PoSortField, PoStatus, SortDirection};
 use crate::i18n::tr;
 
 /// The "Finance UI" settings page: one untitled group whose single element
@@ -31,14 +33,20 @@ pub fn page(lang: &str) -> SettingPage {
     SettingPage::new(tr("page.finance", lang))
         .icon(Icon::new(IconName::LayoutDashboard))
         .description(tr("page.finance.desc", lang))
-        .group(SettingGroup::new().item(SettingItem::render(|_options, _window, cx| canvas(cx))))
+        .group(
+            SettingGroup::new().item(SettingItem::render(|_options, window, cx| {
+                canvas(window, cx)
+            })),
+        )
 }
 
 /// The gray canvas with the eight cloned cards in two columns, mirroring
 /// the reference's art board. Fixed card widths; `flex_wrap` stacks the
 /// side card below its main card in narrow windows.
-fn canvas(cx: &App) -> AnyElement {
+fn canvas(window: &mut Window, cx: &mut App) -> AnyElement {
     let state = DemoState::global(cx);
+    let show_filter = state.show_filter;
+    let show_assign = state.show_assign;
     v_flex()
         .w_full()
         .gap_4()
@@ -46,14 +54,14 @@ fn canvas(cx: &App) -> AnyElement {
         .bg(cx.theme().background)
         .p(px(20.))
         .child(row(
-            purchase_orders(cx),
-            state.show_filter.then(|| filter_panel(cx)),
+            purchase_orders(window, cx),
+            show_filter.then(|| filter_panel(cx)),
         ))
         .child(row(upcoming_bills(cx), Some(owed_to_suppliers(cx))))
         .child(row(expense_claims(cx), Some(by_category(cx))))
         .child(row(
             billable_expenses(cx),
-            state.show_assign.then(|| assign_to_project(cx)),
+            show_assign.then(|| assign_to_project(cx)),
         ))
         .into_any_element()
 }
@@ -72,78 +80,230 @@ fn row(main: AnyElement, side: Option<AnyElement>) -> AnyElement {
 // Card 1 — Purchase orders (tabs, filter chips, gantt table, footer)
 // ---------------------------------------------------------------------------
 
-fn purchase_orders(cx: &App) -> AnyElement {
+fn purchase_orders(window: &mut Window, cx: &mut App) -> AnyElement {
     let state = DemoState::global(cx);
     let picked = state.po_selected_count();
     let total = state.po_selected_total();
-    let rows = state.po_visible();
+    let sort = state.po_sort;
+    let po_tab = state.po_tab;
+    let date_filter = state.date_filter;
+    let awaiting = state.po_awaiting_count();
+    // Live per-status counts for the tab pills (tab 0 "All" takes every row).
+    let tab_counts: Vec<u64> = [
+        None,
+        Some(PoStatus::Draft),
+        Some(PoStatus::Awaiting),
+        Some(PoStatus::Approved),
+        Some(PoStatus::Billed),
+    ]
+    .into_iter()
+    .map(|status| {
+        state
+            .po_items
+            .iter()
+            .filter(|i| status.is_none_or(|s| i.status == s))
+            .count() as u64
+    })
+    .collect();
+    // Owned row view: `window` is borrowed mutably below (keyed focus state),
+    // which ends the `state` borrow — collect first.
+    let rows: Vec<PoRow> = state
+        .po_visible()
+        .into_iter()
+        .map(|item| PoRow {
+            on: state.po_is_selected(&item.code),
+            code: item.code.clone(),
+            supplier: item.supplier.clone(),
+            sub: item.sub.clone(),
+            amount: item.amount,
+            gantt: item.gantt.clone(),
+        })
+        .collect();
+
+    let any_on = rows.iter().any(|r| r.on);
+    let all_on = !rows.is_empty() && rows.iter().all(|r| r.on);
+    // Per-row keyboard focus; keyed state keeps each row's handle stable
+    // across re-renders while the row is mounted.
+    let handles: Vec<FocusHandle> = rows
+        .iter()
+        .map(|row| {
+            window
+                .use_keyed_state(
+                    ElementId::Name(format!("po-focus-{}", row.code).into()),
+                    cx,
+                    |_w, cx| cx.focus_handle(),
+                )
+                .read(cx)
+                .clone()
+        })
+        .collect();
 
     let table = v_flex()
         .px_4()
         .child(
-            // Header row; the gantt cell carries the "Today" marker line.
-            h_flex()
-                .gap_3()
-                .py_2()
-                .child(
-                    div()
-                        .flex_1()
-                        .text_sm()
-                        .text_color(cx.theme().muted_foreground)
-                        .child("Supplier"),
-                )
-                .child(gantt_head(cx))
-                .child(
-                    div()
-                        .w(px(80.))
-                        .text_right()
-                        .text_sm()
-                        .text_color(cx.theme().muted_foreground)
-                        .child("Amount"),
-                ),
-        )
-        .children(rows.into_iter().map(|item| {
-            let code = item.code.clone();
-            let on = state.po_is_selected(&code);
+            // Header row; insets match the data rows (H6) and the gantt cell
+            // carries the "Today" marker line.
             h_flex()
                 .gap_3()
                 .px_2()
                 .py_2()
-                .rounded(px(8.))
-                .when(on, |this| this.bg(Accent::wash(cx)))
+                .child(select_all_checkbox(
+                    if all_on {
+                        SelectAll::All
+                    } else if any_on {
+                        SelectAll::Some
+                    } else {
+                        SelectAll::None
+                    },
+                    cx,
+                ))
                 .child(
-                    CadenceCheckbox::new(SharedString::from(format!("po-row-{code}")), on)
-                        .on_click(move |checked, _window, cx| {
-                            DemoState::update(cx, |s| s.po_set_selected(&code, *checked));
-                        }),
+                    sort_header(
+                        "po-sort-supplier",
+                        "Supplier",
+                        PoSortField::Supplier,
+                        sort,
+                        cx,
+                    )
+                    .flex_1(),
                 )
+                .child(gantt_head(cx))
                 .child(
-                    v_flex()
-                        .flex_1()
-                        .gap_0p5()
-                        .child(
-                            div()
-                                .text_sm()
-                                .font_medium()
-                                .text_color(cx.theme().foreground)
-                                .child(item.supplier.clone()),
+                    sort_header("po-sort-amount", "Amount", PoSortField::Amount, sort, cx)
+                        .w(px(80.))
+                        .justify_end(),
+                ),
+        )
+        .when(rows.is_empty(), |this| {
+            this.child(
+                v_flex()
+                    .items_center()
+                    .gap_2()
+                    .py_6()
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(cx.theme().muted_foreground)
+                            .child("No purchase orders match this filter"),
+                    )
+                    .child(btn_secondary("po-show-all", "Show all").on_click(
+                        |_event, _window, cx| {
+                            DemoState::update(cx, |s| s.po_tab = 0);
+                        },
+                    )),
+            )
+        })
+        .children(
+            rows.iter()
+                .cloned()
+                .zip(&handles)
+                .enumerate()
+                .map(|(ix, (row, focus))| {
+                    let PoRow {
+                        on,
+                        code,
+                        supplier,
+                        sub,
+                        amount,
+                        gantt,
+                    } = row;
+                    let code_click = code.clone();
+                    let code_check = code.clone();
+                    let code_key = code;
+                    // Arrow keys move focus across the *visible* rows.
+                    let prev = ix.checked_sub(1).map(|i| handles[i].clone());
+                    let next = handles.get(ix + 1).cloned();
+                    h_flex()
+                        .id(SharedString::from(format!("po-row-{code_key}")))
+                        .gap_3()
+                        .px_2()
+                        .py_2()
+                        .rounded(px(8.))
+                        .border_1()
+                        .border_color(Accent::solid(cx).alpha(0.))
+                        .track_focus(focus)
+                        .tab_index(0)
+                        .cursor_pointer()
+                        .when(on, |this| this.bg(Accent::wash(cx)))
+                        .hover(|this| {
+                            this.bg(if on {
+                                Accent::wash(cx)
+                            } else {
+                                cx.theme().accent.alpha(0.5)
+                            })
+                        })
+                        .focus(|this| this.border_color(Accent::solid(cx)))
+                        .on_click(move |_, _window, cx| {
+                            DemoState::update(cx, |s| s.po_set_selected(&code_click, !on));
+                        })
+                        .on_key_down(
+                            move |event, window, cx| match event.keystroke.key.as_str() {
+                                "up" | "down" => {
+                                    let target = if event.keystroke.key == "up" {
+                                        prev.as_ref()
+                                    } else {
+                                        next.as_ref()
+                                    };
+                                    if let Some(handle) = target {
+                                        window.focus(handle, cx);
+                                    }
+                                    window.prevent_default();
+                                }
+                                "space" => {
+                                    window.prevent_default();
+                                    DemoState::update(cx, |s| s.po_set_selected(&code_key, !on));
+                                }
+                                "enter" => {
+                                    window.prevent_default();
+                                    window.push_notification(
+                                        Notification::info(format!(
+                                            "Open {code_key} — PO details are not part of this demo"
+                                        )),
+                                        cx,
+                                    );
+                                }
+                                _ => {}
+                            },
                         )
                         .child(
-                            mono(item.sub.clone(), cx)
+                            CadenceCheckbox::new(
+                                SharedString::from(format!("po-check-{code_check}")),
+                                on,
+                            )
+                            .on_click(move |checked, _window, cx| {
+                                // Keep the row's own toggle from double-firing.
+                                cx.stop_propagation();
+                                DemoState::update(cx, |s| s.po_set_selected(&code_check, *checked));
+                            }),
+                        )
+                        .child(
+                            v_flex()
+                                .flex_1()
+                                .gap_0p5()
+                                .child(
+                                    div()
+                                        .text_sm()
+                                        .font_medium()
+                                        .text_color(cx.theme().foreground)
+                                        .child(supplier),
+                                )
+                                .child(
+                                    mono(sub, cx)
+                                        .text_sm()
+                                        .text_color(cx.theme().muted_foreground),
+                                ),
+                        )
+                        .child(gantt_cell(cx, gantt))
+                        .child(
+                            mono(usd(amount), cx)
+                                .w(px(80.))
+                                .text_right()
                                 .text_sm()
-                                .text_color(cx.theme().muted_foreground),
-                        ),
-                )
-                .child(gantt_cell(cx, item.gantt.clone()))
-                .child(
-                    mono(usd(item.amount), cx)
-                        .w(px(80.))
-                        .text_right()
-                        .text_sm()
-                        .font_medium()
-                        .text_color(cx.theme().foreground),
-                )
-        }));
+                                .font_medium()
+                                .text_color(cx.theme().foreground),
+                        )
+                }),
+        );
 
     card(cx)
         .w(px(500.))
@@ -153,23 +313,20 @@ fn purchase_orders(cx: &App) -> AnyElement {
                 "Purchase orders",
                 "September · 24 orders",
             )
-            .trailing(MonoPill::new(format!(
-                "{} need you",
-                state.po_awaiting_count()
-            ))),
+            .trailing(MonoPill::new(format!("{awaiting} need you"))),
         )
         .child(
             Tabs::new(
                 "po-tabs",
                 vec![
-                    Tab::new("All").count(24),
-                    Tab::new("Draft").count(3),
-                    Tab::new("Awaiting").count(2),
-                    Tab::new("Approved").count(11),
-                    Tab::new("Billed").count(8),
+                    Tab::new("All").count(tab_counts[0]),
+                    Tab::new("Draft").count(tab_counts[1]),
+                    Tab::new("Awaiting").count(tab_counts[2]),
+                    Tab::new("Approved").count(tab_counts[3]),
+                    Tab::new("Billed").count(tab_counts[4]),
                 ],
             )
-            .active(state.po_tab)
+            .active(po_tab)
             .on_pick(|ix, _window, cx| DemoState::update(cx, |s| s.po_tab = ix)),
         )
         .child(
@@ -180,7 +337,7 @@ fn purchase_orders(cx: &App) -> AnyElement {
                 .child(
                     h_flex()
                         .gap_2()
-                        .when(state.date_filter, |this| {
+                        .when(date_filter, |this| {
                             this.child(
                                 FilterChip::new("po-date-chip", "Sep 1 – Sep 30")
                                     .icon(IconName::Calendar)
@@ -249,11 +406,157 @@ fn purchase_orders(cx: &App) -> AnyElement {
                 .child(
                     h_flex()
                         .gap_2()
-                        .child(btn_secondary("po-mark-billed", "Mark billed"))
-                        .child(btn_primary("po-approve", format!("Approve {picked}"), cx)),
+                        .child(
+                            btn_secondary("po-mark-billed", "Mark billed")
+                                .disabled(picked == 0)
+                                .on_click(|_event, window, cx| {
+                                    let mut moved = 0;
+                                    DemoState::update(cx, |s| {
+                                        moved = s.po_mark_billed_selected();
+                                    });
+                                    window.push_notification(
+                                        Notification::info(if moved > 0 {
+                                            format!("Marked {moved} purchase orders billed")
+                                        } else {
+                                            "Selected purchase orders are already billed"
+                                                .to_string()
+                                        }),
+                                        cx,
+                                    );
+                                }),
+                        )
+                        .child(
+                            btn_primary("po-approve", format!("Approve {picked}"), cx)
+                                .disabled(picked == 0)
+                                .on_click(|_event, window, cx| {
+                                    let mut moved = 0;
+                                    DemoState::update(cx, |s| {
+                                        moved = s.po_approve_selected();
+                                    });
+                                    window.push_notification(
+                                        if moved > 0 {
+                                            Notification::success(format!(
+                                                "Approved {moved} purchase orders"
+                                            ))
+                                        } else {
+                                            Notification::info(
+                                                "No selected purchase orders are awaiting approval",
+                                            )
+                                        },
+                                        cx,
+                                    );
+                                }),
+                        ),
                 ),
         )
         .into_any_element()
+}
+
+/// One PO table row's owned cell data — collected up front so the row
+/// closures and the keyed focus state don't hold the `DemoState` borrow.
+#[derive(Clone)]
+struct PoRow {
+    on: bool,
+    code: SharedString,
+    supplier: SharedString,
+    sub: SharedString,
+    amount: f64,
+    gantt: Vec<GanttSeg>,
+}
+
+/// Tri-state of the table header's select-all box.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SelectAll {
+    None,
+    Some,
+    All,
+}
+
+/// The header's select-all box — a `CadenceCheckbox` lookalike that adds the
+/// indeterminate (dash) state the header needs. Clicking selects every
+/// visible row, or clears them all when every one is already picked.
+fn select_all_checkbox(state: SelectAll, cx: &App) -> Stateful<Div> {
+    let checked = state != SelectAll::None;
+    let (bg, border, fg) = if checked {
+        (Accent::solid(cx), Accent::solid(cx), Accent::on_solid(cx))
+    } else {
+        (
+            cx.theme().popover,
+            cx.theme().border,
+            cx.theme().muted_foreground,
+        )
+    };
+    div()
+        .id("po-select-all")
+        .cursor_pointer()
+        .size(px(18.))
+        .flex_shrink_0()
+        .rounded(px(5.))
+        .border_1()
+        .border_color(border)
+        .bg(bg)
+        .flex()
+        .items_center()
+        .justify_center()
+        .on_click(move |_, _window, cx| {
+            DemoState::update(cx, |s| s.po_set_visible_selected(!all_selected(s)));
+        })
+        .when(state == SelectAll::All, |this| {
+            this.child(
+                Icon::new(IconName::Check)
+                    .with_size(Size::Size(px(12.)))
+                    .text_color(fg),
+            )
+        })
+        .when(state == SelectAll::Some, |this| {
+            this.child(
+                Icon::new(IconName::Minus)
+                    .with_size(Size::Size(px(12.)))
+                    .text_color(fg),
+            )
+        })
+}
+
+/// Whether every currently visible PO row is selected — the select-all box's
+/// click direction: all picked → clear, otherwise pick all.
+fn all_selected(s: &DemoState) -> bool {
+    let rows = s.po_visible();
+    !rows.is_empty() && rows.iter().all(|i| s.po_is_selected(&i.code))
+}
+
+/// A clickable column header that cycles Neutral → Asc → Desc on click,
+/// with a sort indicator glyph (neutral: arrow-up-down from the full
+/// Lucide catalog; active: arrow-up/-down).
+fn sort_header(
+    id: impl Into<ElementId>,
+    label: &'static str,
+    field: PoSortField,
+    sort: Option<(PoSortField, SortDirection)>,
+    cx: &App,
+) -> Stateful<Div> {
+    let icon_path = match sort {
+        Some((f, SortDirection::Asc)) if f == field => "icons/arrow-up.svg",
+        Some((f, SortDirection::Desc)) if f == field => "icons/arrow-down.svg",
+        _ => "icons/arrow-up-down.svg",
+    };
+    h_flex()
+        .id(id)
+        .cursor_pointer()
+        .gap_1()
+        .items_center()
+        .text_sm()
+        .text_color(cx.theme().muted_foreground)
+        .hover(|this| this.text_color(cx.theme().foreground))
+        .on_click(move |_, _window, cx| {
+            DemoState::update(cx, |s| s.po_toggle_sort(field));
+        })
+        .child(label)
+        .child(
+            Icon::empty()
+                .path(icon_path)
+                .with_size(Size::Size(px(12.)))
+                .text_color(cx.theme().muted_foreground),
+        )
 }
 
 /// The gantt column of one table row: fixed 220px track with the "Today"
