@@ -435,39 +435,88 @@ pub fn stat_row(stats: Vec<Stat>, cx: &App) -> Div {
 }
 
 /// Two-tone meter: solid accent progress over the faint remainder,
-/// `rounded-full`, 6px tall. `fraction` clamps to 0..1.
+/// `rounded-full`, 6px tall (8px while hovered). `fraction` clamps to
+/// 0..1. `tip` floats the mono breakdown pill over the bar on hover; the
+/// 18px margin appears with it so the pill never overlaps the stats.
 #[derive(IntoElement)]
 pub struct Meter {
+    id: ElementId,
     fraction: f32,
+    tip: Option<SharedString>,
 }
 
 impl Meter {
-    pub fn new(fraction: f32) -> Self {
+    pub fn new(id: impl Into<ElementId>, fraction: f32) -> Self {
         Self {
+            id: id.into(),
             fraction: fraction.clamp(0., 1.),
+            tip: None,
         }
+    }
+
+    /// Hover tooltip, e.g. the reimbursed/submitted breakdown.
+    pub fn tip(mut self, tip: impl Into<SharedString>) -> Self {
+        self.tip = Some(tip.into());
+        self
     }
 }
 
 impl RenderOnce for Meter {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let hovered = window.use_keyed_state((self.id.clone(), "hovered"), cx, |_, _| false);
+        let is_hover = *hovered.read(cx);
+        let tip = self.tip.clone();
+
         div()
+            .id(self.id)
             .w_full()
-            .h(px(6.))
-            .rounded_full()
-            .bg(super::Accent::faint(cx))
             .relative()
-            .overflow_hidden()
+            .when(tip.is_some(), |this| this.mt(px(18.)))
+            .role(gpui_kit::Role::ProgressIndicator)
+            .aria_numeric_value((self.fraction * 100.) as f64)
+            .aria_min_numeric_value(0.)
+            .aria_max_numeric_value(100.)
+            .aria_value(format!("{:.0}% reimbursed", self.fraction * 100.))
+            .on_hover(move |entered, _window, cx| {
+                hovered.update(cx, |h, cx| {
+                    *h = *entered;
+                    cx.notify();
+                });
+            })
             .child(
                 div()
-                    .absolute()
-                    .left_0()
-                    .top_0()
-                    .h_full()
-                    .w(relative(self.fraction))
+                    .w_full()
+                    .h(px(if is_hover { 8. } else { 6. }))
                     .rounded_full()
-                    .bg(super::Accent::solid(cx)),
+                    .bg(super::Accent::faint(cx))
+                    .cursor_pointer()
+                    .relative()
+                    .overflow_hidden()
+                    .child(
+                        div()
+                            .absolute()
+                            .left_0()
+                            .top_0()
+                            .h_full()
+                            .w(relative(self.fraction))
+                            .rounded_full()
+                            .bg(super::Accent::solid(cx)),
+                    ),
             )
+            .when_some(tip.filter(|_| is_hover), |this, text| {
+                this.child(
+                    h_flex().absolute().top(px(-22.)).left_0().child(
+                        h_flex()
+                            .rounded(px(7.))
+                            .bg(super::Accent::soft(cx))
+                            .px_2()
+                            .py(px(3.))
+                            .whitespace_nowrap()
+                            .text_color(super::Accent::ink(cx))
+                            .child(mono(text, cx).text_sm()),
+                    ),
+                )
+            })
     }
 }
 

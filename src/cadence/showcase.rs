@@ -70,7 +70,7 @@ fn canvas(window: &mut Window, cx: &mut App) -> AnyElement {
             },
         ))
         .child(row(upcoming_bills(cx), Some(owed_to_suppliers(cx))))
-        .child(row(expense_claims(cx), Some(by_category(cx))))
+        .child(row(expense_claims(cx), Some(by_category(window, cx))))
         .child(row(
             billable_expenses(cx),
             if show_assign {
@@ -1014,10 +1014,26 @@ fn upcoming_bills(cx: &App) -> AnyElement {
         )))
         .child(
             div().px_4().pb_3().child(
-                BarChartMini::new(BILL_BARS.to_vec())
+                BarChartMini::new("bills-chart", BILL_BARS.to_vec())
                     .y_labels(vec!["$60k", "$40k", "$20k", "0"])
-                    .tooltip(state.selected_bill_bar.unwrap_or(8), "Oct 1 · $52k")
-                    .x_labels(vec!["Sep 21", "Sep 28", "Oct 5", "Oct 12", "Oct 19"]),
+                    .x_labels(vec!["Sep 21", "Sep 28", "Oct 5", "Oct 12", "Oct 19"])
+                    .selected(state.selected_bill_bar)
+                    .pinned(8)
+                    .tip_label(|ix, solid, faint| {
+                        let sched = (solid * 60.).round() as u32;
+                        let unsched = (faint * 60.).round() as u32;
+                        format!(
+                            "{} · {} (Sched: {} · Unsched: {})",
+                            bill_date(ix),
+                            usd_k(sched + unsched),
+                            usd_k(sched),
+                            usd_k(unsched)
+                        )
+                        .into()
+                    })
+                    .on_select(|ix, _window, cx| {
+                        DemoState::update(cx, |s| s.selected_bill_bar = ix)
+                    }),
             ),
         )
         .child(
@@ -1054,6 +1070,9 @@ fn upcoming_bills(cx: &App) -> AnyElement {
 // ---------------------------------------------------------------------------
 
 fn owed_to_suppliers(cx: &App) -> AnyElement {
+    let state = DemoState::global(cx);
+    let bucket = state.selected_aging_bucket;
+    // (name, sub, total, overdue, pie fraction, aging bucket 0-4)
     let suppliers = [
         (
             "Northwind Freight",
@@ -1061,16 +1080,29 @@ fn owed_to_suppliers(cx: &App) -> AnyElement {
             "$48,210",
             Some("$6,120"),
             0.55,
+            0usize,
         ),
-        ("Orbit Cloud", "2 bills · NET 15", "$36,000", None, 0.35),
+        (
+            "Orbit Cloud",
+            "2 bills · NET 15",
+            "$36,000",
+            Some("$4,800"),
+            0.35,
+            1usize,
+        ),
         (
             "Haldon Supplies",
             "9 bills · NET 45",
             "$22,470",
             Some("$4,120"),
             0.25,
+            2usize,
         ),
     ];
+    let visible: Vec<_> = suppliers
+        .into_iter()
+        .filter(|(.., b)| bucket.is_none_or(|sel| *b == sel))
+        .collect();
 
     card(cx)
         .w(px(330.))
@@ -1100,13 +1132,27 @@ fn owed_to_suppliers(cx: &App) -> AnyElement {
                                 .text_color(Accent::ink(cx)),
                         ),
                 )
-                .child(AgingBars::new(vec![
-                    AgingGroup::new(5, Accent::solid(cx), "Now", "$218k"),
-                    AgingGroup::new(3, Accent::solid(cx), "1–30", "$124k"),
-                    AgingGroup::new(2, Accent::solid(cx), "31–60", "$42k"),
-                    AgingGroup::new(1, Accent::faint(cx), "61–90", "$16k"),
-                    AgingGroup::new(1, Accent::faint(cx), "90+", "$12k"),
-                ]))
+                .child(
+                    AgingBars::new(
+                        "aging-bars",
+                        vec![
+                            AgingGroup::new(5, Accent::solid(cx), "Now", "$218k")
+                                .tip("Current · 112 bills · $218,000 (52.8%)"),
+                            AgingGroup::new(3, Accent::solid(cx), "1–30", "$124k")
+                                .tip("1–30 days overdue · 48 bills · $124,000 (30.0%)"),
+                            AgingGroup::new(2, Accent::solid(cx), "31–60", "$42k")
+                                .tip("31–60 days overdue · 21 bills · $42,000 (10.2%)"),
+                            AgingGroup::new(1, Accent::faint(cx), "61–90", "$16k")
+                                .tip("61–90 days overdue · 12 bills · $16,000 (3.9%)"),
+                            AgingGroup::new(1, Accent::faint(cx), "90+", "$12k")
+                                .tip("90+ days overdue · 21 bills · $12,000 (2.9%)"),
+                        ],
+                    )
+                    .selected(bucket)
+                    .on_select(|ix, _window, cx| {
+                        DemoState::update(cx, |s| s.selected_aging_bucket = ix)
+                    }),
+                )
                 .child(div().h(px(1.)).w_full().bg(cx.theme().border))
                 .child(
                     h_flex()
@@ -1126,9 +1172,9 @@ fn owed_to_suppliers(cx: &App) -> AnyElement {
                         ),
                 )
                 .children(
-                    suppliers
-                        .into_iter()
-                        .map(|(name, sub, amount, overdue, frac)| {
+                    visible
+                        .iter()
+                        .map(|&(name, sub, amount, overdue, frac, _bucket)| {
                             h_flex()
                                 .gap_3()
                                 .items_center()
@@ -1166,7 +1212,16 @@ fn owed_to_suppliers(cx: &App) -> AnyElement {
                                         })),
                                 )
                         }),
-                ),
+                )
+                .when(visible.is_empty(), |this| {
+                    this.child(
+                        div()
+                            .py_1()
+                            .text_sm()
+                            .text_color(cx.theme().muted_foreground)
+                            .child("No suppliers in this bucket"),
+                    )
+                }),
         )
         .into_any_element()
 }
@@ -1197,6 +1252,15 @@ fn expense_claims(cx: &App) -> AnyElement {
             "$688.00",
         ),
     ];
+    // Meter math: the unpaid claims are the "To Be Paid" share of the
+    // fixed Submitted total; marking a claim paid (Phase 8) fills the bar.
+    let to_pay = claims_to_pay_amount(state);
+    let reimbursed = CLAIMS_SUBMITTED - to_pay;
+    let fraction = if CLAIMS_SUBMITTED > 0. {
+        (reimbursed / CLAIMS_SUBMITTED) as f32
+    } else {
+        0.
+    };
 
     card(cx)
         .w(px(500.))
@@ -1254,7 +1318,7 @@ fn expense_claims(cx: &App) -> AnyElement {
                                             .child("Submitted"),
                                     )
                                     .child(
-                                        mono("$2,316.40", cx)
+                                        mono(usd(CLAIMS_SUBMITTED), cx)
                                             .text_xl()
                                             .font_semibold()
                                             .text_color(cx.theme().foreground),
@@ -1270,7 +1334,7 @@ fn expense_claims(cx: &App) -> AnyElement {
                                             .child("To Be Paid"),
                                     )
                                     .child(
-                                        mono("$1,284.00", cx)
+                                        mono(usd(to_pay), cx)
                                             .text_xl()
                                             .font_semibold()
                                             .text_color(Accent::ink(cx)),
@@ -1286,14 +1350,20 @@ fn expense_claims(cx: &App) -> AnyElement {
                                             .child("Reimbursed"),
                                     )
                                     .child(
-                                        mono("$1,032.40", cx)
+                                        mono(usd(reimbursed), cx)
                                             .text_xl()
                                             .font_semibold()
                                             .text_color(cx.theme().foreground),
                                     ),
                             ),
                     )
-                    .child(Meter::new(0.57)),
+                    .child(Meter::new("claims-meter", fraction).tip(format!(
+                        "Reimbursed: {} / {} ({:.1}%) · Remaining: {}",
+                        usd(reimbursed),
+                        usd(CLAIMS_SUBMITTED),
+                        fraction * 100.,
+                        usd(to_pay)
+                    ))),
             ),
         )
         .child(
@@ -1362,26 +1432,56 @@ fn expense_claims(cx: &App) -> AnyElement {
 // Card 6 — By category (big stat, waffle, legend)
 // ---------------------------------------------------------------------------
 
-fn by_category(cx: &App) -> AnyElement {
+fn by_category(window: &mut Window, cx: &mut App) -> AnyElement {
+    let state = DemoState::global(cx);
+    let sel = state.selected_waffle_cat;
+    // (cell kind, name, claims, amount in dollars)
     let legend = [
-        (WaffleCell::Full, "Travel", 18, "$8,960"),
-        (WaffleCell::Mid, "Meals", 13, "$4,210"),
-        (WaffleCell::Light, "Software", 10, "$3,480"),
-        (WaffleCell::Faint, "Mileage", 5, "$1,190"),
-        (WaffleCell::Empty, "Other", 4, "$580"),
+        (WaffleCell::Full, "Travel", 18usize, 8960.),
+        (WaffleCell::Mid, "Meals", 13, 4210.),
+        (WaffleCell::Light, "Software", 10, 3480.),
+        (WaffleCell::Faint, "Mileage", 5, 1190.),
+        (WaffleCell::Empty, "Other", 4, 580.),
     ];
+    let total_claims: usize = legend.iter().map(|(.., c, _)| c).sum();
+    let total_amount: f64 = legend.iter().map(|(.., a)| a).sum();
     let mut cells = Vec::new();
-    for (cell, _, count, _) in legend {
-        cells.extend(std::iter::repeat_n(cell, count));
+    let mut cats = Vec::new();
+    for (cat, (cell, _, count, _)) in legend.iter().enumerate() {
+        cells.extend(std::iter::repeat_n(*cell, *count));
+        cats.extend(std::iter::repeat_n(cat, *count));
     }
+    let tips: Vec<SharedString> = legend
+        .iter()
+        .map(|(_, name, count, amount)| {
+            format!(
+                "{name} · {count} of {total_claims} claims ({:.0}%) · {}",
+                *count as f64 / total_claims as f64 * 100.,
+                usd(*amount)
+            )
+            .into()
+        })
+        .collect();
+    // Legend rows and waffle cells share this "hovered category" entity —
+    // hovering either side lights up the category on both.
+    let cat_hover = window.use_keyed_state("waffle-cat-hover", cx, |_, _| None::<usize>);
+
+    let (amount, accent, subtitle) = match sel.and_then(|ix| legend.get(ix)) {
+        Some((_, name, count, amount)) => (
+            usd(*amount),
+            format!("{:.0}% of Q3 spend", *amount / total_amount * 100.),
+            format!("{name} · {count} claims"),
+        ),
+        None => (
+            usd(total_amount),
+            "+12% QoQ".to_string(),
+            "Q3 · 50 claims".into(),
+        ),
+    };
 
     card(cx)
         .w(px(330.))
-        .child(CardHeader::new(
-            IconName::ChartPie,
-            "By category",
-            "Q3 · 50 claims",
-        ))
+        .child(CardHeader::new(IconName::ChartPie, "By category", subtitle))
         .child(
             v_flex()
                 .px_4()
@@ -1392,44 +1492,90 @@ fn by_category(cx: &App) -> AnyElement {
                         .gap_2()
                         .items_baseline()
                         .child(
-                            mono("$18,420", cx)
+                            mono(amount, cx)
                                 .text_2xl()
                                 .font_semibold()
                                 .text_color(cx.theme().foreground),
                         )
-                        .child(mono("+12% QoQ", cx).text_sm().text_color(Accent::ink(cx))),
+                        .child(mono(accent, cx).text_sm().text_color(Accent::ink(cx))),
                 )
-                .child(Waffle::new(cells).cols(10))
+                .child(
+                    Waffle::new("waffle-chart", cells)
+                        .cols(10)
+                        .cell_size(px(26.))
+                        .cats(cats)
+                        .tips(tips)
+                        .selected(sel)
+                        .hovered(cat_hover.clone())
+                        .on_select(|ix, _window, cx| {
+                            DemoState::update(cx, |s| s.selected_waffle_cat = ix)
+                        }),
+                )
                 .child(div().h(px(1.)).w_full().bg(cx.theme().border))
-                .children(legend.into_iter().map(|(cell, name, count, amount)| {
-                    h_flex()
-                        .justify_between()
-                        .items_center()
-                        .py_1()
-                        .child(
+                .children(
+                    legend
+                        .iter()
+                        .enumerate()
+                        .map(|(cat, (cell, name, count, amount))| {
+                            let is_sel = sel == Some(cat);
                             h_flex()
-                                .gap_2()
+                                .id(SharedString::from(format!("waffle-legend-{cat}")))
+                                .cursor_pointer()
+                                .justify_between()
                                 .items_center()
-                                .child(waffle_dot(cell, cx))
+                                .py_1()
+                                .px_2()
+                                .mx(px(-8.))
+                                .rounded(px(8.))
+                                .when(is_sel, |this| this.bg(Accent::wash(cx)))
+                                .hover(|this| this.bg(cx.theme().accent))
+                                .on_hover({
+                                    let cat_hover = cat_hover.clone();
+                                    move |entered, _window, cx| {
+                                        cat_hover.update(cx, |h, cx| {
+                                            *h = entered.then_some(cat);
+                                            cx.notify();
+                                        });
+                                    }
+                                })
+                                .on_click(move |_, _window, cx| {
+                                    DemoState::update(cx, |s| {
+                                        s.selected_waffle_cat =
+                                            (s.selected_waffle_cat != Some(cat)).then_some(cat);
+                                    });
+                                })
                                 .child(
-                                    div()
-                                        .text_sm()
-                                        .text_color(cx.theme().foreground)
-                                        .child(name),
+                                    h_flex()
+                                        .gap_2()
+                                        .items_center()
+                                        .child(waffle_dot(*cell, cx))
+                                        .child(
+                                            div()
+                                                .text_sm()
+                                                .text_color(cx.theme().foreground)
+                                                .child(*name),
+                                        )
+                                        .child(
+                                            mono(count.to_string(), cx)
+                                                .text_sm()
+                                                .text_color(cx.theme().muted_foreground),
+                                        )
+                                        .when(is_sel, |this| {
+                                            this.child(
+                                                Icon::new(IconName::Check)
+                                                    .with_size(Size::Size(px(14.)))
+                                                    .text_color(Accent::ink(cx)),
+                                            )
+                                        }),
                                 )
                                 .child(
-                                    mono(count.to_string(), cx)
+                                    mono(usd(*amount), cx)
                                         .text_sm()
-                                        .text_color(cx.theme().muted_foreground),
-                                ),
-                        )
-                        .child(
-                            mono(amount, cx)
-                                .text_sm()
-                                .font_medium()
-                                .text_color(cx.theme().foreground),
-                        )
-                })),
+                                        .font_medium()
+                                        .text_color(cx.theme().foreground),
+                                )
+                        }),
+                ),
         )
         .into_any_element()
 }
@@ -1794,6 +1940,13 @@ fn assign_to_project(cx: &App) -> AnyElement {
 /// the reference's three fixed lines).
 const EXPENSE_AMOUNTS: [f64; 3] = [412.00, 388.00, 184.00];
 
+/// Card 5 claim amounts, parallel to the rows above — the demo data whose
+/// paid state drives the meter and stat trio.
+const CLAIM_AMOUNTS: [f64; 3] = [412.00, 184.00, 688.00];
+
+/// The reference's fixed "Submitted" total (claims + reimbursed balance).
+const CLAIMS_SUBMITTED: f64 = 2316.40;
+
 /// Filter histogram: ghost bars at the edges, accent bars in the selected
 /// $500–$12k window.
 const FILTER_HISTOGRAM: [f32; 28] = [
@@ -1859,9 +2012,41 @@ fn usd0(v: f64) -> String {
     usd(v.round()).trim_end_matches(".00").to_string()
 }
 
+/// Claims still awaiting reimbursement — the "To Be Paid" stat and the
+/// meter's empty span.
+fn claims_to_pay_amount(state: &DemoState) -> f64 {
+    CLAIM_AMOUNTS
+        .iter()
+        .zip(state.claims_paid.iter())
+        .filter(|(_, paid)| !**paid)
+        .map(|(v, _)| *v)
+        .sum()
+}
+
+/// Bar `ix` is the (ix + 1)th business day of the five-week window that
+/// opens Monday Sep 21, 2026 — weekends are skipped (`ix + 2*(ix/5)`).
+fn bill_date(ix: usize) -> String {
+    let day = 21 + ix + 2 * (ix / 5);
+    if day <= 30 {
+        format!("Sep {day}")
+    } else {
+        format!("Oct {}", day - 30)
+    }
+}
+
+/// `$` + whole thousands → the reference's axis style (`$52k`, `$8k`,
+/// `$900`); amounts under $1k stay dollar-exact.
+fn usd_k(v: u32) -> String {
+    if v >= 1000 {
+        format!("${}k", v / 1000)
+    } else {
+        format!("${v}")
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::usd;
+    use super::{DemoState, bill_date, claims_to_pay_amount, usd, usd_k};
 
     #[test]
     fn usd_formats_with_thousands_separator() {
@@ -1871,5 +2056,35 @@ mod tests {
         assert_eq!(usd(16480.0), "$16,480.00");
         assert_eq!(usd(412860.0), "$412,860.00");
         assert_eq!(usd(2316.4), "$2,316.40");
+    }
+
+    #[test]
+    fn bill_date_skips_weekends() {
+        // Business days from Monday Sep 21, 2026: x-label week starts are
+        // bars 0/5/10/15/20 and the pinned bar 8 is Oct 1.
+        assert_eq!(bill_date(0), "Sep 21");
+        assert_eq!(bill_date(4), "Sep 25");
+        assert_eq!(bill_date(5), "Sep 28");
+        assert_eq!(bill_date(8), "Oct 1");
+        assert_eq!(bill_date(9), "Oct 2");
+        assert_eq!(bill_date(24), "Oct 23");
+    }
+
+    #[test]
+    fn usd_k_formats_axis_amounts() {
+        assert_eq!(usd_k(0), "$0");
+        assert_eq!(usd_k(900), "$900");
+        assert_eq!(usd_k(1000), "$1k");
+        assert_eq!(usd_k(89_000), "$89k");
+    }
+
+    #[test]
+    fn claims_to_pay_amount_tracks_paid_rows() {
+        let mut state = DemoState::demo();
+        assert_eq!(claims_to_pay_amount(&state), 1284.0);
+        state.mark_claim_paid(1);
+        assert_eq!(claims_to_pay_amount(&state), 1100.0);
+        state.claims_paid = [true; 3];
+        assert_eq!(claims_to_pay_amount(&state), 0.0);
     }
 }

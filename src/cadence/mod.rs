@@ -68,6 +68,10 @@ pub type BoolCallback = Rc<dyn Fn(&bool, &mut Window, &mut App)>;
 pub type PickCallback = Rc<dyn Fn(usize, &mut Window, &mut App)>;
 /// Dual-thumb range slider: new `(lo, hi)` track fractions.
 pub type RangeCallback = Rc<dyn Fn(&(f32, f32), &mut Window, &mut App)>;
+/// Optional-index pick: `Some(ix)` selects, `None` clears (toggle/Escape).
+pub type OptPickCallback = Rc<dyn Fn(Option<usize>, &mut Window, &mut App)>;
+/// Bar tooltip text: `(index, solid, faint)` fractions → label.
+pub type BarLabelCallback = Rc<dyn Fn(usize, f32, f32) -> SharedString>;
 
 /// The reference's indigo accent family, resolved per theme mode.
 ///
