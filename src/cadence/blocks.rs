@@ -186,8 +186,11 @@ impl RenderOnce for MonoPill {
     }
 }
 
-/// A filter chip: icon + text, optionally a muted prefix before the value
-/// ("Supplier" + "Any"), optionally a dropdown caret, optionally a remove ×.
+/// A filter chip: icon + value, optionally a muted prefix before the value
+/// ("Supplier" + "Any"), optionally a dropdown caret, optionally a remove
+/// ×. The chip body and the × are separate hit areas (F15): the body owns
+/// `on_open` (and the tab stop), the × owns `on_remove`. `.ghost()` renders
+/// the "+ Add …" restore variant — muted ink, no fill.
 #[derive(IntoElement)]
 pub struct FilterChip {
     id: ElementId,
@@ -195,6 +198,8 @@ pub struct FilterChip {
     prefix: Option<SharedString>,
     text: SharedString,
     caret: bool,
+    ghost: bool,
+    on_open: Option<super::WindowCallback>,
     on_remove: Option<super::WindowCallback>,
 }
 
@@ -206,6 +211,8 @@ impl FilterChip {
             prefix: None,
             text: text.into(),
             caret: false,
+            ghost: false,
+            on_open: None,
             on_remove: None,
         }
     }
@@ -226,7 +233,20 @@ impl FilterChip {
         self
     }
 
-    /// Adds the trailing × and its handler.
+    /// Muted-outline "+ Add …" chip used to restore a removed filter.
+    pub fn ghost(mut self) -> Self {
+        self.ghost = true;
+        self
+    }
+
+    /// Clicking the chip body (or Enter/Space while it is focused).
+    pub fn on_open(mut self, f: impl Fn(&mut Window, &mut App) + 'static) -> Self {
+        self.on_open = Some(Rc::new(f));
+        self
+    }
+
+    /// Adds the trailing × and its handler; Backspace/Delete while the chip
+    /// is focused fires the same removal.
     pub fn on_remove(mut self, f: impl Fn(&mut Window, &mut App) + 'static) -> Self {
         self.on_remove = Some(Rc::new(f));
         self
@@ -234,44 +254,96 @@ impl FilterChip {
 }
 
 impl RenderOnce for FilterChip {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let Self {
+            id,
+            icon,
+            prefix,
+            text,
+            caret,
+            ghost,
+            on_open,
+            on_remove,
+        } = self;
+        let interactive = on_open.is_some() || on_remove.is_some() || caret;
+        let openable = on_open.is_some() || caret;
+        let focus = interactive.then(|| {
+            window
+                .use_keyed_state(id.clone(), cx, |_, cx| cx.focus_handle())
+                .read(cx)
+                .clone()
+        });
+        let focused = focus.as_ref().is_some_and(|f| f.is_focused(window));
+
         h_flex()
+            .id(id.clone())
             .gap_1p5()
-            .h(px(34.))
+            .h(px(36.))
             .rounded(px(10.))
             .border_1()
-            .border_color(cx.theme().border)
-            .bg(cx.theme().popover)
+            .border_color(if ghost {
+                cx.theme().muted_foreground.alpha(0.4)
+            } else {
+                cx.theme().border
+            })
+            .when(!ghost, |this| this.bg(cx.theme().popover))
             .px_2p5()
             .items_center()
-            .text_color(cx.theme().foreground)
-            .children(self.icon.map(|icon| {
+            .text_color(if ghost {
+                cx.theme().muted_foreground
+            } else {
+                cx.theme().foreground
+            })
+            .when(interactive, |this| {
+                this.tab_index(0)
+                    .track_focus(focus.as_ref().expect("focus handle exists"))
+                    .when(focused, |this| this.focus_ring_style(window, cx))
+                    .when(openable, |this| {
+                        this.cursor_pointer()
+                            .hover(|style| style.bg(cx.theme().accent))
+                    })
+            })
+            .when_some(on_open, |this, on_open| {
+                this.on_click(move |_, window, cx| on_open(window, cx))
+            })
+            .when_some(on_remove.clone(), |this, on_remove| {
+                this.on_key_down(move |event, _window, cx| {
+                    if matches!(event.keystroke.key.as_str(), "backspace" | "delete") {
+                        cx.stop_propagation();
+                        on_remove(_window, cx);
+                    }
+                })
+            })
+            .children(icon.map(|icon| {
                 Icon::new(icon)
                     .with_size(Size::Size(px(14.)))
                     .text_color(cx.theme().muted_foreground)
             }))
-            .children(self.prefix.map(|prefix| {
+            .children(prefix.map(|prefix| {
                 div()
                     .text_sm()
                     .text_color(cx.theme().muted_foreground)
                     .child(prefix)
             }))
-            .child(div().text_sm().child(self.text))
-            .when(self.caret, |this| {
+            .child(mono(text, cx).text_sm())
+            .when(caret, |this| {
                 this.child(
                     Icon::new(IconName::ChevronDown)
                         .with_size(Size::Size(px(14.)))
                         .text_color(cx.theme().muted_foreground),
                 )
             })
-            .children(self.on_remove.map(|on_remove| {
+            .children(on_remove.map(|on_remove| {
                 div()
-                    .id(self.id)
+                    .id((id, "remove"))
                     .cursor_pointer()
                     .p(px(2.))
                     .rounded(px(6.))
                     .hover(|this| this.bg(cx.theme().accent))
-                    .on_click(move |_, window, cx| on_remove(window, cx))
+                    .on_click(move |_, window, cx| {
+                        cx.stop_propagation();
+                        on_remove(window, cx);
+                    })
                     .child(
                         Icon::new(IconName::Close)
                             .with_size(Size::Size(px(12.)))

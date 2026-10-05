@@ -6,7 +6,8 @@ use std::rc::Rc;
 
 use gpui_kit::assets::IconName;
 use gpui_kit::component::{
-    ActiveTheme, Icon, Sizable, Size, StyledExt as _, ThemeStyled as _, h_flex,
+    ActiveTheme, Icon, Sizable, Size, StyledExt as _, ThemeStyled as _, WindowExt as _, h_flex,
+    notification::Notification,
     setting::{SettingGroup, SettingItem, SettingPage},
     v_flex,
 };
@@ -217,10 +218,26 @@ fn purchase_orders(cx: &App) -> AnyElement {
                                     }),
                             )
                         })
+                        .when(!state.date_filter, |this| {
+                            this.child(
+                                FilterChip::new("po-date-restore", "Add date filter")
+                                    .icon(IconName::Plus)
+                                    .ghost()
+                                    .on_open(|_window, cx| {
+                                        DemoState::update(cx, |s| s.date_filter = true);
+                                    }),
+                            )
+                        })
                         .child(
                             FilterChip::new("po-supplier-chip", "Any")
                                 .prefix("Supplier")
-                                .caret(),
+                                .caret()
+                                .on_open(|window, cx| {
+                                    window.push_notification(
+                                        Notification::info("Supplier picker (demo)"),
+                                        cx,
+                                    );
+                                }),
                         ),
                 )
                 .child(
@@ -456,19 +473,34 @@ fn filter_panel(cx: &App) -> AnyElement {
                                 .justify_between()
                                 .child(section_label("Amount", cx))
                                 .child(
-                                    mono("$500 - $12k", cx)
-                                        .text_sm()
-                                        .font_medium()
-                                        .text_color(cx.theme().foreground),
+                                    mono(
+                                        format!(
+                                            "{} - {}",
+                                            usd0(state.slider.0 as f64 * 20_000.),
+                                            usd0(state.slider.1 as f64 * 20_000.)
+                                        ),
+                                        cx,
+                                    )
+                                    .text_sm()
+                                    .font_medium()
+                                    .text_color(cx.theme().foreground),
                                 ),
                         )
                         .child(
                             MiniBars::new(FILTER_HISTOGRAM.to_vec())
                                 .height(px(44.))
                                 .bar_w(px(5.))
-                                .accent_range((6, 21)),
+                                .accent_range((
+                                    (state.slider.0 * 27.).round() as usize,
+                                    (state.slider.1 * 27.).round() as usize,
+                                )),
                         )
-                        .child(RangeSlider::new(state.slider.0, state.slider.1))
+                        .child(
+                            RangeSlider::new("filter-slider", state.slider.0, state.slider.1)
+                                .on_change(|&(lo, hi), _window, cx| {
+                                    DemoState::update(cx, |s| s.slider = (lo, hi));
+                                }),
+                        )
                         .child(
                             h_flex()
                                 .justify_between()
@@ -537,7 +569,11 @@ fn filter_panel(cx: &App) -> AnyElement {
                     h_flex()
                         .gap_2()
                         .pt_1()
-                        .child(btn_secondary("filter-reset", "Reset").flex_1())
+                        .child(btn_secondary("filter-reset", "Reset").flex_1().on_click(
+                            |_, _window, cx| {
+                                DemoState::update(cx, |s| s.reset_filters());
+                            },
+                        ))
                         .child(btn_primary("filter-show", "Show 142 bills", cx).flex_1()),
                 ),
         )
@@ -898,7 +934,13 @@ fn expense_claims(cx: &App) -> AnyElement {
                     .active(state.claims_tab)
                     .on_pick(|ix, _window, cx| DemoState::update(cx, |s| s.claims_tab = ix)),
                 )
-                .child(FilterChip::new("claims-month", state.claims_month.clone()).caret()),
+                .child(
+                    FilterChip::new("claims-month", state.claims_month.clone())
+                        .caret()
+                        .on_open(|window, cx| {
+                            window.push_notification(Notification::info("Month picker (demo)"), cx);
+                        }),
+                ),
         )
         .child(
             div().px_4().py_3().child(
@@ -1514,6 +1556,12 @@ fn usd(v: f64) -> String {
         grouped.push(*b as char);
     }
     format!("${grouped}.{frac}")
+}
+
+/// Whole-dollar amounts for the live filter label: `usd` without cents
+/// (`$5,000`).
+fn usd0(v: f64) -> String {
+    usd(v.round()).trim_end_matches(".00").to_string()
 }
 
 #[cfg(test)]

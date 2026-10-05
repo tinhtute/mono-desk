@@ -66,6 +66,8 @@ use gpui_kit::{App, Global, Hsla, SharedString, Window, rgb};
 pub type WindowCallback = Rc<dyn Fn(&mut Window, &mut App)>;
 pub type BoolCallback = Rc<dyn Fn(&bool, &mut Window, &mut App)>;
 pub type PickCallback = Rc<dyn Fn(usize, &mut Window, &mut App)>;
+/// Dual-thumb range slider: new `(lo, hi)` track fractions.
+pub type RangeCallback = Rc<dyn Fn(&(f32, f32), &mut Window, &mut App)>;
 
 /// The reference's indigo accent family, resolved per theme mode.
 ///
