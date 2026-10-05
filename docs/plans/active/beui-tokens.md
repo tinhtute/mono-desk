@@ -4,10 +4,10 @@ intake_id: intake-20260930-beui-tokens
 status: active
 lane: normal
 created: 2026-09-30
-updated: 2026-09-30
+updated: 2026-10-01
 approach: planned
 planning_status: planned
-exact_next_action: "work phase `beui-token-baseline` (wave: bt-1 ∥ bt-2)"
+exact_next_action: "owner `make run` visual pass: the pill's `sm` elevation in both modes, no clipping/grime (phase `beui-elevation`)"
 ---
 
 # beUI token layer (spacing / typography / radius / overlay shadow)
@@ -219,7 +219,7 @@ phase 2 derives from; phase 2 adds the snapshot and its consumer.
 
 ### Phase `beui-token-baseline` — story_id: story-beui-token-baseline-20260930
 
-- **Status:** `planned`
+- **Status:** `done`
 - **Goal:** the token layer's agreed values are documented and pinned; the
   spec's card-radius error is corrected; no behavior change.
 - **Depends on:** none.
@@ -277,7 +277,7 @@ config must be reconciled before phase 2) → halt, report.
 
 ### Phase `beui-elevation` — story_id: story-beui-elevation-20260930
 
-- **Status:** `planned`
+- **Status:** `implemented` — owner visual pass pending
 - **Goal:** the app's elevation scale is resolved (non-mutating) into an
   app-owned snapshot and consumed by the app-owned raised surface;
   `theme.shadow` stays false.
@@ -354,25 +354,38 @@ re-planned.
   touched `mono.json`), the Font Size range is now 8–32, the pill moved
   to `src/status_chip.rs:249`, the spec's `src/main.rs` refs shifted, and
   the font preference now lives in `src/persist.rs`.
+- 2026-10-01 — phase `beui-token-baseline` implemented (wave bt-1 ∥
+  bt-2): the spec's card radius corrected to the 7px rem helper, the
+  Shell metrics refs refreshed, the beUI token-layer section added
+  (radius roles + shadow policy); `src/theme.rs` pins the config values,
+  the derived Radius/Spacing/Typography tokens, the rem-derived values,
+  the default/reset agreement, and both palettes' FNV-1a 64 digests.
+  Gates green: `make check && make test && make lint && make fmt-check`;
+  `git diff 143e7b6 -- assets/themes/mono.json` empty.
+- 2026-10-01 — phase `beui-elevation` implemented (wave bt-3 ∥ bt-4 ∥
+  bt-5): `src/tokens.rs` resolves the app-owned `sm`/`md`/`lg` scale
+  (10% black ink) via `Theme::resolve_semantic_config`;
+  `theme::apply_overrides` re-resolves it after every rebuild;
+  the active pill carries `sm`; the spec's shadow policy section records
+  the implementation. Gates green: `make check && make test && make lint
+  && make fmt-check`. Owner `make run` visual pass (pill elevation in
+  both modes, no clipping/grime) still pending.
 
 ## Decisions
 
 - 2026-09-30 — baseline `143e7b6` (owner-approved merge); colors frozen;
   `font.size` 14 retained; `theme.shadow` false; app-side composition
   over vendor patches (owner constraints).
-- Open (owner): **O1** pill shadow — recommended: adopt `sm` on the
-  active pill (closes the recorded zdesk `shadow-raised` deviation and
-  gives the resolved scale its consumer); alternative: drop it (and the
-  elevation phase).
-- Open (owner): **O2** card radius — recommended: keep the 7px rem helper
-  (faithful to zdesk's `rounded-lg` at the approved rem base, scales with
-  the font preference, no code change); alternative:
-  `.rounded(theme.radius_lg)` = 16px (beUI card scale, explicit px, stops
-  scaling).
-- Open (owner): **O3** lg/xl collision — recommended: accept (no app
-  consumer; `radius_2xl()`/`radius_3xl()` cover larger tiers) and pin the
-  derived values; alternative: set `radius.xl` = 24 explicitly in the
-  semantic config.
+- 2026-10-01 — **O1 decided (owner): adopt `sm` on the active sidebar
+  pill** (`~/quaqua/runs/beui-decisions.md`). Implemented in
+  `src/tokens.rs` + `src/main.rs` (`active_item_style`); closes the
+  recorded zdesk `shadow-raised` deviation and gives the resolved scale
+  its consumer.
+- 2026-10-01 — **O2 decided (owner): keep the 7px rem card radius** (no
+  code change). `.rounded_lg()` (`rems(0.5)`) stays; the spec's 16px
+  claim is corrected.
+- 2026-10-01 — **O3 decided (owner): accept the lg/xl collision** and pin
+  the derived values (`theme::tests::theme_token_values_are_pinned`).
 
 ## Validation
 
@@ -384,7 +397,9 @@ modes, no clipping). GUI-verifiable items are recorded as owner checks in
 
 ## Current State
 
-Planned; no code changed. Next: owner confirms O1–O3, then `work` phase
-`beui-token-baseline` (wave: `bt-1` ∥ `bt-2`).
+Both phases implemented on `quaqua/tieude-beuitok`; gates green. Next:
+owner `make run` visual pass for the pill's `sm` elevation (both modes,
+no clipping, no grime) and the unchanged density; then move this plan to
+`docs/plans/completed/`.
 `docs/plans/active/zdesk-ui-port.md` (prior initiative) is untouched; its
 owner visual pass is still pending.

@@ -105,7 +105,9 @@ fn purchase_orders(cx: &App) -> AnyElement {
             // Header row; the gantt cell carries the "Today" marker line.
             h_flex()
                 .gap_3()
+                .px_2()
                 .py_2()
+                .child(div().w(px(18.)).flex_shrink_0())
                 .child(
                     div()
                         .flex_1()
@@ -560,15 +562,16 @@ fn close_button(id: &'static str, cx: &App) -> AnyElement {
     div()
         .id(id)
         .cursor_pointer()
+        .flex()
+        .items_center()
+        .justify_center()
         .size(px(28.))
         .rounded(px(8.))
         .border_1()
         .border_color(cx.theme().border)
         .bg(cx.theme().popover)
         .shadow_xs()
-        .flex()
-        .items_center()
-        .justify_center()
+
         .hover(|this| this.bg(cx.theme().accent))
         .on_click(|_, window, cx| {
             window.push_notification(Notification::info("Panel closed (demo)"), cx);
@@ -673,7 +676,7 @@ fn owed_to_suppliers(cx: &App) -> AnyElement {
     card(cx)
         .w(px(330.))
         .child(CardHeader::new(
-            IconName::LayoutDashboard,
+            IconName::Building2,
             "Owed to suppliers",
             "Aging · 214 open bills",
         ))

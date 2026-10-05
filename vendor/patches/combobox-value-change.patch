@@ -1,0 +1,63 @@
+diff --git a/src/combobox.rs b/src/combobox.rs
+index 379bd76..5c8fdb6 100644
+--- a/src/combobox.rs
++++ b/src/combobox.rs
+@@ -180,8 +180,13 @@ where
+ 
+                         let changes = Self::selection_changes(multiple, &selection, ix, &item);
+ 
+-                        let before_indices: Vec<IndexPath> =
+-                            selection.iter().map(|(ix, _)| *ix).collect();
++                        // Selection identity is the item value, not the index: a
++                        // filtered list reuses row indices, so the same index can
++                        // hold a different item than the one it held before.
++                        let before_values: Vec<_> = selection
++                            .iter()
++                            .map(|(_, item)| item.value().clone())
++                            .collect();
+ 
+                         // on_will_change is called directly — entity-handle access would
+                         // re-enter the ListState lock that defer_in holds for this callback.
+@@ -190,9 +195,11 @@ where
+                             .delegate
+                             .on_will_change(&mut selection, &changes);
+ 
+-                        let after_indices: Vec<IndexPath> =
+-                            selection.iter().map(|(ix, _)| *ix).collect();
+-                        let changed = before_indices != after_indices;
++                        let after_values: Vec<_> = selection
++                            .iter()
++                            .map(|(_, item)| item.value().clone())
++                            .collect();
++                        let changed = before_values != after_values;
+                         let should_close = changed && !multiple;
+ 
+                         let new_selection = weak_confirm.update(cx, |this, cx| {
+@@ -456,7 +463,12 @@ where
+         let changes = Self::selection_changes(self.multiple, &self.state.selection, ix, &item);
+ 
+         let mut selection = self.state.selection.clone();
+-        let before_indices: Vec<IndexPath> = selection.iter().map(|(ix, _)| *ix).collect();
++        // Selection identity is the item value, not the index: a filtered list
++        // reuses row indices, so the same index can hold a different item.
++        let before_values: Vec<_> = selection
++            .iter()
++            .map(|(_, item)| item.value().clone())
++            .collect();
+ 
+         self.state.list.update(cx, |list, _cx| {
+             list.delegate_mut()
+@@ -464,8 +476,11 @@ where
+                 .on_will_change(&mut selection, &changes);
+         });
+ 
+-        let after_indices: Vec<IndexPath> = selection.iter().map(|(ix, _)| *ix).collect();
+-        let changed = before_indices != after_indices;
++        let after_values: Vec<_> = selection
++            .iter()
++            .map(|(_, item)| item.value().clone())
++            .collect();
++        let changed = before_values != after_values;
+         let should_close = changed && !self.multiple;
+ 
+         self.state.selection = selection;
