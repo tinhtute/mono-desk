@@ -5,16 +5,16 @@
 use std::rc::Rc;
 
 use gpui_kit::assets::IconNamed;
+use gpui_kit::base::spring;
 use gpui_kit::component::{
-    ActiveTheme, Icon, IconName, Sizable, Size, StyledExt as _,
+    ActiveTheme, Icon, IconName, Sizable, Size, StyledExt as _, ThemeStyled as _,
     button::{Button, ButtonCustomVariant, ButtonVariants as _},
     h_flex, v_flex,
 };
 use gpui_kit::{
     AnyElement, App, Div, ElementId, Hsla, InteractiveElement as _, IntoElement,
-    ParentElement as _, Pixels, RenderOnce, SharedString, Stateful,
-    StatefulInteractiveElement as _, Styled as _, Window, div, prelude::FluentBuilder as _, px,
-    relative, rgb,
+    ParentElement as _, Pixels, RenderOnce, SharedString, StatefulInteractiveElement as _,
+    Styled as _, Window, div, prelude::FluentBuilder as _, px, relative, rgb,
 };
 
 /// The reference's card: white, `rounded` ~16px, hairline border, faint
@@ -452,8 +452,9 @@ impl CadenceCheckbox {
 }
 
 impl RenderOnce for CadenceCheckbox {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let (bg, border, fg) = if self.checked {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let checked = self.checked;
+        let (bg, border, fg) = if checked {
             (
                 super::Accent::solid(cx),
                 super::Accent::solid(cx),
@@ -466,11 +467,27 @@ impl RenderOnce for CadenceCheckbox {
                 cx.theme().muted_foreground,
             )
         };
-        let checked = self.checked;
+        let focus_handle = window
+            .use_keyed_state(self.id.clone(), cx, |_, cx| cx.focus_handle())
+            .read(cx)
+            .clone();
+        let is_focused = focus_handle.is_focused(window);
+        // The glyph fades through a spring so unchecking still shows it
+        // briefly — mounting only on `checked` would cut it instantly.
+        let mark_opacity = spring(
+            (self.id.clone(), "mark"),
+            if checked { 1. } else { 0. },
+            cx.theme().motion_tokens().spring_control,
+            window,
+            cx,
+        );
         let on_click = self.on_click.clone();
+        let on_key = self.on_click.clone();
         div()
             .id(self.id)
             .cursor_pointer()
+            .tab_index(0)
+            .track_focus(&focus_handle)
             .size(px(18.))
             .flex_shrink_0()
             .rounded(px(5.))
@@ -480,14 +497,33 @@ impl RenderOnce for CadenceCheckbox {
             .flex()
             .items_center()
             .justify_center()
-            .on_click(move |_, window, cx| {
-                on_click(&!checked, window, cx);
+            .hover(|this| {
+                if checked {
+                    this.bg(super::Accent::solid(cx).alpha(0.85))
+                } else {
+                    this.border_color(super::Accent::solid(cx))
+                        .bg(super::Accent::wash(cx))
+                }
             })
-            .when(checked, |this| {
+            .when(is_focused, |this| this.focus_ring_style(window, cx))
+            .on_click(move |_, window, cx| {
+                window.prevent_default();
+                on_click(&!checked, window, cx);
+                cx.stop_propagation();
+            })
+            .on_key_down(move |event, window, cx| {
+                if matches!(event.keystroke.key.as_ref(), "space" | "enter") {
+                    window.prevent_default();
+                    on_key(&!checked, window, cx);
+                    cx.stop_propagation();
+                }
+            })
+            .when(mark_opacity > 0., |this| {
                 this.child(
                     Icon::new(IconName::Check)
                         .with_size(Size::Size(px(12.)))
-                        .text_color(fg),
+                        .text_color(fg)
+                        .opacity(mark_opacity),
                 )
             })
     }
@@ -518,30 +554,63 @@ impl CadenceToggle {
 }
 
 impl RenderOnce for CadenceToggle {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let checked = self.checked;
+        let focus_handle = window
+            .use_keyed_state(self.id.clone(), cx, |_, cx| cx.focus_handle())
+            .read(cx)
+            .clone();
+        let is_focused = focus_handle.is_focused(window);
+        // The thumb's travel is a spring, so toggling mid-flight reverses
+        // from wherever it is instead of restarting or jumping.
+        let thumb_x = spring(
+            (self.id.clone(), "thumb"),
+            if checked { px(20.) } else { px(2.) },
+            cx.theme().motion_tokens().spring_move,
+            window,
+            cx,
+        );
         let on_click = self.on_click.clone();
+        let on_key = self.on_click.clone();
         div()
             .id(self.id)
             .cursor_pointer()
+            .tab_index(0)
+            .track_focus(&focus_handle)
             .w(px(40.))
             .h(px(22.))
             .rounded_full()
-            .px(px(2.))
-            .flex()
-            .items_center()
-            .when(checked, |this| this.justify_end())
-            .when(!checked, |this| this.justify_start())
+            .relative()
             .bg(if checked {
                 super::Accent::solid(cx)
             } else {
                 cx.theme().border
             })
+            .hover(|this| {
+                if checked {
+                    this.bg(super::Accent::solid(cx).alpha(0.85))
+                } else {
+                    this.bg(cx.theme().border.opacity(0.8))
+                }
+            })
+            .when(is_focused, |this| this.focus_ring_style(window, cx))
             .on_click(move |_, window, cx| {
+                window.prevent_default();
                 on_click(&!checked, window, cx);
+                cx.stop_propagation();
+            })
+            .on_key_down(move |event, window, cx| {
+                if matches!(event.keystroke.key.as_ref(), "space" | "enter") {
+                    window.prevent_default();
+                    on_key(&!checked, window, cx);
+                    cx.stop_propagation();
+                }
             })
             .child(
                 div()
+                    .absolute()
+                    .top(px(2.))
+                    .left(thumb_x)
                     .size(px(18.))
                     .rounded_full()
                     .bg(if cx.theme().mode.is_dark() {
@@ -593,31 +662,70 @@ pub fn btn_secondary(id: impl Into<ElementId>, label: impl Into<SharedString>) -
 }
 
 /// The 28px bordered × button in card-header trailing slots (Filter,
-/// Assign to project). `on_close` owns the dismissal behavior.
-pub fn close_button(
-    id: impl Into<ElementId>,
-    on_close: impl Fn(&mut Window, &mut App) + 'static,
-    cx: &App,
-) -> Stateful<Div> {
-    div()
-        .id(id)
-        .cursor_pointer()
-        .size(px(28.))
-        .rounded(px(8.))
-        .border_1()
-        .border_color(cx.theme().border)
-        .bg(cx.theme().popover)
-        .shadow_xs()
-        .flex()
-        .items_center()
-        .justify_center()
-        .hover(|this| this.bg(cx.theme().accent))
-        .on_click(move |_, window, cx| on_close(window, cx))
-        .child(
-            Icon::new(IconName::Close)
-                .with_size(Size::Size(px(14.)))
-                .text_color(cx.theme().muted_foreground),
-        )
+/// Assign to project). `on_close` owns the dismissal behavior; focusable
+/// like the other binary controls.
+#[derive(IntoElement)]
+pub struct CloseButton {
+    id: ElementId,
+    on_close: super::WindowCallback,
+}
+
+impl CloseButton {
+    pub fn new(id: impl Into<ElementId>) -> Self {
+        Self {
+            id: id.into(),
+            on_close: Rc::new(|_, _| {}),
+        }
+    }
+
+    pub fn on_close(mut self, f: impl Fn(&mut Window, &mut App) + 'static) -> Self {
+        self.on_close = Rc::new(f);
+        self
+    }
+}
+
+impl RenderOnce for CloseButton {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let focus_handle = window
+            .use_keyed_state(self.id.clone(), cx, |_, cx| cx.focus_handle())
+            .read(cx)
+            .clone();
+        let is_focused = focus_handle.is_focused(window);
+        let on_close = self.on_close.clone();
+        let on_key = self.on_close.clone();
+        div()
+            .id(self.id)
+            .cursor_pointer()
+            .tab_index(0)
+            .track_focus(&focus_handle)
+            .size(px(28.))
+            .rounded(px(8.))
+            .border_1()
+            .border_color(cx.theme().border)
+            .bg(cx.theme().popover)
+            .shadow_xs()
+            .flex()
+            .items_center()
+            .justify_center()
+            .hover(|this| this.bg(cx.theme().accent))
+            .when(is_focused, |this| this.focus_ring_style(window, cx))
+            .on_click(move |_, window, cx| {
+                window.prevent_default();
+                on_close(window, cx);
+            })
+            .on_key_down(move |event, window, cx| {
+                if matches!(event.keystroke.key.as_ref(), "space" | "enter" | "escape") {
+                    window.prevent_default();
+                    on_key(window, cx);
+                    cx.stop_propagation();
+                }
+            })
+            .child(
+                Icon::new(IconName::Close)
+                    .with_size(Size::Size(px(14.)))
+                    .text_color(cx.theme().muted_foreground),
+            )
+    }
 }
 
 /// Empty state: recessed illustration well, heading, muted body, action

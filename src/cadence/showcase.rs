@@ -2,27 +2,30 @@
 //! mounted as the "Finance UI" settings page. Every interaction writes to
 //! [`DemoState`](super::DemoState); copy is the reference's own sample data.
 
+use std::rc::Rc;
+
 use gpui_kit::assets::IconName;
 use gpui_kit::component::{
-    ActiveTheme, Icon, Sizable, Size, StyledExt as _, h_flex,
+    ActiveTheme, Icon, Sizable, Size, StyledExt as _, ThemeStyled as _, h_flex,
     setting::{SettingGroup, SettingItem, SettingPage},
     v_flex,
 };
 use gpui_kit::{
-    AnyElement, App, InteractiveElement as _, IntoElement, ParentElement as _, SharedString,
-    StatefulInteractiveElement as _, Styled as _, div, prelude::FluentBuilder as _, px, relative,
+    AnyElement, App, ElementId, InteractiveElement as _, IntoElement, ParentElement as _,
+    RenderOnce, SharedString, StatefulInteractiveElement as _, Styled as _, Window, div,
+    prelude::FluentBuilder as _, px, relative,
 };
 
 use super::blocks::{
-    CadenceCheckbox, CadenceToggle, CardHeader, EmptyState, FilterChip, Meter, MonoPill, PillTone,
-    Stat, btn_primary, btn_secondary, card, close_button, icon_tile_sized, legend_dot,
+    CadenceCheckbox, CadenceToggle, CardHeader, CloseButton, EmptyState, FilterChip, Meter,
+    MonoPill, PillTone, Stat, btn_primary, btn_secondary, card, icon_tile_sized, legend_dot,
     legend_swatch, mono, pie_avatar, stat_row,
 };
 use super::charts::{
     AgingBars, AgingGroup, BarChartMini, Gantt, GanttSeg, MiniBars, RangeSlider, Waffle, WaffleCell,
 };
 use super::controls::{Segment, Segmented, Tab, Tabs};
-use super::{Accent, DemoState};
+use super::{Accent, DemoState, WindowCallback};
 use crate::i18n::tr;
 
 /// The "Finance UI" settings page: one untitled group whose single element
@@ -47,13 +50,31 @@ fn canvas(cx: &App) -> AnyElement {
         .p(px(20.))
         .child(row(
             purchase_orders(cx),
-            state.show_filter.then(|| filter_panel(cx)),
+            if state.show_filter {
+                Some(filter_panel(cx))
+            } else {
+                Some(
+                    RestoreChip::new("filter-restore", "Open Filter", |_window, cx| {
+                        DemoState::update(cx, |s| s.show_filter = true);
+                    })
+                    .into_any_element(),
+                )
+            },
         ))
         .child(row(upcoming_bills(cx), Some(owed_to_suppliers(cx))))
         .child(row(expense_claims(cx), Some(by_category(cx))))
         .child(row(
             billable_expenses(cx),
-            state.show_assign.then(|| assign_to_project(cx)),
+            if state.show_assign {
+                Some(assign_to_project(cx))
+            } else {
+                Some(
+                    RestoreChip::new("assign-restore", "Open Assign", |_window, cx| {
+                        DemoState::update(cx, |s| s.show_assign = true);
+                    })
+                    .into_any_element(),
+                )
+            },
         ))
         .into_any_element()
 }
@@ -105,12 +126,19 @@ fn purchase_orders(cx: &App) -> AnyElement {
         .children(rows.into_iter().map(|item| {
             let code = item.code.clone();
             let on = state.po_is_selected(&code);
+            let row_code = code.clone();
             h_flex()
+                .id(SharedString::from(format!("po-rowhit-{code}")))
+                .cursor_pointer()
                 .gap_3()
                 .px_2()
                 .py_2()
                 .rounded(px(8.))
                 .when(on, |this| this.bg(Accent::wash(cx)))
+                .hover(|this| this.bg(cx.theme().accent.alpha(0.5)))
+                .on_click(move |_, _window, cx| {
+                    DemoState::update(cx, |s| s.po_set_selected(&row_code, !on));
+                })
                 .child(
                     CadenceCheckbox::new(SharedString::from(format!("po-row-{code}")), on)
                         .on_click(move |checked, _window, cx| {
@@ -403,11 +431,9 @@ fn filter_panel(cx: &App) -> AnyElement {
                 "Filter",
                 "Bills and credit notes",
             )
-            .trailing(close_button(
-                "filter-close",
-                |_window, cx| DemoState::update(cx, |s| s.show_filter = false),
-                cx,
-            )),
+            .trailing(CloseButton::new("filter-close").on_close(|_window, cx| {
+                DemoState::update(cx, |s| s.show_filter = false);
+            })),
         )
         .child(
             v_flex()
@@ -459,9 +485,14 @@ fn filter_panel(cx: &App) -> AnyElement {
                         .items_center()
                         .child(
                             div()
+                                .id("filter-overdue-label")
+                                .cursor_pointer()
                                 .text_sm()
                                 .text_color(cx.theme().foreground)
-                                .child("Overdue only"),
+                                .child("Overdue only")
+                                .on_click(|_, _window, cx| {
+                                    DemoState::update(cx, |s| s.overdue_only = !s.overdue_only);
+                                }),
                         )
                         .child(
                             CadenceToggle::new("filter-overdue", state.overdue_only).on_click(
@@ -520,17 +551,26 @@ fn doc_row(
     toggle: impl Fn(&mut App) + 'static,
     cx: &App,
 ) -> AnyElement {
+    let toggle = Rc::new(toggle);
+    let box_toggle = toggle.clone();
     h_flex()
+        .id(SharedString::from(format!("{id}-row")))
+        .cursor_pointer()
         .justify_between()
         .items_center()
         .py_1()
+        .rounded(px(6.))
+        .hover(|this| this.bg(cx.theme().accent))
+        .on_click(move |_, _window, cx| {
+            toggle(cx);
+        })
         .child(
             h_flex()
                 .gap_2()
                 .items_center()
                 .child(
                     CadenceCheckbox::new(id, checked).on_click(move |_, _window, cx| {
-                        toggle(cx);
+                        box_toggle(cx);
                     }),
                 )
                 .child(
@@ -541,6 +581,74 @@ fn doc_row(
                 ),
         )
         .into_any_element()
+}
+
+/// The ghost chip that stands in for a closed panel — click/Enter/Space
+/// reopens it ("Open Filter", "Open Assign").
+#[derive(IntoElement)]
+struct RestoreChip {
+    id: ElementId,
+    label: SharedString,
+    on_open: WindowCallback,
+}
+
+impl RestoreChip {
+    fn new(
+        id: impl Into<ElementId>,
+        label: impl Into<SharedString>,
+        on_open: impl Fn(&mut Window, &mut App) + 'static,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            label: label.into(),
+            on_open: Rc::new(on_open),
+        }
+    }
+}
+
+impl RenderOnce for RestoreChip {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let focus_handle = window
+            .use_keyed_state(self.id.clone(), cx, |_, cx| cx.focus_handle())
+            .read(cx)
+            .clone();
+        let is_focused = focus_handle.is_focused(window);
+        let on_open = self.on_open.clone();
+        let on_key = self.on_open.clone();
+        h_flex()
+            .id(self.id)
+            .cursor_pointer()
+            .tab_index(0)
+            .track_focus(&focus_handle)
+            .w(px(330.))
+            .h(px(36.))
+            .rounded(px(10.))
+            .border_1()
+            .border_color(cx.theme().border)
+            .gap_1p5()
+            .items_center()
+            .justify_center()
+            .text_color(cx.theme().muted_foreground)
+            .hover(|this| this.bg(cx.theme().accent).text_color(cx.theme().foreground))
+            .when(is_focused, |this| this.focus_ring_style(window, cx))
+            .on_click(move |_, window, cx| {
+                window.prevent_default();
+                on_open(window, cx);
+            })
+            .on_key_down(move |event, window, cx| {
+                if matches!(event.keystroke.key.as_ref(), "space" | "enter") {
+                    window.prevent_default();
+                    on_key(window, cx);
+                    cx.stop_propagation();
+                }
+            })
+            .child(
+                Icon::new(IconName::Plus)
+                    .with_size(Size::Size(px(14.)))
+                    .text_color(cx.theme().muted_foreground),
+            )
+            .child(div().text_sm().child(self.label))
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1185,11 +1293,9 @@ fn assign_to_project(cx: &App) -> AnyElement {
                 "Assign to project",
                 format!("{} expenses selected", state.expenses_selected_count()),
             )
-            .trailing(close_button(
-                "assign-close",
-                |_window, cx| DemoState::update(cx, |s| s.show_assign = false),
-                cx,
-            )),
+            .trailing(CloseButton::new("assign-close").on_close(|_window, cx| {
+                DemoState::update(cx, |s| s.show_assign = false);
+            })),
         )
         .child(
             v_flex()
