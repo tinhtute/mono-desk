@@ -4,6 +4,7 @@
 
 use std::rc::Rc;
 
+use gpui_kit::assets::IconNamed;
 use gpui_kit::component::{
     ActiveTheme, Icon, IconName, Sizable, Size, StyledExt as _,
     button::{Button, ButtonCustomVariant, ButtonVariants as _},
@@ -11,8 +12,9 @@ use gpui_kit::component::{
 };
 use gpui_kit::{
     AnyElement, App, Div, ElementId, Hsla, InteractiveElement as _, IntoElement,
-    ParentElement as _, Pixels, RenderOnce, SharedString, StatefulInteractiveElement as _,
-    Styled as _, Window, div, prelude::FluentBuilder as _, px, relative,
+    ParentElement as _, Pixels, RenderOnce, SharedString, Stateful,
+    StatefulInteractiveElement as _, Styled as _, Window, div, prelude::FluentBuilder as _, px,
+    relative, rgb,
 };
 
 /// The reference's card: white, `rounded` ~16px, hairline border, faint
@@ -29,18 +31,32 @@ pub fn card(cx: &App) -> Div {
         .overflow_hidden()
 }
 
-/// The rounded-square line-icon tile in front of every card title.
-pub fn icon_tile(icon: IconName, cx: &App) -> Div {
+/// The rounded-square line-icon tile in front of every card title (36px
+/// box, 10px radius, 18px glyph). Accepts `impl IconNamed` (both IconName
+/// enums) or a ready-made `Icon`.
+pub fn icon_tile(icon: impl Into<Icon>, cx: &App) -> Div {
+    icon_tile_sized(icon, px(36.), px(18.), px(10.), cx)
+}
+
+/// [`icon_tile`] with explicit geometry — the claim rows' smaller variant
+/// (32px box, 8px radius, 16px glyph) and any future sizes share this.
+pub fn icon_tile_sized(
+    icon: impl Into<Icon>,
+    size: Pixels,
+    glyph: Pixels,
+    radius: Pixels,
+    cx: &App,
+) -> Div {
     div()
-        .size(px(36.))
+        .size(size)
         .flex_shrink_0()
-        .rounded(px(10.))
+        .rounded(radius)
         .bg(cx.theme().accent)
         .flex()
         .items_center()
         .justify_center()
         .text_color(cx.theme().foreground)
-        .child(Icon::new(icon).with_size(Size::Size(px(18.))))
+        .child(icon.into().with_size(Size::Size(glyph)))
 }
 
 /// Text set in the theme's mono family — every numeral in the reference
@@ -55,7 +71,7 @@ pub fn mono(text: impl Into<SharedString>, cx: &App) -> Div {
 /// slot (badge, legend, close button).
 #[derive(IntoElement)]
 pub struct CardHeader {
-    icon: IconName,
+    icon: Icon,
     title: SharedString,
     subtitle: SharedString,
     trailing: Vec<AnyElement>,
@@ -63,12 +79,12 @@ pub struct CardHeader {
 
 impl CardHeader {
     pub fn new(
-        icon: IconName,
+        icon: impl IconNamed,
         title: impl Into<SharedString>,
         subtitle: impl Into<SharedString>,
     ) -> Self {
         Self {
-            icon,
+            icon: Icon::new(icon),
             title: title.into(),
             subtitle: subtitle.into(),
             trailing: Vec::new(),
@@ -163,9 +179,10 @@ impl RenderOnce for MonoPill {
             .rounded_full()
             .bg(bg)
             .px_2()
+            .when(self.solid, |this| this.px_2p5())
             .py(px(2.))
             .text_color(fg)
-            .child(mono(self.text, cx).text_sm())
+            .child(mono(self.text, cx).text_xs())
     }
 }
 
@@ -174,7 +191,7 @@ impl RenderOnce for MonoPill {
 #[derive(IntoElement)]
 pub struct FilterChip {
     id: ElementId,
-    icon: Option<IconName>,
+    icon: Option<Icon>,
     prefix: Option<SharedString>,
     text: SharedString,
     caret: bool,
@@ -193,8 +210,8 @@ impl FilterChip {
         }
     }
 
-    pub fn icon(mut self, icon: IconName) -> Self {
-        self.icon = Some(icon);
+    pub fn icon(mut self, icon: impl IconNamed) -> Self {
+        self.icon = Some(Icon::new(icon));
         self
     }
 
@@ -527,7 +544,11 @@ impl RenderOnce for CadenceToggle {
                 div()
                     .size(px(18.))
                     .rounded_full()
-                    .bg(cx.theme().popover)
+                    .bg(if cx.theme().mode.is_dark() {
+                        rgb(0xffffff).into()
+                    } else {
+                        cx.theme().popover
+                    })
                     .shadow_xs(),
             )
     }
@@ -561,14 +582,42 @@ pub fn btn_primary(id: impl Into<ElementId>, label: impl Into<SharedString>, cx:
         ButtonCustomVariant::new(cx)
             .color(cx.theme().foreground)
             .foreground(cx.theme().popover)
-            .hover(cx.theme().button_foreground)
-            .active(cx.theme().button_foreground),
+            .hover(cx.theme().foreground.alpha(0.82))
+            .active(cx.theme().foreground.alpha(0.75)),
     )
 }
 
 /// White bordered secondary button, `rounded` 10px.
 pub fn btn_secondary(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Button {
     Button::new(id).label(label).outline().rounded(px(10.))
+}
+
+/// The 28px bordered × button in card-header trailing slots (Filter,
+/// Assign to project). `on_close` owns the dismissal behavior.
+pub fn close_button(
+    id: impl Into<ElementId>,
+    on_close: impl Fn(&mut Window, &mut App) + 'static,
+    cx: &App,
+) -> Stateful<Div> {
+    div()
+        .id(id)
+        .cursor_pointer()
+        .size(px(28.))
+        .rounded(px(8.))
+        .border_1()
+        .border_color(cx.theme().border)
+        .bg(cx.theme().popover)
+        .shadow_xs()
+        .flex()
+        .items_center()
+        .justify_center()
+        .hover(|this| this.bg(cx.theme().accent))
+        .on_click(move |_, window, cx| on_close(window, cx))
+        .child(
+            Icon::new(IconName::Close)
+                .with_size(Size::Size(px(14.)))
+                .text_color(cx.theme().muted_foreground),
+        )
 }
 
 /// Empty state: recessed illustration well, heading, muted body, action

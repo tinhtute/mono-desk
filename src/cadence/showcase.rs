@@ -2,20 +2,23 @@
 //! mounted as the "Finance UI" settings page. Every interaction writes to
 //! [`DemoState`](super::DemoState); copy is the reference's own sample data.
 
+use gpui_kit::assets::IconName;
 use gpui_kit::component::{
-    ActiveTheme, Icon, IconName, Sizable, Size, StyledExt as _, WindowExt, h_flex,
+    ActiveTheme, Icon, Sizable, Size, StyledExt as _, WindowExt, h_flex,
     notification::Notification,
     setting::{SettingGroup, SettingItem, SettingPage},
     v_flex,
 };
 use gpui_kit::{
     AnyElement, App, InteractiveElement as _, IntoElement, ParentElement as _, SharedString,
-    StatefulInteractiveElement as _, Styled as _, div, prelude::FluentBuilder as _, px, relative,
+    StatefulInteractiveElement as _, Styled as _, Window, div, prelude::FluentBuilder as _, px,
+    relative,
 };
 
 use super::blocks::{
     CadenceCheckbox, CadenceToggle, CardHeader, EmptyState, FilterChip, Meter, MonoPill, PillTone,
-    Stat, btn_primary, btn_secondary, card, legend_dot, legend_swatch, mono, pie_avatar, stat_row,
+    Stat, btn_primary, btn_secondary, card, close_button, icon_tile_sized, legend_dot,
+    legend_swatch, mono, pie_avatar, stat_row,
 };
 use super::charts::{
     AgingBars, AgingGroup, BarChartMini, Gantt, GanttSeg, MiniBars, RangeSlider, Waffle, WaffleCell,
@@ -419,8 +422,12 @@ fn filter_panel(cx: &App) -> AnyElement {
     card(cx)
         .w(px(330.))
         .child(
-            CardHeader::new(IconName::Settings2, "Filter", "Bills and credit notes")
-                .trailing(close_button("filter-close", cx)),
+            CardHeader::new(
+                IconName::SlidersHorizontal,
+                "Filter",
+                "Bills and credit notes",
+            )
+            .trailing(close_button("filter-close", notify_panel_closed, cx)),
         )
         .child(
             v_flex()
@@ -556,29 +563,10 @@ fn doc_row(
         .into_any_element()
 }
 
-fn close_button(id: &'static str, cx: &App) -> AnyElement {
-    div()
-        .id(id)
-        .cursor_pointer()
-        .size(px(28.))
-        .rounded(px(8.))
-        .border_1()
-        .border_color(cx.theme().border)
-        .bg(cx.theme().popover)
-        .shadow_xs()
-        .flex()
-        .items_center()
-        .justify_center()
-        .hover(|this| this.bg(cx.theme().accent))
-        .on_click(|_, window, cx| {
-            window.push_notification(Notification::info("Panel closed (demo)"), cx);
-        })
-        .child(
-            Icon::new(IconName::Close)
-                .with_size(Size::Size(px(14.)))
-                .text_color(cx.theme().muted_foreground),
-        )
-        .into_any_element()
+/// Demo dismissal for the card close buttons until Phase 2 wires real
+/// panel visibility into `DemoState`.
+fn notify_panel_closed(window: &mut Window, cx: &mut App) {
+    window.push_notification(Notification::info("Panel closed (demo)"), cx);
 }
 
 // ---------------------------------------------------------------------------
@@ -673,7 +661,7 @@ fn owed_to_suppliers(cx: &App) -> AnyElement {
     card(cx)
         .w(px(330.))
         .child(CardHeader::new(
-            IconName::LayoutDashboard,
+            IconName::HandCoins,
             "Owed to suppliers",
             "Aging · 214 open bills",
         ))
@@ -777,19 +765,19 @@ fn expense_claims(cx: &App) -> AnyElement {
     let state = DemoState::global(cx);
     let claims = [
         (
-            IconName::Map,
+            IconName::Plane,
             "Flights LIS → BER",
             "Mara K. · Sep 18 · 4200 Travel",
             "$412.00",
         ),
         (
-            IconName::FileText,
+            IconName::Utensils,
             "Client dinner · Lisbon",
             "Mara K. · Sep 18 · 6230 Meals",
             "$184.00",
         ),
         (
-            IconName::Map,
+            IconName::CarFront,
             "Mileage · 214 km",
             "Yuri G. · Sep 21 · 4250 Mileage",
             "$688.00",
@@ -800,7 +788,7 @@ fn expense_claims(cx: &App) -> AnyElement {
         .w(px(500.))
         .child(
             CardHeader::new(
-                IconName::FileText,
+                IconName::Receipt,
                 "Expense claims",
                 "Reimbursements · September",
             )
@@ -912,18 +900,7 @@ fn expense_claims(cx: &App) -> AnyElement {
                             .gap_3()
                             .items_center()
                             .py_1p5()
-                            .child(
-                                div()
-                                    .size(px(32.))
-                                    .flex_shrink_0()
-                                    .rounded(px(8.))
-                                    .bg(cx.theme().accent)
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .text_color(cx.theme().foreground)
-                                    .child(Icon::new(icon).with_size(Size::Size(px(16.)))),
-                            )
+                            .child(icon_tile_sized(icon, px(32.), px(16.), px(8.), cx))
                             .child(
                                 v_flex()
                                     .flex_1()
@@ -1223,7 +1200,7 @@ fn assign_to_project(cx: &App) -> AnyElement {
                 "Assign to project",
                 "3 expenses selected",
             )
-            .trailing(close_button("assign-close", cx)),
+            .trailing(close_button("assign-close", notify_panel_closed, cx)),
         )
         .child(
             v_flex()
