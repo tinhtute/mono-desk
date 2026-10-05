@@ -4,15 +4,13 @@
 
 use gpui_kit::assets::IconName;
 use gpui_kit::component::{
-    ActiveTheme, Icon, Sizable, Size, StyledExt as _, WindowExt, h_flex,
-    notification::Notification,
+    ActiveTheme, Icon, Sizable, Size, StyledExt as _, h_flex,
     setting::{SettingGroup, SettingItem, SettingPage},
     v_flex,
 };
 use gpui_kit::{
     AnyElement, App, InteractiveElement as _, IntoElement, ParentElement as _, SharedString,
-    StatefulInteractiveElement as _, Styled as _, Window, div, prelude::FluentBuilder as _, px,
-    relative,
+    StatefulInteractiveElement as _, Styled as _, div, prelude::FluentBuilder as _, px, relative,
 };
 
 use super::blocks::{
@@ -40,26 +38,33 @@ pub fn page(lang: &str) -> SettingPage {
 /// the reference's art board. Fixed card widths; `flex_wrap` stacks the
 /// side card below its main card in narrow windows.
 fn canvas(cx: &App) -> AnyElement {
+    let state = DemoState::global(cx);
     v_flex()
         .w_full()
         .gap_4()
         .rounded(px(12.))
         .bg(cx.theme().background)
         .p(px(20.))
-        .child(row(purchase_orders(cx), filter_panel(cx)))
-        .child(row(upcoming_bills(cx), owed_to_suppliers(cx)))
-        .child(row(expense_claims(cx), by_category(cx)))
-        .child(row(billable_expenses(cx), assign_to_project(cx)))
+        .child(row(
+            purchase_orders(cx),
+            state.show_filter.then(|| filter_panel(cx)),
+        ))
+        .child(row(upcoming_bills(cx), Some(owed_to_suppliers(cx))))
+        .child(row(expense_claims(cx), Some(by_category(cx))))
+        .child(row(
+            billable_expenses(cx),
+            state.show_assign.then(|| assign_to_project(cx)),
+        ))
         .into_any_element()
 }
 
-fn row(main: AnyElement, side: AnyElement) -> AnyElement {
+fn row(main: AnyElement, side: Option<AnyElement>) -> AnyElement {
     h_flex()
         .items_start()
         .flex_wrap()
         .gap_4()
         .child(main)
-        .child(side)
+        .children(side)
         .into_any_element()
 }
 
@@ -67,40 +72,11 @@ fn row(main: AnyElement, side: AnyElement) -> AnyElement {
 // Card 1 — Purchase orders (tabs, filter chips, gantt table, footer)
 // ---------------------------------------------------------------------------
 
-const PO_AMOUNTS: [f64; 3] = [6120.00, 4480.00, 1960.00];
-
 fn purchase_orders(cx: &App) -> AnyElement {
     let state = DemoState::global(cx);
-    let selected = state.po_rows;
-    let picked: u64 = selected.iter().filter(|on| **on).count() as u64;
-    let total: f64 = PO_AMOUNTS
-        .iter()
-        .zip(selected.iter())
-        .filter(|(_, on)| **on)
-        .map(|(v, _)| *v)
-        .sum();
-
-    let rows = [
-        (
-            "Northwind Freight",
-            "PO-0418 · 100% billed",
-            vec![GanttSeg::Solid(0.42), GanttSeg::Delivery],
-        ),
-        (
-            "Haldon Supplies",
-            "PO-0421 · 40% billed",
-            vec![
-                GanttSeg::Solid(0.2),
-                GanttSeg::Faint(0.2),
-                GanttSeg::Delivery,
-            ],
-        ),
-        (
-            "Lumen Print Co.",
-            "PO-0427 · approval",
-            vec![GanttSeg::Dashed(0.42), GanttSeg::Delivery],
-        ),
-    ];
+    let picked = state.po_selected_count();
+    let total = state.po_selected_total();
+    let rows = state.po_visible();
 
     let table = v_flex()
         .px_4()
@@ -126,51 +102,48 @@ fn purchase_orders(cx: &App) -> AnyElement {
                         .child("Amount"),
                 ),
         )
-        .children(
-            rows.into_iter()
-                .enumerate()
-                .map(|(ix, (name, sub, segments))| {
-                    let on = selected[ix];
-                    h_flex()
-                        .gap_3()
-                        .px_2()
-                        .py_2()
-                        .rounded(px(8.))
-                        .when(on, |this| this.bg(Accent::wash(cx)))
+        .children(rows.into_iter().map(|item| {
+            let code = item.code.clone();
+            let on = state.po_is_selected(&code);
+            h_flex()
+                .gap_3()
+                .px_2()
+                .py_2()
+                .rounded(px(8.))
+                .when(on, |this| this.bg(Accent::wash(cx)))
+                .child(
+                    CadenceCheckbox::new(SharedString::from(format!("po-row-{code}")), on)
+                        .on_click(move |checked, _window, cx| {
+                            DemoState::update(cx, |s| s.po_set_selected(&code, *checked));
+                        }),
+                )
+                .child(
+                    v_flex()
+                        .flex_1()
+                        .gap_0p5()
                         .child(
-                            CadenceCheckbox::new(SharedString::from(format!("po-row-{ix}")), on)
-                                .on_click(move |checked, _window, cx| {
-                                    DemoState::update(cx, |s| s.po_rows[ix] = *checked);
-                                }),
-                        )
-                        .child(
-                            v_flex()
-                                .flex_1()
-                                .gap_0p5()
-                                .child(
-                                    div()
-                                        .text_sm()
-                                        .font_medium()
-                                        .text_color(cx.theme().foreground)
-                                        .child(name),
-                                )
-                                .child(
-                                    mono(sub, cx)
-                                        .text_sm()
-                                        .text_color(cx.theme().muted_foreground),
-                                ),
-                        )
-                        .child(gantt_cell(cx, segments))
-                        .child(
-                            mono(usd(PO_AMOUNTS[ix]), cx)
-                                .w(px(80.))
-                                .text_right()
+                            div()
                                 .text_sm()
                                 .font_medium()
-                                .text_color(cx.theme().foreground),
+                                .text_color(cx.theme().foreground)
+                                .child(item.supplier.clone()),
                         )
-                }),
-        );
+                        .child(
+                            mono(item.sub.clone(), cx)
+                                .text_sm()
+                                .text_color(cx.theme().muted_foreground),
+                        ),
+                )
+                .child(gantt_cell(cx, item.gantt.clone()))
+                .child(
+                    mono(usd(item.amount), cx)
+                        .w(px(80.))
+                        .text_right()
+                        .text_sm()
+                        .font_medium()
+                        .text_color(cx.theme().foreground),
+                )
+        }));
 
     card(cx)
         .w(px(500.))
@@ -180,7 +153,10 @@ fn purchase_orders(cx: &App) -> AnyElement {
                 "Purchase orders",
                 "September · 24 orders",
             )
-            .trailing(MonoPill::new("2 need you")),
+            .trailing(MonoPill::new(format!(
+                "{} need you",
+                state.po_awaiting_count()
+            ))),
         )
         .child(
             Tabs::new(
@@ -274,7 +250,7 @@ fn purchase_orders(cx: &App) -> AnyElement {
                     h_flex()
                         .gap_2()
                         .child(btn_secondary("po-mark-billed", "Mark billed"))
-                        .child(btn_primary("po-approve", "Approve 2", cx)),
+                        .child(btn_primary("po-approve", format!("Approve {picked}"), cx)),
                 ),
         )
         .into_any_element()
@@ -381,7 +357,7 @@ fn ring_legend(label: &'static str, cx: &App) -> AnyElement {
 
 fn filter_panel(cx: &App) -> AnyElement {
     let state = DemoState::global(cx);
-    let doc_selected = (state.doc_bills as u64) + (state.doc_credit_notes as u64);
+    let doc_selected = state.doc_types_count();
 
     let section_label = |text: &'static str, cx: &App| {
         div()
@@ -427,7 +403,11 @@ fn filter_panel(cx: &App) -> AnyElement {
                 "Filter",
                 "Bills and credit notes",
             )
-            .trailing(close_button("filter-close", notify_panel_closed, cx)),
+            .trailing(close_button(
+                "filter-close",
+                |_window, cx| DemoState::update(cx, |s| s.show_filter = false),
+                cx,
+            )),
         )
         .child(
             v_flex()
@@ -563,17 +543,12 @@ fn doc_row(
         .into_any_element()
 }
 
-/// Demo dismissal for the card close buttons until Phase 2 wires real
-/// panel visibility into `DemoState`.
-fn notify_panel_closed(window: &mut Window, cx: &mut App) {
-    window.push_notification(Notification::info("Panel closed (demo)"), cx);
-}
-
 // ---------------------------------------------------------------------------
 // Card 3 — Upcoming bills (stat strip, stacked chart, sparkline strip)
 // ---------------------------------------------------------------------------
 
 fn upcoming_bills(cx: &App) -> AnyElement {
+    let state = DemoState::global(cx);
     card(cx)
         .w(px(500.))
         .child(
@@ -602,7 +577,7 @@ fn upcoming_bills(cx: &App) -> AnyElement {
             div().px_4().pb_3().child(
                 BarChartMini::new(BILL_BARS.to_vec())
                     .y_labels(vec!["$60k", "$40k", "$20k", "0"])
-                    .tooltip(8, "Oct 1 · $52k")
+                    .tooltip(state.selected_bill_bar.unwrap_or(8), "Oct 1 · $52k")
                     .x_labels(vec!["Sep 21", "Sep 28", "Oct 5", "Oct 12", "Oct 19"]),
             ),
         )
@@ -792,7 +767,10 @@ fn expense_claims(cx: &App) -> AnyElement {
                 "Expense claims",
                 "Reimbursements · September",
             )
-            .trailing(MonoPill::new("3 to pay")),
+            .trailing(MonoPill::new(format!(
+                "{} to pay",
+                state.claims_to_pay_count()
+            ))),
         )
         .child(
             h_flex()
@@ -806,13 +784,13 @@ fn expense_claims(cx: &App) -> AnyElement {
                         vec![
                             Segment::new("Your own"),
                             Segment::new("To review").count(2),
-                            Segment::new("To pay").count(3),
+                            Segment::new("To pay").count(state.claims_to_pay_count() as u64),
                         ],
                     )
                     .active(state.claims_tab)
                     .on_pick(|ix, _window, cx| DemoState::update(cx, |s| s.claims_tab = ix)),
                 )
-                .child(FilterChip::new("claims-month", "Sep 2026").caret()),
+                .child(FilterChip::new("claims-month", state.claims_month.clone()).caret()),
         )
         .child(
             div().px_4().py_3().child(
@@ -885,7 +863,7 @@ fn expense_claims(cx: &App) -> AnyElement {
                         .child("Awaiting Payment"),
                 )
                 .child(
-                    mono("3 claims", cx)
+                    mono(format!("{} claims", state.claims_to_pay_count()), cx)
                         .text_sm()
                         .text_color(cx.theme().muted_foreground),
                 ),
@@ -1032,6 +1010,7 @@ fn waffle_dot(cell: WaffleCell, cx: &App) -> AnyElement {
 // ---------------------------------------------------------------------------
 
 fn billable_expenses(cx: &App) -> AnyElement {
+    let state = DemoState::global(cx);
     card(cx)
         .w(px(500.))
         .child(
@@ -1064,7 +1043,7 @@ fn billable_expenses(cx: &App) -> AnyElement {
             .action(btn_primary("rebill-assign", "Assign expenses", cx))
             .action(btn_secondary("rebill-markup", "Set markup"))
             .aside(
-                mono("Default markup 10%", cx)
+                mono(format!("Default markup {}%", state.rebill_markup_pct), cx)
                     .text_sm()
                     .text_color(cx.theme().muted_foreground),
             ),
@@ -1187,10 +1166,16 @@ fn assign_to_project(cx: &App) -> AnyElement {
         ("Atlantic Foods", "Launch"),
     ];
     let expenses = [
-        ("Flights LIS → BER", "$412.00", "Atlas"),
-        ("Hotel · 2 nights", "$388.00", "Atlas"),
-        ("Client dinner", "$184.00", "Pending"),
+        ("Flights LIS → BER", "Atlas"),
+        ("Hotel · 2 nights", "Atlas"),
+        ("Client dinner", "Pending"),
     ];
+    let expense_total: f64 = EXPENSE_AMOUNTS
+        .iter()
+        .zip(state.expenses.iter())
+        .filter(|(_, on)| **on)
+        .map(|(v, _)| *v)
+        .sum();
 
     card(cx)
         .w(px(330.))
@@ -1198,9 +1183,13 @@ fn assign_to_project(cx: &App) -> AnyElement {
             CardHeader::new(
                 IconName::FolderClosed,
                 "Assign to project",
-                "3 expenses selected",
+                format!("{} expenses selected", state.expenses_selected_count()),
             )
-            .trailing(close_button("assign-close", notify_panel_closed, cx)),
+            .trailing(close_button(
+                "assign-close",
+                |_window, cx| DemoState::update(cx, |s| s.show_assign = false),
+                cx,
+            )),
         )
         .child(
             v_flex()
@@ -1228,7 +1217,7 @@ fn assign_to_project(cx: &App) -> AnyElement {
                             div()
                                 .text_sm()
                                 .text_color(cx.theme().foreground)
-                                .child("Atl"),
+                                .child(state.project_search.clone()),
                         )
                         .child(
                             div().flex_1().child(
@@ -1293,62 +1282,62 @@ fn assign_to_project(cx: &App) -> AnyElement {
                                 .child("Expenses"),
                         )
                         .child(
-                            mono("$984.00", cx)
+                            mono(usd(expense_total), cx)
                                 .text_sm()
                                 .font_medium()
                                 .text_color(cx.theme().foreground),
                         ),
                 )
-                .children(
-                    expenses
-                        .into_iter()
-                        .enumerate()
-                        .map(|(ix, (title, amount, tag))| {
-                            h_flex()
-                                .gap_2p5()
-                                .items_center()
-                                .py_1()
+                .children(expenses.into_iter().enumerate().map(|(ix, (title, tag))| {
+                    h_flex()
+                        .gap_2p5()
+                        .items_center()
+                        .py_1()
+                        .child(
+                            CadenceCheckbox::new(
+                                SharedString::from(format!("assign-expense-{ix}")),
+                                state.expenses[ix],
+                            )
+                            .on_click(move |checked, _window, cx| {
+                                DemoState::update(cx, |s| s.expenses[ix] = *checked);
+                            }),
+                        )
+                        .child(
+                            v_flex()
+                                .flex_1()
+                                .gap_0p5()
                                 .child(
-                                    CadenceCheckbox::new(
-                                        SharedString::from(format!("assign-expense-{ix}")),
-                                        state.expenses[ix],
-                                    )
-                                    .on_click(
-                                        move |checked, _window, cx| {
-                                            DemoState::update(cx, |s| s.expenses[ix] = *checked);
-                                        },
-                                    ),
+                                    div()
+                                        .text_sm()
+                                        .font_medium()
+                                        .text_color(cx.theme().foreground)
+                                        .child(title),
                                 )
                                 .child(
-                                    v_flex()
-                                        .flex_1()
-                                        .gap_0p5()
-                                        .child(
-                                            div()
-                                                .text_sm()
-                                                .font_medium()
-                                                .text_color(cx.theme().foreground)
-                                                .child(title),
-                                        )
-                                        .child(
-                                            mono(amount, cx)
-                                                .text_sm()
-                                                .text_color(cx.theme().muted_foreground),
-                                        ),
-                                )
-                                .child(MonoPill::new(tag).tone(if tag == "Atlas" {
-                                    PillTone::Accent
-                                } else {
-                                    PillTone::Neutral
-                                }))
-                        }),
-                )
+                                    mono(usd(EXPENSE_AMOUNTS[ix]), cx)
+                                        .text_sm()
+                                        .text_color(cx.theme().muted_foreground),
+                                ),
+                        )
+                        .child(MonoPill::new(tag).tone(if tag == "Atlas" {
+                            PillTone::Accent
+                        } else {
+                            PillTone::Neutral
+                        }))
+                }))
                 .child(
                     h_flex()
                         .gap_2()
                         .pt_1()
                         .child(btn_secondary("assign-cancel", "Cancel"))
-                        .child(btn_primary("assign-confirm", "Assign 3", cx).flex_1()),
+                        .child(
+                            btn_primary(
+                                "assign-confirm",
+                                format!("Assign {}", state.expenses_selected_count()),
+                                cx,
+                            )
+                            .flex_1(),
+                        ),
                 ),
         )
         .into_any_element()
@@ -1357,6 +1346,10 @@ fn assign_to_project(cx: &App) -> AnyElement {
 // ---------------------------------------------------------------------------
 // Demo data + formatting
 // ---------------------------------------------------------------------------
+
+/// Assign-card expense amounts (parallel to the title/tag rows above —
+/// the reference's three fixed lines).
+const EXPENSE_AMOUNTS: [f64; 3] = [412.00, 388.00, 184.00];
 
 /// Filter histogram: ghost bars at the edges, accent bars in the selected
 /// $500–$12k window.
