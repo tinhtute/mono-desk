@@ -318,12 +318,17 @@ fn gantt_head(cx: &App) -> AnyElement {
             h_flex()
                 .justify_between()
                 .items_center()
-                .children(["Sep 1", "Oct 1"].map(|t| {
-                    mono(t, cx)
+                .child(
+                    mono("Sep 1", cx)
                         .text_sm()
-                        .text_color(cx.theme().muted_foreground)
-                }))
-                .child(MonoPill::new("Today").solid()),
+                        .text_color(cx.theme().muted_foreground),
+                )
+                .child(MonoPill::new("Today").solid())
+                .child(
+                    mono("Oct 1", cx)
+                        .text_sm()
+                        .text_color(cx.theme().muted_foreground),
+                ),
         )
         .into_any_element()
 }
@@ -566,6 +571,7 @@ fn close_button(id: &'static str, cx: &App) -> AnyElement {
         .border_color(cx.theme().border)
         .bg(cx.theme().popover)
         .shadow_xs()
+
         .hover(|this| this.bg(cx.theme().accent))
         .on_click(|_, window, cx| {
             window.push_notification(Notification::info("Panel closed (demo)"), cx);
@@ -912,8 +918,10 @@ fn expense_claims(cx: &App) -> AnyElement {
                             .child(
                                 div()
                                     .size(px(32.))
+                                    .flex_shrink_0()
                                     .rounded(px(8.))
                                     .bg(cx.theme().accent)
+                                    .flex()
                                     .items_center()
                                     .justify_center()
                                     .text_color(cx.theme().foreground)
@@ -973,7 +981,7 @@ fn by_category(cx: &App) -> AnyElement {
     card(cx)
         .w(px(330.))
         .child(CardHeader::new(
-            IconName::LayoutDashboard,
+            IconName::ChartPie,
             "By category",
             "Q3 · 50 claims",
         ))
@@ -1071,7 +1079,6 @@ fn billable_expenses(cx: &App) -> AnyElement {
             )
             .illustration(
                 div()
-                    .mx_4()
                     .h(px(200.))
                     .rounded(px(12.))
                     .bg(cx.theme().muted)

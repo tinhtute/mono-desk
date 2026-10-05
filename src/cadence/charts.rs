@@ -207,6 +207,8 @@ impl RenderOnce for BarChartMini {
                                     .items_end()
                                     .justify_between()
                                     .children(self.bars.iter().map(|(solid, faint)| {
+                                        let solid_val = solid.clamp(0., 1.);
+                                        let faint_val = faint.clamp(0., (1. - solid_val).max(0.));
                                         v_flex()
                                             .items_center()
                                             .justify_end()
@@ -214,14 +216,14 @@ impl RenderOnce for BarChartMini {
                                             .child(
                                                 div()
                                                     .w(px(10.))
-                                                    .h(height * faint.clamp(0., 1.))
+                                                    .h(height * faint_val)
                                                     .rounded(px(3.))
                                                     .bg(super::Accent::faint(cx)),
                                             )
                                             .child(
                                                 div()
                                                     .w(px(10.))
-                                                    .h(height * solid.clamp(0., 1.))
+                                                    .h(height * solid_val)
                                                     .rounded(px(3.))
                                                     .bg(super::Accent::solid(cx)),
                                             )
@@ -400,6 +402,7 @@ impl RenderOnce for RangeSlider {
                 .absolute()
                 .top(px(2.))
                 .left(relative(at))
+                .ml(px(-8.))
                 .size(px(16.))
                 .rounded_full()
                 .bg(cx.theme().popover)

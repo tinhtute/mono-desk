@@ -39,6 +39,7 @@ pub fn icon_tile(icon: IconName, cx: &App) -> Div {
         .flex_shrink_0()
         .rounded(px(10.))
         .bg(cx.theme().accent)
+
         .text_color(cx.theme().foreground)
         .child(Icon::new(icon).with_size(Size::Size(px(18.))))
 }
@@ -85,7 +86,6 @@ impl CardHeader {
 impl RenderOnce for CardHeader {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         h_flex()
-            .items_start()
             .justify_between()
             .px_4()
             .pt_4()
@@ -464,6 +464,7 @@ impl RenderOnce for CadenceCheckbox {
             .border_1()
             .border_color(border)
             .bg(bg)
+
             .on_click(move |_, window, cx| {
                 on_click(&!checked, window, cx);
             })
