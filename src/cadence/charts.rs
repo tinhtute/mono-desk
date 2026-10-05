@@ -4,10 +4,15 @@
 //! gantt-style row bars. GPUI cannot dash a border, so dashed strokes
 //! render as hairline solids at reduced alpha.
 
-use gpui_kit::component::{ActiveTheme, StyledExt as _, h_flex, v_flex};
+use std::{cell::RefCell, rc::Rc};
+
+use gpui_kit::base::ElementExt as _;
+use gpui_kit::component::{ActiveTheme, StyledExt as _, ThemeStyled as _, h_flex, v_flex};
 use gpui_kit::{
-    App, Div, Hsla, IntoElement, ParentElement as _, Pixels, RenderOnce, SharedString, Styled as _,
-    Window, div, prelude::FluentBuilder as _, px, relative,
+    App, AppContext as _, Bounds, Context, Div, ElementId, Empty, EntityId, FocusHandle, Hsla,
+    InteractiveElement as _, IntoElement, MouseButton, ParentElement as _, Pixels, Point, Render,
+    RenderOnce, SharedString, StatefulInteractiveElement as _, Styled as _, Window, div,
+    prelude::FluentBuilder as _, px, relative,
 };
 
 /// Histogram / sparkline strip: fixed-width bars spread over the full
@@ -75,27 +80,33 @@ impl RenderOnce for MiniBars {
                     .rounded(px(6.))
                     .bg(super::Accent::wash(cx))
             }))
-            .child(
-                h_flex()
-                    .absolute()
-                    .inset_0()
-                    .items_end()
-                    .justify_between()
-                    .children(self.values.iter().enumerate().map(|(ix, v)| {
-                        let accent = self
-                            .accent_range
-                            .is_some_and(|(from, to)| ix >= from && ix <= to);
-                        div()
-                            .w(self.bar_w)
-                            .h(self.height * v.clamp(0.02, 1.))
-                            .rounded(px(1.5))
-                            .bg(if accent {
-                                super::Accent::solid(cx)
-                            } else {
-                                cx.theme().border
-                            })
-                    })),
-            )
+            .child(h_flex().absolute().inset_0().items_end().children(
+                self.values.iter().enumerate().map(|(ix, v)| {
+                    let accent = self
+                        .accent_range
+                        .is_some_and(|(from, to)| ix >= from && ix <= to);
+                    // One flex_1 slot per bar so bar centers line up with
+                    // the `ix / n` band math (L2): `justify_between` would
+                    // edge-align the first/last bars and skew the wash.
+                    div()
+                        .flex_1()
+                        .h_full()
+                        .flex()
+                        .items_end()
+                        .justify_center()
+                        .child(
+                            div()
+                                .w(self.bar_w)
+                                .h(self.height * v.clamp(0.02, 1.))
+                                .rounded(px(1.5))
+                                .bg(if accent {
+                                    super::Accent::solid(cx)
+                                } else {
+                                    cx.theme().border
+                                }),
+                        )
+                }),
+            ))
     }
 }
 
@@ -378,30 +389,123 @@ impl RenderOnce for AgingBars {
     }
 }
 
-/// Dual-handle range slider (visual): hairline track, solid accent span,
-/// white thumbs ringed in accent. Positions are 0..1 track fractions.
+/// Which part of the slider a press grabbed.
+#[derive(Clone, Copy)]
+enum SliderGrab {
+    Lo,
+    Hi,
+    /// The active span — panning shifts both thumbs, keeping the width.
+    Span,
+}
+
+/// Press snapshot: what was grabbed, the pointer's start fraction, and the
+/// (lo, hi) range at press time. Span pans are deltas off these values.
+#[derive(Clone, Copy)]
+struct SliderPress {
+    grab: SliderGrab,
+    start_frac: f32,
+    start_range: (f32, f32),
+}
+
+/// Shared mutable state of one slider: the track's painted bounds (pointer
+/// → fraction mapping) and the press snapshot. Held as `Rc<RefCell>` in
+/// keyed element state — `on_prepaint` and mouse handlers both write it
+/// without forcing re-renders (the `tab_bar` bounds pattern).
+#[derive(Default)]
+struct SliderInteraction {
+    track: Bounds<Pixels>,
+    press: Option<SliderPress>,
+}
+
+/// Invisible overlay entity required by `on_drag`'s payload type.
+#[derive(Clone)]
+struct SliderDrag {
+    interaction: EntityId,
+}
+
+impl Render for SliderDrag {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        Empty
+    }
+}
+
+/// Minimum gap kept between the two thumbs.
+const SLIDER_MIN_GAP: f32 = 0.02;
+/// Arrow-key step; `Shift` + arrow steps five times this.
+const SLIDER_STEP: f32 = 0.01;
+
+/// Dual-handle range slider: hairline track, solid accent span, white
+/// thumbs ringed in accent. Positions are 0..1 track fractions. Thumbs
+/// drag, the track click-seeks the nearest thumb, the active span pans,
+/// and each thumb is a focus stop (arrows step, `Shift` accelerates,
+/// Home/End snap).
 #[derive(IntoElement)]
 pub struct RangeSlider {
+    id: ElementId,
     lo: f32,
     hi: f32,
+    on_change: Option<super::RangeCallback>,
 }
 
 impl RangeSlider {
-    pub fn new(lo: f32, hi: f32) -> Self {
+    pub fn new(id: impl Into<ElementId>, lo: f32, hi: f32) -> Self {
+        let lo = lo.clamp(0., 1.);
         Self {
-            lo: lo.clamp(0., 1.),
+            id: id.into(),
+            lo,
             hi: hi.clamp(0., 1.).max(lo),
+            on_change: None,
         }
+    }
+
+    /// Called with the new `(lo, hi)` whenever pointer or keyboard moves
+    /// either thumb.
+    pub fn on_change(mut self, f: impl Fn(&(f32, f32), &mut Window, &mut App) + 'static) -> Self {
+        self.on_change = Some(Rc::new(f));
+        self
     }
 }
 
 impl RenderOnce for RangeSlider {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let thumb = |at: f32| {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let RangeSlider {
+            id,
+            lo,
+            hi,
+            on_change,
+        } = self;
+        let interaction = window.use_keyed_state((id.clone(), "interaction"), cx, |_, _| {
+            Rc::new(RefCell::new(SliderInteraction::default()))
+        });
+        let slider_id = interaction.entity_id();
+        let interaction = interaction.read(cx).clone();
+        let lo_focus = window
+            .use_keyed_state((id.clone(), "lo-focus"), cx, |_, cx| cx.focus_handle())
+            .read(cx)
+            .clone();
+        let hi_focus = window
+            .use_keyed_state((id.clone(), "hi-focus"), cx, |_, cx| cx.focus_handle())
+            .read(cx)
+            .clone();
+
+        let frac_at = |track: Bounds<Pixels>, position: Point<Pixels>| -> f32 {
+            if track.size.width <= px(0.) {
+                return 0.;
+            }
+            ((position.x - track.left()) / track.size.width).clamp(0., 1.)
+        };
+
+        let thumb = |at: f32, grab: SliderGrab, focus: FocusHandle, focused: bool| {
+            let (is_lo, tag) = match grab {
+                SliderGrab::Lo => (true, "lo"),
+                _ => (false, "hi"),
+            };
             div()
+                .id((id.clone(), tag))
                 .absolute()
                 .top(px(2.))
                 .left(relative(at))
+                // Center the 16px thumb on the fraction (H4).
                 .ml(px(-8.))
                 .size(px(16.))
                 .rounded_full()
@@ -409,8 +513,96 @@ impl RenderOnce for RangeSlider {
                 .border_2()
                 .border_color(super::Accent::solid(cx))
                 .shadow_xs()
+                .cursor_ew_resize()
+                .tab_index(0)
+                .track_focus(&focus)
+                .when(focused, |this| this.focus_ring_style(window, cx))
+                .role(gpui_kit::Role::Slider)
+                .aria_label(if is_lo {
+                    "Minimum Amount"
+                } else {
+                    "Maximum Amount"
+                })
+                .aria_numeric_value(at as f64)
+                .aria_min_numeric_value(0.)
+                .aria_max_numeric_value(1.)
+                .aria_orientation(gpui_kit::Orientation::Horizontal)
+                .hover(|style| style.shadow_sm().border_color(super::Accent::solid(cx)))
+                .on_mouse_down(MouseButton::Left, {
+                    let interaction = interaction.clone();
+                    move |event, window, cx| {
+                        // Focus on press and own the gesture so the track's
+                        // seek/pan handler below never sees it.
+                        window.focus(&focus, cx);
+                        let track = interaction.borrow().track;
+                        interaction.borrow_mut().press = Some(SliderPress {
+                            grab,
+                            start_frac: frac_at(track, event.position),
+                            start_range: (lo, hi),
+                        });
+                        cx.stop_propagation();
+                    }
+                })
+                .on_drag(
+                    SliderDrag {
+                        interaction: slider_id,
+                    },
+                    |drag, _, _, cx| {
+                        cx.stop_propagation();
+                        cx.new(|_| drag.clone())
+                    },
+                )
+                .on_key_down({
+                    let on_change = on_change.clone();
+                    move |event, _window, cx| {
+                        let key = event.keystroke.key.as_str();
+                        let step = if event.keystroke.modifiers.shift {
+                            SLIDER_STEP * 5.
+                        } else {
+                            SLIDER_STEP
+                        };
+                        let (mut nlo, mut nhi) = (lo, hi);
+                        match key {
+                            "left" | "down" => {
+                                if is_lo {
+                                    nlo = (lo - step).clamp(0., hi - SLIDER_MIN_GAP);
+                                } else {
+                                    nhi = (hi - step).clamp(lo + SLIDER_MIN_GAP, 1.);
+                                }
+                            }
+                            "right" | "up" => {
+                                if is_lo {
+                                    nlo = (lo + step).clamp(0., hi - SLIDER_MIN_GAP);
+                                } else {
+                                    nhi = (hi + step).clamp(lo + SLIDER_MIN_GAP, 1.);
+                                }
+                            }
+                            "home" => {
+                                if is_lo {
+                                    nlo = 0.;
+                                } else {
+                                    nhi = (lo + SLIDER_MIN_GAP).min(1.);
+                                }
+                            }
+                            "end" => {
+                                if is_lo {
+                                    nlo = (hi - SLIDER_MIN_GAP).max(0.);
+                                } else {
+                                    nhi = 1.;
+                                }
+                            }
+                            _ => return,
+                        }
+                        cx.stop_propagation();
+                        if let Some(on_change) = &on_change {
+                            on_change(&(nlo, nhi), _window, cx);
+                        }
+                    }
+                })
         };
+
         div()
+            .id(id.clone())
             .relative()
             .w_full()
             .h(px(20.))
@@ -422,20 +614,123 @@ impl RenderOnce for RangeSlider {
                     .right_0()
                     .h(px(3.))
                     .rounded_full()
-                    .bg(super::Accent::faint(cx)),
+                    .bg(super::Accent::faint(cx))
+                    .on_prepaint({
+                        let interaction = interaction.clone();
+                        move |bounds, _, _| {
+                            interaction.borrow_mut().track = bounds;
+                        }
+                    }),
             )
             .child(
                 div()
                     .absolute()
                     .top(px(8.5))
-                    .left(relative(self.lo))
-                    .w(relative(self.hi - self.lo))
+                    .left(relative(lo))
+                    .w(relative(hi - lo))
                     .h(px(3.))
                     .rounded_full()
-                    .bg(super::Accent::solid(cx)),
+                    .bg(super::Accent::solid(cx))
+                    .cursor_grab(),
             )
-            .child(thumb(self.lo))
-            .child(thumb(self.hi))
+            .child(thumb(
+                lo,
+                SliderGrab::Lo,
+                lo_focus.clone(),
+                lo_focus.is_focused(window),
+            ))
+            .child(thumb(
+                hi,
+                SliderGrab::Hi,
+                hi_focus.clone(),
+                hi_focus.is_focused(window),
+            ))
+            .on_mouse_down(MouseButton::Left, {
+                let interaction = interaction.clone();
+                let on_change = on_change.clone();
+                move |event, window, cx| {
+                    let track = interaction.borrow().track;
+                    let frac = frac_at(track, event.position);
+                    let grab = if frac >= lo && frac <= hi {
+                        SliderGrab::Span
+                    } else if (frac - lo).abs() <= (frac - hi).abs() {
+                        SliderGrab::Lo
+                    } else {
+                        SliderGrab::Hi
+                    };
+                    interaction.borrow_mut().press = Some(SliderPress {
+                        grab,
+                        start_frac: frac,
+                        start_range: (lo, hi),
+                    });
+                    match grab {
+                        // Inside the span: no jump — the press arms a span
+                        // pan that starts when the pointer moves.
+                        SliderGrab::Span => {}
+                        // Outside: the nearest thumb jumps to the click
+                        // (seek) and keeps scrubbing on drag.
+                        SliderGrab::Lo => {
+                            let nlo = frac.clamp(0., hi - SLIDER_MIN_GAP);
+                            if let Some(on_change) = &on_change {
+                                on_change(&(nlo, hi), window, cx);
+                            }
+                        }
+                        SliderGrab::Hi => {
+                            let nhi = frac.clamp(lo + SLIDER_MIN_GAP, 1.);
+                            if let Some(on_change) = &on_change {
+                                on_change(&(lo, nhi), window, cx);
+                            }
+                        }
+                    }
+                }
+            })
+            .on_drag(
+                SliderDrag {
+                    interaction: slider_id,
+                },
+                |drag, _, _, cx| cx.new(|_| drag.clone()),
+            )
+            .on_drag_move::<SliderDrag>({
+                let interaction = interaction.clone();
+                let on_change = on_change.clone();
+                move |event, _window, cx| {
+                    if event.drag(cx).interaction != slider_id {
+                        return;
+                    }
+                    let (track, press) = {
+                        let i = interaction.borrow();
+                        (i.track, i.press)
+                    };
+                    let Some(press) = press else { return };
+                    let frac = frac_at(track, event.event.position);
+                    let (slo, shi) = press.start_range;
+                    let (nlo, nhi) = match press.grab {
+                        SliderGrab::Lo => (frac.clamp(0., shi - SLIDER_MIN_GAP), shi),
+                        SliderGrab::Hi => (slo, frac.clamp(slo + SLIDER_MIN_GAP, 1.)),
+                        SliderGrab::Span => {
+                            let delta = frac - press.start_frac;
+                            let width = shi - slo;
+                            let nlo = (slo + delta).clamp(0., 1. - width);
+                            (nlo, nlo + width)
+                        }
+                    };
+                    if let Some(on_change) = &on_change {
+                        on_change(&(nlo, nhi), _window, cx);
+                    }
+                }
+            })
+            .on_mouse_up(MouseButton::Left, {
+                let interaction = interaction.clone();
+                move |_, _, _| {
+                    interaction.borrow_mut().press = None;
+                }
+            })
+            .on_mouse_up_out(MouseButton::Left, {
+                let interaction = interaction.clone();
+                move |_, _, _| {
+                    interaction.borrow_mut().press = None;
+                }
+            })
     }
 }
 
