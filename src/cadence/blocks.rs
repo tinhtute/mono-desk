@@ -48,13 +48,13 @@ pub fn icon_tile_sized(
     cx: &App,
 ) -> Div {
     div()
+        .flex()
+        .items_center()
+        .justify_center()
         .size(size)
         .flex_shrink_0()
         .rounded(radius)
         .bg(cx.theme().accent)
-        .flex()
-        .items_center()
-        .justify_center()
         .text_color(cx.theme().foreground)
         .child(icon.into().with_size(Size::Size(glyph)))
 }
@@ -749,6 +749,7 @@ impl RenderOnce for CadenceToggle {
 pub fn pie_avatar(frac: f32, size: Pixels, cx: &App) -> Div {
     let frac = frac.clamp(0., 1.);
     div()
+        .relative()
         .size(size)
         .rounded_full()
         .overflow_hidden()
