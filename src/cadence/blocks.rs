@@ -4,15 +4,17 @@
 
 use std::rc::Rc;
 
+use gpui_kit::assets::IconNamed;
+use gpui_kit::base::spring;
 use gpui_kit::component::{
-    ActiveTheme, Icon, IconName, Sizable, Size, StyledExt as _,
+    ActiveTheme, Icon, IconName, Sizable, Size, StyledExt as _, ThemeStyled as _,
     button::{Button, ButtonCustomVariant, ButtonVariants as _},
     h_flex, v_flex,
 };
 use gpui_kit::{
     AnyElement, App, Div, ElementId, Hsla, InteractiveElement as _, IntoElement,
     ParentElement as _, Pixels, RenderOnce, SharedString, StatefulInteractiveElement as _,
-    Styled as _, Window, div, prelude::FluentBuilder as _, px, relative,
+    Styled as _, Window, div, prelude::FluentBuilder as _, px, relative, rgb,
 };
 
 /// The reference's card: white, `rounded` ~16px, hairline border, faint
@@ -29,18 +31,32 @@ pub fn card(cx: &App) -> Div {
         .overflow_hidden()
 }
 
-/// The rounded-square line-icon tile in front of every card title.
-pub fn icon_tile(icon: IconName, cx: &App) -> Div {
+/// The rounded-square line-icon tile in front of every card title (36px
+/// box, 10px radius, 18px glyph). Accepts `impl IconNamed` (both IconName
+/// enums) or a ready-made `Icon`.
+pub fn icon_tile(icon: impl Into<Icon>, cx: &App) -> Div {
+    icon_tile_sized(icon, px(36.), px(18.), px(10.), cx)
+}
+
+/// [`icon_tile`] with explicit geometry — the claim rows' smaller variant
+/// (32px box, 8px radius, 16px glyph) and any future sizes share this.
+pub fn icon_tile_sized(
+    icon: impl Into<Icon>,
+    size: Pixels,
+    glyph: Pixels,
+    radius: Pixels,
+    cx: &App,
+) -> Div {
     div()
         .flex()
         .items_center()
         .justify_center()
-        .size(px(36.))
+        .size(size)
         .flex_shrink_0()
-        .rounded(px(10.))
+        .rounded(radius)
         .bg(cx.theme().accent)
         .text_color(cx.theme().foreground)
-        .child(Icon::new(icon).with_size(Size::Size(px(18.))))
+        .child(icon.into().with_size(Size::Size(glyph)))
 }
 
 /// Text set in the theme's mono family — every numeral in the reference
@@ -55,7 +71,7 @@ pub fn mono(text: impl Into<SharedString>, cx: &App) -> Div {
 /// slot (badge, legend, close button).
 #[derive(IntoElement)]
 pub struct CardHeader {
-    icon: IconName,
+    icon: Icon,
     title: SharedString,
     subtitle: SharedString,
     trailing: Vec<AnyElement>,
@@ -63,12 +79,12 @@ pub struct CardHeader {
 
 impl CardHeader {
     pub fn new(
-        icon: IconName,
+        icon: impl IconNamed,
         title: impl Into<SharedString>,
         subtitle: impl Into<SharedString>,
     ) -> Self {
         Self {
-            icon,
+            icon: Icon::new(icon),
             title: title.into(),
             subtitle: subtitle.into(),
             trailing: Vec::new(),
@@ -163,21 +179,27 @@ impl RenderOnce for MonoPill {
             .rounded_full()
             .bg(bg)
             .px_2()
+            .when(self.solid, |this| this.px_2p5())
             .py(px(2.))
             .text_color(fg)
-            .child(mono(self.text, cx).text_sm())
+            .child(mono(self.text, cx).text_xs())
     }
 }
 
-/// A filter chip: icon + text, optionally a muted prefix before the value
-/// ("Supplier" + "Any"), optionally a dropdown caret, optionally a remove ×.
+/// A filter chip: icon + value, optionally a muted prefix before the value
+/// ("Supplier" + "Any"), optionally a dropdown caret, optionally a remove
+/// ×. The chip body and the × are separate hit areas (F15): the body owns
+/// `on_open` (and the tab stop), the × owns `on_remove`. `.ghost()` renders
+/// the "+ Add …" restore variant — muted ink, no fill.
 #[derive(IntoElement)]
 pub struct FilterChip {
     id: ElementId,
-    icon: Option<IconName>,
+    icon: Option<Icon>,
     prefix: Option<SharedString>,
     text: SharedString,
     caret: bool,
+    ghost: bool,
+    on_open: Option<super::WindowCallback>,
     on_remove: Option<super::WindowCallback>,
 }
 
@@ -189,12 +211,14 @@ impl FilterChip {
             prefix: None,
             text: text.into(),
             caret: false,
+            ghost: false,
+            on_open: None,
             on_remove: None,
         }
     }
 
-    pub fn icon(mut self, icon: IconName) -> Self {
-        self.icon = Some(icon);
+    pub fn icon(mut self, icon: impl IconNamed) -> Self {
+        self.icon = Some(Icon::new(icon));
         self
     }
 
@@ -209,7 +233,20 @@ impl FilterChip {
         self
     }
 
-    /// Adds the trailing × and its handler.
+    /// Muted-outline "+ Add …" chip used to restore a removed filter.
+    pub fn ghost(mut self) -> Self {
+        self.ghost = true;
+        self
+    }
+
+    /// Clicking the chip body (or Enter/Space while it is focused).
+    pub fn on_open(mut self, f: impl Fn(&mut Window, &mut App) + 'static) -> Self {
+        self.on_open = Some(Rc::new(f));
+        self
+    }
+
+    /// Adds the trailing × and its handler; Backspace/Delete while the chip
+    /// is focused fires the same removal.
     pub fn on_remove(mut self, f: impl Fn(&mut Window, &mut App) + 'static) -> Self {
         self.on_remove = Some(Rc::new(f));
         self
@@ -217,44 +254,96 @@ impl FilterChip {
 }
 
 impl RenderOnce for FilterChip {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let Self {
+            id,
+            icon,
+            prefix,
+            text,
+            caret,
+            ghost,
+            on_open,
+            on_remove,
+        } = self;
+        let interactive = on_open.is_some() || on_remove.is_some() || caret;
+        let openable = on_open.is_some() || caret;
+        let focus = interactive.then(|| {
+            window
+                .use_keyed_state(id.clone(), cx, |_, cx| cx.focus_handle())
+                .read(cx)
+                .clone()
+        });
+        let focused = focus.as_ref().is_some_and(|f| f.is_focused(window));
+
         h_flex()
+            .id(id.clone())
             .gap_1p5()
-            .h(px(34.))
+            .h(px(36.))
             .rounded(px(10.))
             .border_1()
-            .border_color(cx.theme().border)
-            .bg(cx.theme().popover)
+            .border_color(if ghost {
+                cx.theme().muted_foreground.alpha(0.4)
+            } else {
+                cx.theme().border
+            })
+            .when(!ghost, |this| this.bg(cx.theme().popover))
             .px_2p5()
             .items_center()
-            .text_color(cx.theme().foreground)
-            .children(self.icon.map(|icon| {
+            .text_color(if ghost {
+                cx.theme().muted_foreground
+            } else {
+                cx.theme().foreground
+            })
+            .when(interactive, |this| {
+                this.tab_index(0)
+                    .track_focus(focus.as_ref().expect("focus handle exists"))
+                    .when(focused, |this| this.focus_ring_style(window, cx))
+                    .when(openable, |this| {
+                        this.cursor_pointer()
+                            .hover(|style| style.bg(cx.theme().accent))
+                    })
+            })
+            .when_some(on_open, |this, on_open| {
+                this.on_click(move |_, window, cx| on_open(window, cx))
+            })
+            .when_some(on_remove.clone(), |this, on_remove| {
+                this.on_key_down(move |event, _window, cx| {
+                    if matches!(event.keystroke.key.as_str(), "backspace" | "delete") {
+                        cx.stop_propagation();
+                        on_remove(_window, cx);
+                    }
+                })
+            })
+            .children(icon.map(|icon| {
                 Icon::new(icon)
                     .with_size(Size::Size(px(14.)))
                     .text_color(cx.theme().muted_foreground)
             }))
-            .children(self.prefix.map(|prefix| {
+            .children(prefix.map(|prefix| {
                 div()
                     .text_sm()
                     .text_color(cx.theme().muted_foreground)
                     .child(prefix)
             }))
-            .child(div().text_sm().child(self.text))
-            .when(self.caret, |this| {
+            .child(mono(text, cx).text_sm())
+            .when(caret, |this| {
                 this.child(
                     Icon::new(IconName::ChevronDown)
                         .with_size(Size::Size(px(14.)))
                         .text_color(cx.theme().muted_foreground),
                 )
             })
-            .children(self.on_remove.map(|on_remove| {
+            .children(on_remove.map(|on_remove| {
                 div()
-                    .id(self.id)
+                    .id((id, "remove"))
                     .cursor_pointer()
                     .p(px(2.))
                     .rounded(px(6.))
                     .hover(|this| this.bg(cx.theme().accent))
-                    .on_click(move |_, window, cx| on_remove(window, cx))
+                    .on_click(move |_, window, cx| {
+                        cx.stop_propagation();
+                        on_remove(window, cx);
+                    })
                     .child(
                         Icon::new(IconName::Close)
                             .with_size(Size::Size(px(12.)))
@@ -346,39 +435,88 @@ pub fn stat_row(stats: Vec<Stat>, cx: &App) -> Div {
 }
 
 /// Two-tone meter: solid accent progress over the faint remainder,
-/// `rounded-full`, 6px tall. `fraction` clamps to 0..1.
+/// `rounded-full`, 6px tall (8px while hovered). `fraction` clamps to
+/// 0..1. `tip` floats the mono breakdown pill over the bar on hover; the
+/// 18px margin appears with it so the pill never overlaps the stats.
 #[derive(IntoElement)]
 pub struct Meter {
+    id: ElementId,
     fraction: f32,
+    tip: Option<SharedString>,
 }
 
 impl Meter {
-    pub fn new(fraction: f32) -> Self {
+    pub fn new(id: impl Into<ElementId>, fraction: f32) -> Self {
         Self {
+            id: id.into(),
             fraction: fraction.clamp(0., 1.),
+            tip: None,
         }
+    }
+
+    /// Hover tooltip, e.g. the reimbursed/submitted breakdown.
+    pub fn tip(mut self, tip: impl Into<SharedString>) -> Self {
+        self.tip = Some(tip.into());
+        self
     }
 }
 
 impl RenderOnce for Meter {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let hovered = window.use_keyed_state((self.id.clone(), "hovered"), cx, |_, _| false);
+        let is_hover = *hovered.read(cx);
+        let tip = self.tip.clone();
+
         div()
+            .id(self.id)
             .w_full()
-            .h(px(6.))
-            .rounded_full()
-            .bg(super::Accent::faint(cx))
             .relative()
-            .overflow_hidden()
+            .when(tip.is_some(), |this| this.mt(px(18.)))
+            .role(gpui_kit::Role::ProgressIndicator)
+            .aria_numeric_value((self.fraction * 100.) as f64)
+            .aria_min_numeric_value(0.)
+            .aria_max_numeric_value(100.)
+            .aria_value(format!("{:.0}% reimbursed", self.fraction * 100.))
+            .on_hover(move |entered, _window, cx| {
+                hovered.update(cx, |h, cx| {
+                    *h = *entered;
+                    cx.notify();
+                });
+            })
             .child(
                 div()
-                    .absolute()
-                    .left_0()
-                    .top_0()
-                    .h_full()
-                    .w(relative(self.fraction))
+                    .w_full()
+                    .h(px(if is_hover { 8. } else { 6. }))
                     .rounded_full()
-                    .bg(super::Accent::solid(cx)),
+                    .bg(super::Accent::faint(cx))
+                    .cursor_pointer()
+                    .relative()
+                    .overflow_hidden()
+                    .child(
+                        div()
+                            .absolute()
+                            .left_0()
+                            .top_0()
+                            .h_full()
+                            .w(relative(self.fraction))
+                            .rounded_full()
+                            .bg(super::Accent::solid(cx)),
+                    ),
             )
+            .when_some(tip.filter(|_| is_hover), |this, text| {
+                this.child(
+                    h_flex().absolute().top(px(-22.)).left_0().child(
+                        h_flex()
+                            .rounded(px(7.))
+                            .bg(super::Accent::soft(cx))
+                            .px_2()
+                            .py(px(3.))
+                            .whitespace_nowrap()
+                            .text_color(super::Accent::ink(cx))
+                            .child(mono(text, cx).text_sm()),
+                    ),
+                )
+            })
     }
 }
 
@@ -435,8 +573,9 @@ impl CadenceCheckbox {
 }
 
 impl RenderOnce for CadenceCheckbox {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let (bg, border, fg) = if self.checked {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let checked = self.checked;
+        let (bg, border, fg) = if checked {
             (
                 super::Accent::solid(cx),
                 super::Accent::solid(cx),
@@ -449,28 +588,63 @@ impl RenderOnce for CadenceCheckbox {
                 cx.theme().muted_foreground,
             )
         };
-        let checked = self.checked;
+        let focus_handle = window
+            .use_keyed_state(self.id.clone(), cx, |_, cx| cx.focus_handle())
+            .read(cx)
+            .clone();
+        let is_focused = focus_handle.is_focused(window);
+        // The glyph fades through a spring so unchecking still shows it
+        // briefly — mounting only on `checked` would cut it instantly.
+        let mark_opacity = spring(
+            (self.id.clone(), "mark"),
+            if checked { 1. } else { 0. },
+            cx.theme().motion_tokens().spring_control,
+            window,
+            cx,
+        );
         let on_click = self.on_click.clone();
+        let on_key = self.on_click.clone();
         div()
             .id(self.id)
             .cursor_pointer()
-            .flex()
-            .items_center()
-            .justify_center()
+            .tab_index(0)
+            .track_focus(&focus_handle)
             .size(px(18.))
             .flex_shrink_0()
             .rounded(px(5.))
             .border_1()
             .border_color(border)
             .bg(bg)
-            .on_click(move |_, window, cx| {
-                on_click(&!checked, window, cx);
+            .flex()
+            .items_center()
+            .justify_center()
+            .hover(|this| {
+                if checked {
+                    this.bg(super::Accent::solid(cx).alpha(0.85))
+                } else {
+                    this.border_color(super::Accent::solid(cx))
+                        .bg(super::Accent::wash(cx))
+                }
             })
-            .when(checked, |this| {
+            .when(is_focused, |this| this.focus_ring_style(window, cx))
+            .on_click(move |_, window, cx| {
+                window.prevent_default();
+                on_click(&!checked, window, cx);
+                cx.stop_propagation();
+            })
+            .on_key_down(move |event, window, cx| {
+                if matches!(event.keystroke.key.as_ref(), "space" | "enter") {
+                    window.prevent_default();
+                    on_key(&!checked, window, cx);
+                    cx.stop_propagation();
+                }
+            })
+            .when(mark_opacity > 0., |this| {
                 this.child(
                     Icon::new(IconName::Check)
                         .with_size(Size::Size(px(12.)))
-                        .text_color(fg),
+                        .text_color(fg)
+                        .opacity(mark_opacity),
                 )
             })
     }
@@ -501,33 +675,70 @@ impl CadenceToggle {
 }
 
 impl RenderOnce for CadenceToggle {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let checked = self.checked;
+        let focus_handle = window
+            .use_keyed_state(self.id.clone(), cx, |_, cx| cx.focus_handle())
+            .read(cx)
+            .clone();
+        let is_focused = focus_handle.is_focused(window);
+        // The thumb's travel is a spring, so toggling mid-flight reverses
+        // from wherever it is instead of restarting or jumping.
+        let thumb_x = spring(
+            (self.id.clone(), "thumb"),
+            if checked { px(20.) } else { px(2.) },
+            cx.theme().motion_tokens().spring_move,
+            window,
+            cx,
+        );
         let on_click = self.on_click.clone();
+        let on_key = self.on_click.clone();
         div()
             .id(self.id)
             .cursor_pointer()
-            .flex()
+            .tab_index(0)
+            .track_focus(&focus_handle)
             .w(px(40.))
             .h(px(22.))
             .rounded_full()
-            .px(px(2.))
-            .items_center()
-            .when(checked, |this| this.justify_end())
-            .when(!checked, |this| this.justify_start())
+            .relative()
             .bg(if checked {
                 super::Accent::solid(cx)
             } else {
                 cx.theme().border
             })
+            .hover(|this| {
+                if checked {
+                    this.bg(super::Accent::solid(cx).alpha(0.85))
+                } else {
+                    this.bg(cx.theme().border.opacity(0.8))
+                }
+            })
+            .when(is_focused, |this| this.focus_ring_style(window, cx))
             .on_click(move |_, window, cx| {
+                window.prevent_default();
                 on_click(&!checked, window, cx);
+                cx.stop_propagation();
+            })
+            .on_key_down(move |event, window, cx| {
+                if matches!(event.keystroke.key.as_ref(), "space" | "enter") {
+                    window.prevent_default();
+                    on_key(&!checked, window, cx);
+                    cx.stop_propagation();
+                }
             })
             .child(
                 div()
+                    .absolute()
+                    .top(px(2.))
+                    .left(thumb_x)
                     .size(px(18.))
                     .rounded_full()
-                    .bg(cx.theme().popover)
+                    .bg(if cx.theme().mode.is_dark() {
+                        rgb(0xffffff).into()
+                    } else {
+                        cx.theme().popover
+                    })
                     .shadow_xs(),
             )
     }
@@ -562,14 +773,81 @@ pub fn btn_primary(id: impl Into<ElementId>, label: impl Into<SharedString>, cx:
         ButtonCustomVariant::new(cx)
             .color(cx.theme().foreground)
             .foreground(cx.theme().popover)
-            .hover(cx.theme().button_foreground)
-            .active(cx.theme().button_foreground),
+            .hover(cx.theme().foreground.alpha(0.82))
+            .active(cx.theme().foreground.alpha(0.75)),
     )
 }
 
 /// White bordered secondary button, `rounded` 10px.
 pub fn btn_secondary(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Button {
     Button::new(id).label(label).outline().rounded(px(10.))
+}
+
+/// The 28px bordered × button in card-header trailing slots (Filter,
+/// Assign to project). `on_close` owns the dismissal behavior; focusable
+/// like the other binary controls.
+#[derive(IntoElement)]
+pub struct CloseButton {
+    id: ElementId,
+    on_close: super::WindowCallback,
+}
+
+impl CloseButton {
+    pub fn new(id: impl Into<ElementId>) -> Self {
+        Self {
+            id: id.into(),
+            on_close: Rc::new(|_, _| {}),
+        }
+    }
+
+    pub fn on_close(mut self, f: impl Fn(&mut Window, &mut App) + 'static) -> Self {
+        self.on_close = Rc::new(f);
+        self
+    }
+}
+
+impl RenderOnce for CloseButton {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let focus_handle = window
+            .use_keyed_state(self.id.clone(), cx, |_, cx| cx.focus_handle())
+            .read(cx)
+            .clone();
+        let is_focused = focus_handle.is_focused(window);
+        let on_close = self.on_close.clone();
+        let on_key = self.on_close.clone();
+        div()
+            .id(self.id)
+            .cursor_pointer()
+            .tab_index(0)
+            .track_focus(&focus_handle)
+            .size(px(28.))
+            .rounded(px(8.))
+            .border_1()
+            .border_color(cx.theme().border)
+            .bg(cx.theme().popover)
+            .shadow_xs()
+            .flex()
+            .items_center()
+            .justify_center()
+            .hover(|this| this.bg(cx.theme().accent))
+            .when(is_focused, |this| this.focus_ring_style(window, cx))
+            .on_click(move |_, window, cx| {
+                window.prevent_default();
+                on_close(window, cx);
+            })
+            .on_key_down(move |event, window, cx| {
+                if matches!(event.keystroke.key.as_ref(), "space" | "enter" | "escape") {
+                    window.prevent_default();
+                    on_key(window, cx);
+                    cx.stop_propagation();
+                }
+            })
+            .child(
+                Icon::new(IconName::Close)
+                    .with_size(Size::Size(px(14.)))
+                    .text_color(cx.theme().muted_foreground),
+            )
+    }
 }
 
 /// Empty state: recessed illustration well, heading, muted body, action
