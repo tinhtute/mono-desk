@@ -571,7 +571,6 @@ fn close_button(id: &'static str, cx: &App) -> AnyElement {
         .border_color(cx.theme().border)
         .bg(cx.theme().popover)
         .shadow_xs()
-
         .hover(|this| this.bg(cx.theme().accent))
         .on_click(|_, window, cx| {
             window.push_notification(Notification::info("Panel closed (demo)"), cx);
