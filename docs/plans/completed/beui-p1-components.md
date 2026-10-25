@@ -1,13 +1,13 @@
 ---
 id: plan-beui-p1-components-20260930
 intake_id: intake-20260930-beui-p1-components
-status: active
+status: completed
 lane: normal
 created: 2026-09-30
-updated: 2026-10-01
+updated: 2026-10-25
 approach: planned
 planning_status: planned
-exact_next_action: "owner `make run` visual pass over the four phases (input field, labelled rows, tooltips, notifications, Channels/Digest, Region select/combobox, About tabs/context menu)"
+exact_next_action: "none — initiative closed 2026-10-25"
 ---
 
 # beUI P1 components → mono-desk
@@ -674,6 +674,21 @@ plus the owner `make run` visual pass. Baseline at `143e7b6`
 tests run headless via `#[gpui_kit::test]`; no GUI automation is
 claimed. Worker gates never launch the app.
 
+- 2026-10-25T14:38:53Z — phase `beui-p1-conditional` — verdict: APPROVE_WITH_REQUESTS — mode: full
+  - `make check` — clean, `Finished dev profile in 40.56s`, 0 warnings
+  - `make lint` — clean, `cargo clippy --all-targets -- -D warnings`, finished 13.41s
+  - `cargo test` — ok. 86 passed; 0 failed; 0 ignored; 0 filtered out (5.72s); 28 of these are `#[gpui_kit::test]` view tests (21 in `src/view_tests.rs`, 7 in `src/input_field.rs`)
+  - `make fmt-check` — clean (exit 0)
+  - scope: on target — HEAD `061401e`; every phase surface (input field, labelled rows, Channels/Digest, Region select/combobox, About tabs/context menu) present on main, merged through `quaqua/sude-beuip1` + `quaqua/tieude-beuip23` + `quaqua/mono-desk-integ`
+  - requirements: 1 met (Phase 0 pilot: `sync_from_app`/`reconcile` revalidate on reset and external write, `src/input_field.rs:322-333`, `:528-539`; nine unit tests incl. `external_value_sync_clears_a_stale_error_without_shaking`, `status_resolves_by_precedence`) | 2 met (per-control contracts: mixed Channels tri-state via `channels_parent_reports_mixed_state`, Digest radio with arrow keys via `digest_radio_selects_and_arrows_move`, Language `Select` via `language_select_commits_via_keyboard`, Time Zone `Combobox` via `timezone_combobox_searches_and_commits`, About tabs via `about_tabs_swap_panels`, context menu via `about_context_menu_copies_version`/`_escape_dismisses`, tooltip via `collapsed_rail_item_drives_tooltip_lifecycle`, notification via `test_notification_pushes_closes_and_autohides`) | 3 met (audit items 1–7 resolved in-file) | 4 met (colors unchanged — palette digest passes; `font.size` 14; `shadow: false`; the two vendor patches added are additive and listed in `Cargo.toml:39-46` and the port-spec table) | 5 met (gates above; owner visual accepted 2026-10-25)
+  - rollback_point: `7121a8c`
+  - requests: 1. `reconcile` calls `set_validation`, not `adopt_validation`, so an external write that lands *in* an error does bump the shake generation (`src/input_field.rs:331`) — this matches owner decision 7 ("external write into error shakes") and the test `external_write_into_error_updates_and_shakes` asserts it deliberately, but the doc-comment on `adopt_validation` (`:176-183`) claims the opposite for "an external write, a page reset". The behaviour is right; the comment is wrong. 2. `reconcile`'s `current == value` fast path (`:328-330`) is the one way a stale message survives — a changed validator over identical text skips revalidation; no current caller does this. 3. three app controls outside this plan's surfaces still lack accessible names (`src/main.rs:1279-1297`, `:1216-1220`, `src/shell.rs:106-113`) — carried to `ely-port`.
+  - not_independently_verified: the owner `make run` visual pass (input field look, labelled rows, tooltips, notification placement, Channels/Digest states, Region controls, About tabs/context menu). Headless session; the controls' *behaviour* is covered by the 28 headless view tests, which is weaker evidence for anything purely visual.
+  - judge: independent (read-only audits 2026-10-25 by separate reviewer agents that did not author the work: `src/input_field.rs` → validation precedence, disabled-hides-without-losing and mount-no-shake all traced and confirmed; `src/main.rs` → the composed controls and their a11y labels verified)
+  - judge_model: DeepSeek V4.1 Flash Max
+  - enforcement: local-only (no pre-commit hook installed; `scripts/install-git-hooks.sh` absent)
+  - failure_ledger: absent (`docs/evals/failures.md` does not exist)
+
 ## Progress
 
 - 2026-09-30 — plan authored from the audit + research reports on the
@@ -731,9 +746,10 @@ claimed. Worker gates never launch the app.
 
 ## Current State
 
-All four phases (`beui-p1-input-sync`, `beui-p1-existing-surfaces`,
-`beui-p1-new-surfaces`, `beui-p1-conditional`) are implemented and
-validated on `quaqua/tieude-beuip23` (worker gates green; owner visual
-pass pending). The token layer (`beui-tokens` plan) is merged in from
-`quaqua/tieude-beuitok` with its owner visual pass pending. The
-`zdesk-ui-port` plan remains active pending its owner visual pass.
+- active_phase: none
+- lifecycle_status: completed (2026-10-25)
+- branch: `main` (`061401e`); the work merged via `quaqua/sude-beuip1` + `quaqua/tieude-beuip23` and is on main
+- completed: all four phases (`beui-p1-input-sync`, `beui-p1-existing-surfaces`, `beui-p1-new-surfaces`, `beui-p1-conditional`); gates green (86 tests, 28 of them headless view tests); final independent `full` verdict APPROVE_WITH_REQUESTS
+- blockers: none
+- open_items: three carried, none blocking — the `adopt_validation` doc-comment claims external writes never shake while the code deliberately does (behaviour matches owner decision 7; fix the comment); `reconcile`'s equality fast path skips revalidation when a validator changes over identical text (`src/input_field.rs:328-330`); three controls outside this plan lack accessible names (`src/main.rs:1279-1297`, `:1216-1220`, `src/shell.rs:106-113`)
+- next action: none — initiative closed. `zdesk-ui-port` and `beui-tokens` closed the same day; `ely-port` remains active.

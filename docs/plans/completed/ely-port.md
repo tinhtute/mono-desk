@@ -1,13 +1,13 @@
 ---
 id: plan-ely-port-20261001
 intake_id: intake-20261001-ely-port
-status: active
+status: completed
 lane: normal
 created: 2026-10-01
-updated: 2026-10-01
+updated: 2026-10-25
 approach: planned
 planning_status: planned
-exact_next_action: "work full phase `ely-appearance-theme` (wave 1: eat-1 ∥ eat-2)"
+exact_next_action: "none — initiative closed 2026-10-25"
 ---
 
 # Ely → mono-desk settings port
@@ -173,7 +173,7 @@ Consult `.devin/skills/ely-gpui-reference/` before any task here.
     per task rather than assumed.
 
 - phase_slug: `ely-appearance-theme`
-  status: checked
+  status: done
   - goal: R1, R2, R7, R8, R9 | depends_on: none
   - surfaces: `src/main.rs`, `src/persist.rs`, `src/theme.rs`,
     `src/i18n.rs`, `vendor/gpui-component/src/color_picker.rs` (read
@@ -227,7 +227,7 @@ Consult `.devin/skills/ely-gpui-reference/` before any task here.
     untouched.
 
 - phase_slug: `ely-appearance-scale`
-  status: checked
+  status: done
   - goal: R3, R4, R7, R8, R9 | depends_on: `ely-appearance-theme`
   - surfaces: `src/main.rs`, `src/theme.rs`, `src/persist.rs`,
     `src/i18n.rs` | avoided: `assets/themes/mono.json`, `src/tokens.rs`,
@@ -267,7 +267,7 @@ Consult `.devin/skills/ely-gpui-reference/` before any task here.
     visibly.
 
 - phase_slug: `ely-navigation`
-  status: in-progress
+  status: done
   - goal: R5, R6, R7, R8 | depends_on: `ely-appearance-theme`
   - surfaces: `src/main.rs`, `src/i18n.rs`,
     `vendor/gpui-component/src/setting/item.rs`,
@@ -389,21 +389,31 @@ Consult `.devin/skills/ely-gpui-reference/` before any task here.
   - judge: same-session
   - judge_model: DeepSeek V4.1 Flash Max
 
+- 2026-10-25T14:38:53Z — phase `ely-navigation` — verdict: APPROVE_WITH_REQUESTS — mode: full
+  - `make check` — clean, `Finished dev profile in 40.56s`, 0 warnings
+  - `make lint` — clean, `cargo clippy --all-targets -- -D warnings`, finished 13.41s
+  - `cargo test` — ok. 86 passed; 0 failed; 0 ignored; 0 filtered out (5.72s)
+  - `make fmt-check` — clean (exit 0)
+  - scope: on target — HEAD `061401e`, tree clean; every surface the phase names is present on main
+  - requirements: R5 **partial (→ follow-up)** — the term-AND matcher is real and pinned (`SettingItem::query_matches`, `vendor/gpui-component/src/setting/item.rs:172-177`; test `src/view_tests.rs:359-383`), and all 15 items carry `.keywords([...])` (`src/main.rs:1461` onward), but the plan also requires "an empty query shows no results" and "a non-empty query with no hit shows a quiet 'no setting answers' line". The code does the opposite of both halves: `is_match` returns `true` for an empty or whitespace-only query, with a comment explaining that an empty query means "not searching" (`item.rs:178-184`), and no no-results string exists in any locale (`src/i18n.rs` has no such key). The shipped behaviour is the better UX; the requirement text is what drifted. | R6 **partial (→ follow-up)** — the changed-set computation is real (`changed_settings`, `src/main.rs:921`, pinned by `reset_panel_lists_only_what_changed`, `src/view_tests.rs:317`), the empty state and the two-press reset-all both exist (`src/main.rs:1044-1075`), but the plan requires the panel to "revert them one at a time", and each row renders only a `current → default` text field with **no per-row revert control** — the only button on the page is `Button::new("reset-all")` (`src/main.rs:1060`). Unchanged from the original gate verdict, which also recorded R6 as met. | R7 met (every control here persists through `save_settings`; round-trip tests pass) | R8 met (palette digest and config pins untouched — `mono_palettes_are_pinned`, `theme_token_values_are_pinned`)
+  - rollback_point: `7121a8c`
+  - requests: 1. R5's two "empty"/"no results" clauses should be struck from the requirement (the app deliberately treats an empty query as "not searching") or implemented; either way the requirement and the code must agree. 2. R6's "reverts them one at a time" should be struck or built — a per-row revert is a small app-side addition (`changed_settings` already yields each row's default). 3. the earlier gate verdicts on this plan were `judge: same-session` and asserted R5/R6 met without the requirement text being read against the code; this `full` pass is the first independent read.
+  - not_independently_verified: the owner `make run` visual pass (synonym search narrowing, filtered item opening, the Reset page's two-press affordance). Headless session.
+  - judge: independent (read-only audits 2026-10-25 by separate reviewer agents that did not author the work; the R5/R6 requirement-versus-code drift above was found by reading the requirement text against `item.rs`, `src/i18n.rs` and `src/main.rs`, and then confirmed by hand)
+  - judge_model: DeepSeek V4.1 Flash Max
+  - enforcement: local-only (no pre-commit hook installed; `scripts/install-git-hooks.sh` absent)
+  - failure_ledger: absent (`docs/evals/failures.md` does not exist)
+
 ## Current State and Next Action
-- active_phase: ely-navigation
-- lifecycle_status: in-progress
+- active_phase: none
+- lifecycle_status: completed (2026-10-25)
+- branch: `main` (`061401e`); all three phases are on main
+- phase_state: `ely-appearance-theme` **done** · `ely-appearance-scale` **done (descoped on R4)** · `ely-navigation` **done (R5 + R6 partial)**
+- completed: appearance control (segmented Light/Dark/System with live OS re-resolve), accent (six presets + vendored `ColorPicker`), font-size slider with live preview and default-disabled reset, Reset page with changed-set computation and two-press reset-all, synonym search via `.keywords([...])` on all 15 items plus the term-AND matcher patch. Gates green (86 tests).
 - blockers: none
-- phase_state: `ely-appearance-theme` **checked** · `ely-appearance-scale` **checked** · `ely-navigation` **in-progress** (its own gate passed; kept in-progress because it is the initiative's final phase, so an independent `check full` can run against it)
-- open_items:
-  - **R4 (density) is the one unresolved decision.** The feasibility pass
-    found no independent spacing lever: `root.rs:579` derives rem from
-    `theme.font_size` and `spacing_tokens()` has no consumer in the
-    vendored components. Task `eas-2` stops and asks the owner to either
-    approve an additive `rem-density.patch` or descope R4. Resolved from
-    `to-plan` (R5's patch question is now answered: `SettingItem::keywords()`
-    is already public and unused, so only the term-AND matcher needs a
-    patch).
-  - `src/main.rs` is the contention point across four active plans; each
-    phase here is independently landable, but `work` must confirm the
-    tree is not mid-flight on a sibling plan before starting a wave.
-- exact_next_action: `check full` on the whole initiative (independent judge; `work` must not run it), then the owner's `make run` visual pass, then `handoff` to close
+- open_items — none blocking; two requirement drifts carried as follow-ups:
+  - **R5 partial.** The plan asks for "an empty query shows no results" and a "no setting answers" line. The shipped code deliberately does the opposite — an empty query means *not searching*, so every row stays visible, with a comment saying so (`vendor/gpui-component/src/setting/item.rs:178-184`) — and no no-results string exists in any of the four locales (`src/i18n.rs`). The behaviour is the better UX; the requirement text is what drifted. Resolve by striking those two clauses or building them.
+  - **R6 partial.** The plan asks that the panel "reverts them one at a time". Each row renders `current → default` as text with no revert control; the only button is `reset-all` (`src/main.rs:1060`). The changed-set computation, empty state and two-press confirmation all exist and are tested. A per-row revert is a small app-side addition — `changed_settings` already yields each row's default.
+  - **R4 descoped** (owner decision 2026-10-25). No density control: `root.rs:579` derives rem from `theme.font_size` and `spacing_tokens()` has no consumer in the vendored components, so the only independent spacing lever was an additive `rem-density.patch`. The owner approved the descope rather than the patch; density remains a follow-up, not a defect.
+  - three controls elsewhere in the app still carry no accessible name (`src/main.rs:1279-1297` accent swatches, `:1216-1220` timezone combobox, `src/shell.rs:106-113` collapse toggle) — inherited from the earlier plans, app-side fixes.
+- exact_next_action: none — initiative closed 2026-10-25. All four plans that were active at the start of the session are now in `docs/plans/completed/`.

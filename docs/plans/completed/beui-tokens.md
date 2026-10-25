@@ -1,13 +1,13 @@
 ---
 id: plan-beui-tokens-20260930
 intake_id: intake-20260930-beui-tokens
-status: active
+status: completed
 lane: normal
 created: 2026-09-30
-updated: 2026-10-01
+updated: 2026-10-25
 approach: planned
 planning_status: planned
-exact_next_action: "owner `make run` visual pass: the pill's `sm` elevation in both modes, no clipping/grime (phase `beui-elevation`)"
+exact_next_action: "none — initiative closed 2026-10-25"
 ---
 
 # beUI token layer (spacing / typography / radius / overlay shadow)
@@ -219,7 +219,7 @@ phase 2 derives from; phase 2 adds the snapshot and its consumer.
 
 ### Phase `beui-token-baseline` — story_id: story-beui-token-baseline-20260930
 
-- **Status:** `done`
+- **Status:** `done` (closed on the baseline gate; final independent `full` review 2026-10-25 re-checked its pins)
 - **Goal:** the token layer's agreed values are documented and pinned; the
   spec's card-radius error is corrected; no behavior change.
 - **Depends on:** none.
@@ -277,7 +277,7 @@ config must be reconciled before phase 2) → halt, report.
 
 ### Phase `beui-elevation` — story_id: story-beui-elevation-20260930
 
-- **Status:** `implemented` — owner visual pass pending
+- **Status:** `done` (2026-10-25 — closed on the independent `full` verdict below; owner visual accepted 2026-10-25)
 - **Goal:** the app's elevation scale is resolved (non-mutating) into an
   app-owned snapshot and consumed by the app-owned raised surface;
   `theme.shadow` stays false.
@@ -395,11 +395,27 @@ Phase 2 additionally: owner `make run` visual pass (pill shadow, both
 modes, no clipping). GUI-verifiable items are recorded as owner checks in
 `## Progress`; no GUI is launched by the agent.
 
+- 2026-10-25T14:38:53Z — phase `beui-elevation` — verdict: APPROVE_WITH_REQUESTS — mode: full
+  - `make check` — clean, `Finished dev profile in 40.56s`, 0 warnings
+  - `make lint` — clean, `cargo clippy --all-targets -- -D warnings`, finished 13.41s
+  - `cargo test` — ok. 86 passed; 0 failed; 0 ignored; 0 filtered out (5.72s)
+  - `make fmt-check` — clean (exit 0)
+  - scope: on target — HEAD `061401e`, tree clean; `assets/themes/mono.json` last touched by `2f75822`, i.e. before this plan's baseline, so the frozen palette was never re-edited by it
+  - requirements: R1 met (`mono-light`/`mono-dark` both carry `font.size` 14, `radius` 8, `radius.lg` 16 — read from the embedded JSON; rem coupling pinned by `theme_token_values_are_pinned`) | R2 met (radius roles + the corrected card radius recorded in `docs/design/zdesk-port-spec.md`; the real card helper is `.rounded_lg()` = 7px at rem 14) | R3 met (`theme.resolve_semantic_config` only, `src/tokens.rs:36`; no `apply_semantic_config*` call exists anywhere in `src/`, so `theme.shadow` cannot flip — both modes still carry `shadow: false`) | R4 met (`UiTokens::sync` is the tail of `apply_overrides`, `src/theme.rs:163`, so a rebuild or font-size change cannot leave the scale stale; the scale is mode-independent by construction, `src/tokens.rs:20,55`) | R5 met (`mono_palettes_are_pinned` recomputes a canonical FNV-1a digest over every colour, `src/theme.rs:596-637`) | R6 met (no vendor patch, no new dependency — `Cargo.toml` dependency list unchanged since the baseline)
+  - rollback_point: `7121a8c`
+  - requests: 1. the palette digest test would pass vacuously if the embedded `themes` array were ever empty (`src/theme.rs:624` iterates the array; an empty set asserts nothing). 2. `clamp_font_size` is NaN-transparent — verified empirically that `f64::NAN.clamp(8.0, 32.0)` returns NaN — so the clamp alone would poison `px()`; it is currently safe only because `normalize_font_size` (`src/main.rs:2142-2144`) and `from_stored` (`src/main.rs:294-298`) both gate on `is_finite()` first. Worth a defensive `is_finite` guard inside `write_overrides`.
+  - not_independently_verified: the owner `make run` visual pass for the pill's `sm` elevation (both modes, no clipping, no grime). Headless session. The reviewers confirmed the scale resolves and is re-resolved correctly, but could not observe the rendered shadow.
+  - judge: independent (read-only audits 2026-10-25 by separate reviewer agents: `src/theme.rs` + `src/tokens.rs` → digest is a real pin, `resolve` is genuinely non-mutating and colour-free by borrow rules, `sync` cannot go stale; `src/main.rs` → every font-size/accent/appearance path funnels through `apply_overrides`)
+  - judge_model: DeepSeek V4.1 Flash Max
+  - enforcement: local-only (no pre-commit hook installed; `scripts/install-git-hooks.sh` absent)
+  - failure_ledger: absent (`docs/evals/failures.md` does not exist)
+
 ## Current State
 
-Both phases implemented on `quaqua/tieude-beuitok`; gates green. Next:
-owner `make run` visual pass for the pill's `sm` elevation (both modes,
-no clipping, no grime) and the unchanged density; then move this plan to
-`docs/plans/completed/`.
-`docs/plans/active/zdesk-ui-port.md` (prior initiative) is untouched; its
-owner visual pass is still pending.
+- active_phase: none
+- lifecycle_status: completed (2026-10-25)
+- branch: `main` (`061401e`); the work merged via `quaqua/tieude-beuitok` and is on main
+- completed: both phases (`beui-token-baseline`, `beui-elevation`); gates green (86 tests); final independent `full` verdict APPROVE_WITH_REQUESTS
+- blockers: none
+- open_items: two carried, non-blocking — the palette digest asserts nothing if the embedded theme array were emptied (`src/theme.rs:624`), and `clamp_font_size` is NaN-transparent so the safety comes from the callers' `is_finite()` gates (`src/main.rs:2142-2144`, `:294-298`) rather than from the clamp itself
+- next action: none — initiative closed. The sibling `zdesk-ui-port` plan closed the same day; `beui-p1-components` and `ely-port` remain.

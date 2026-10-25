@@ -1,13 +1,13 @@
 ---
 id: plan-zdesk-ui-port-20260928
 intake_id: intake-20260928-zdesk-ui-port
-status: active
+status: completed
 lane: normal
 created: 2026-09-28
-updated: 2026-09-28
+updated: 2026-10-25
 approach: planned
 planning_status: planned
-exact_next_action: "work phase `zdesk-correction` (wave: zc-1 ∥ zc-2 ∥ zc-3)"
+exact_next_action: "none — initiative closed 2026-10-25"
 ---
 
 # zdesk → mono-desk UI port (corrected)
@@ -185,7 +185,7 @@ cannot be expressed via `content_panel_style` → halt, report.
 
 ### Phase `zdesk-layout-fix` — story_id: story-zdesk-layout-fix-20260928
 
-- **Status:** `done`
+- **Status:** `done` (2026-10-25 — closed on the independent `full` verdict below)
 - **Goal:** match `docs/design/shell-layout-target.md` exactly — card is
   the only bordered surface (all-4-side 6px inset), borderless titlebar,
   no resizable-handle line, 240⇄48 icon-collapse with titlebar toggle +
@@ -372,12 +372,37 @@ test`. GUI-verifiable items recorded as `make run` owner checks in
 window drag, sidebar darker than card, icons on all items, brand above
 search, card radius/margins, both modes.
 
+- 2026-10-25T14:38:53Z — zdesk-ui-port — decision — absorb: memory docs/memory/persist-ownership-guard.md
+  (the `is_managed` whole-file `contains` check and the unescaped newline in `desktop_entry`; both found by the
+  final `full` review of `src/persist.rs`, recorded as guards for whoever next touches the persistence layer).
+  The phase's own work needed no new decision record: the two-region shell, the collapse mechanics and the
+  raised-card contract are all pinned by the vendored patch set and by `docs/design/zdesk-port-spec.md`.
+
+- 2026-10-25T14:38:53Z — phase `zdesk-layout-fix` — verdict: APPROVE_WITH_REQUESTS — mode: full
+  - `make check` — clean, `Finished dev profile in 40.56s`, 0 warnings
+  - `make lint` — clean, `cargo clippy --all-targets -- -D warnings`, finished 13.41s
+  - `cargo test` — ok. 86 passed; 0 failed; 0 ignored; 0 filtered out (5.72s)
+  - `make fmt-check` — clean (exit 0)
+  - scope: on target — HEAD `061401e`, working tree clean; no phase surface changed since the phase closed. Caveat: the `full` review audited the current tree (the whole app source), not a separable zdesk diff — the phase's changes are already merged, so there is no isolated diff left to review.
+  - requirements: R1 met (`AppShell` renders exactly two regions, `src/shell.rs:95-117`; no `StatusBar`/`ShellDestination`/nav column survives a repo-wide grep) | R2 met (header slot then search, `vendor/.../settings.rs:251-259`) | R3 superseded (`settings-group-icon.patch` removed group icons again; `settings-static-tree.patch` makes children iconless by design — `Cargo.toml:33-35`) | R4 met (`.rounded_lg().border_1().bg(group_box).m(px(6.)).overflow_hidden()`, `src/main.rs:2217-2226`) | R5 met (rail/statusbar/destinations absent) | R6 met (`cmd-q`/`cmd-w`/`cmd-b` only, `src/main.rs:2309-2312`)
+  - rollback_point: `7121a8c` (last commit before the phase's branch work merged)
+  - requests: 1. `set_launch_at_login` persists without `refresh_windows` (`src/main.rs:1302-1306`) and the Notifications page reset likewise (`src/main.rs:1593-1597`) — a toggle can persist without repainting. 2. a per-frame `expect` runs inside a render closure (`src/main.rs:746`). 3. three interactive controls carry no accessible name: accent swatches `src/main.rs:1279-1297`, shell collapse toggle `src/shell.rs:106-113`, timezone combobox `src/main.rs:1216-1220`. 4. `setting_pages` and the reset diff list rebuild every frame (`src/main.rs:2226`, `:1416`, `:921-986`). None is a layout defect — which is what this phase owns — so they are carried, not waived, into open_items and the follow-up plans.
+  - not_independently_verified: the owner `make run` visual pass (two-region layout, traffic lights, drag, card radius/margins, both modes). This session is headless, so layout correctness rests on the style code plus the owner's earlier visual review, not a rendered frame. The reviewers also could not confirm that `gpui-kit` applies `refine_style` after its own `border_b_1`, so the borderless titlebar rests on the owner's visual rather than on code alone.
+  - judge: independent (read-only audits 2026-10-25 by separate reviewer agents that did not author the diff: `src/shell.rs` + `src/main.rs` → two regions only, border killed last at `src/shell.rs:104`, traffic lights centred at y=18; `src/persist.rs`; `src/theme.rs` + `src/tokens.rs`; `src/input_field.rs` + `src/status_chip.rs` + `src/cadence/`)
+  - judge_model: DeepSeek V4.1 Flash Max
+  - enforcement: local-only (no pre-commit hook installed; `scripts/install-git-hooks.sh` absent)
+  - failure_ledger: absent (`docs/evals/failures.md` does not exist)
+
 ## Current State
 
-- branch: `main` (075992d); PRs #3–#9 merged, PR #1 closed as superseded
-- lifecycle_status: in-progress (no phase closed via `check` yet; no `full` independent review recorded in `## Validation`)
-- completed: tokens/fonts, shell (one borderless sidebar, raised card, active pill), main merge (i18n.rs, persist.rs, font 8-32); titlebar fix #4 (`TITLEBAR_H=36`, light y = 36/2 − 14/2; GPUI y = button top edge); spring sidebar collapse #5; InputField + token retune #6 (font 14, radius 8/16); Finance UI `src/cadence` #9 with input reset revalidation + wrapping PO tabs; gates green, 42 tests
-- review: codex reviewer on #6–#9 combined → SHIP-WITH-FIXES; the two priority fixes landed (01f12a9)
+- branch: `main` (061401e); PRs #3–#9 and #10–#23 merged, PR #1 closed as superseded
+- lifecycle_status: completed (2026-10-25; final phase closed on an independent `full` verdict)
+- completed: tokens/fonts, shell (one borderless sidebar, raised card, active pill), main merge (i18n.rs, persist.rs, font 8-32); titlebar fix #4 (`TITLEBAR_H=36`, light y = 36/2 − 14/2; GPUI y = button top edge); spring sidebar collapse #5; InputField + token retune #6 (font 14, radius 8/16); Finance UI `src/cadence` #9 with input reset revalidation + wrapping PO tabs; gates green, 86 tests
+- review: codex reviewer on #6–#9 combined → SHIP-WITH-FIXES; the two priority fixes landed (01f12a9); final independent `full` review 2026-10-25 → APPROVE_WITH_REQUESTS (four carried findings, none a layout defect)
 - blockers: none
-- open_items: owner `make run` visual pass on main (both modes, collapsed + expanded, font 8–32, Finance page); follow-ups: cadence checkbox/toggle/tabs lack keyboard focus (`src/cadence/blocks.rs:454`), Reset filter button has no handler (`showcase.rs:517`), bar chart col 8 overflows plot (`charts.rs:209`), Segmented pills overflow at large fonts, `docs/design/zdesk-port-spec.md` stale rows (`rounded_lg` 16px vs real 7px; titlebar 34px/(16,18)); `full` independent check before completing this plan
-- next action: owner runs `make run` on main; then `check full` on main for this plan
+- open_items:
+  - from the final `full` review, carried to the follow-up plans (all outside this phase's layout scope): `set_launch_at_login` and the Notifications page reset persist without repainting (`src/main.rs:1302-1306`, `:1593-1597`); a per-frame `expect` in a render closure (`src/main.rs:746`); three controls without accessible names (`src/main.rs:1279-1297`, `src/main.rs:1216-1220`, `src/shell.rs:106-113`); `setting_pages` rebuilt per frame (`src/main.rs:2226`).
+  - by owner decision (2026-10-25): the Finance page's eleven action buttons are handler-less because the page is a static visual clone of the reference — not a defect.
+  - minor, no caller at fault: cadence controls are click-only with no keyboard focus (`src/cadence/blocks.rs:437-476`); `MiniBars::span` underflows in debug builds on a reversed range (`src/cadence/charts.rs:63`).
+- next action: none — initiative closed; the carried findings belong to `docs/plans/active/beui-p1-components.md` and `ely-port.md`
+
