@@ -738,13 +738,16 @@ fn accent_field(label: SharedString) -> SettingField<SharedString> {
         {
             state.update(cx, |state, cx| state.set_value(selected, window, cx));
         }
+        // `filter_map`, not `expect`: this runs inside `render`, so a panic
+        // here would abort the app mid-frame rather than fail a gate. The
+        // hex strings are compile-time constants and
+        // `stored_accent_parses_or_falls_back` already asserts every preset
+        // parses, so no swatch is actually dropped — but a bad future edit
+        // now loses one swatch instead of crashing the window.
         let presets: Vec<(SharedString, Hsla)> = theme::ACCENT_PRESETS
             .iter()
-            .map(|(name, hex)| {
-                (
-                    SharedString::from(*name),
-                    theme::accent_from_str(hex).expect("presets are valid hex"),
-                )
+            .filter_map(|(name, hex)| {
+                theme::accent_from_str(hex).map(|color| (SharedString::from(*name), color))
             })
             .collect();
         div()
@@ -981,6 +984,52 @@ fn changed_settings(cx: &App) -> Vec<ChangedSetting> {
         now.display_name != default.display_name,
         now.display_name.to_string(),
         default.display_name.to_string(),
+    );
+    // The channels are one setting split over three switches, so they are
+    // one row: listing them separately would let "reset" mean something
+    // different from what the Notifications page shows.
+    let channels_changed = now.channel_email != default.channel_email
+        || now.channel_desktop != default.channel_desktop
+        || now.channel_digest != default.channel_digest;
+    let channel_summary = |email: bool, desktop: bool, digest: bool, lang: &SharedString| {
+        let mark = |on: bool| tr(if on { "state.on" } else { "state.off" }, lang);
+        format!(
+            "{}: {} · {}: {} · {}: {}",
+            tr("item.channel_email", lang),
+            mark(email),
+            tr("item.channel_desktop", lang),
+            mark(desktop),
+            tr("item.channel_digest", lang),
+            mark(digest),
+        )
+    };
+    push(
+        "item.channels",
+        channels_changed,
+        channel_summary(
+            now.channel_email,
+            now.channel_desktop,
+            now.channel_digest,
+            &now.language,
+        ),
+        channel_summary(
+            default.channel_email,
+            default.channel_desktop,
+            default.channel_digest,
+            &default.language,
+        ),
+    );
+    push(
+        "item.digest",
+        now.digest != default.digest,
+        tr(now.digest.label_key(), &now.language).to_string(),
+        tr(default.digest.label_key(), &default.language).to_string(),
+    );
+    push(
+        "item.timezone",
+        now.timezone != default.timezone,
+        now.timezone.to_string(),
+        default.timezone.to_string(),
     );
     changed
 }

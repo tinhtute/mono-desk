@@ -1000,3 +1000,47 @@ fn about_context_menu_copies_version(cx: &mut TestAppContext) {
     .unwrap();
     cx.run_until_parked();
 }
+
+/// The reset panel must list *every* setting that differs from its default —
+/// otherwise a user who changed only a channel, a digest cadence or a
+/// timezone sees "Nothing has changed" and the Reset all button stays
+/// disabled, so the change cannot be reverted from the UI at all.
+#[gpui_kit::test]
+fn reset_panel_covers_the_channel_digest_and_timezone_settings(cx: &mut TestAppContext) {
+    let cx = app_window(cx);
+    assert_eq!(cx.update(|_, cx| crate::changed_settings(cx).len()), 0);
+
+    // Move each structurally-distinct field the panel used to ignore.
+    cx.update(|_, cx| {
+        AppSettings::global_mut(cx).channel_email = false;
+        AppSettings::global_mut(cx).channel_desktop = false;
+        AppSettings::global_mut(cx).channel_digest = false;
+    });
+    let keys = cx.update(|_, cx| {
+        crate::changed_settings(cx)
+            .iter()
+            .map(|each| each.key)
+            .collect::<Vec<_>>()
+    });
+    assert!(
+        keys.contains(&"item.channels"),
+        "channels changed but the panel lists {keys:?}"
+    );
+
+    // Reset, then move only the timezone.
+    cx.update(|_, cx| {
+        *AppSettings::global_mut(cx) = AppSettings::default();
+        AppSettings::global_mut(cx).timezone = "Asia/Tokyo".into();
+    });
+    let keys = cx.update(|_, cx| {
+        crate::changed_settings(cx)
+            .iter()
+            .map(|each| each.key)
+            .collect::<Vec<_>>()
+    });
+    assert_eq!(
+        keys,
+        vec!["item.timezone"],
+        "a timezone change must be listed and revertable"
+    );
+}

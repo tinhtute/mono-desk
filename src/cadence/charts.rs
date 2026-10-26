@@ -56,20 +56,33 @@ impl MiniBars {
     }
 }
 
+/// Where a `(from, to)` band lands in a row of `count` bars, as fractions of
+/// the row width: `(left, width)`. Clamping happens here so a band whose
+/// indices fall outside the data cannot paint past the plot, and a reversed
+/// range cannot underflow the `usize`.
+fn band_geometry((from, to): (usize, usize), count: usize) -> (f32, f32) {
+    let last = count.saturating_sub(1);
+    let n = count.max(1) as f32;
+    let from = from.min(last);
+    let to = to.min(last);
+    let left = from as f32 / n;
+    let width = (to.saturating_sub(from) + 1) as f32 / n;
+    (left, width)
+}
+
 impl RenderOnce for MiniBars {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let n = self.values.len().max(1) as f32;
-        let slot = |ix: usize| ix as f32 / n;
-        let span = |(from, to): (usize, usize)| (to - from + 1) as f32 / n;
+        let count = self.values.len();
         div()
             .relative()
             .w_full()
             .h(self.height)
             .children(self.band.map(|range| {
+                let (left, width) = band_geometry(range, count);
                 div()
                     .absolute()
-                    .left(relative(slot(range.0)))
-                    .w(relative(span(range)))
+                    .left(relative(left))
+                    .w(relative(width))
                     .top_0()
                     .bottom_0()
                     .rounded(px(6.))
@@ -494,4 +507,36 @@ fn pill(frac: f32) -> Div {
         .h(px(8.))
         .rounded_full()
         .flex_shrink_0()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::band_geometry;
+
+    /// A band must stay inside the plot. An index past the last bar used to
+    /// give `left = 1.0` (so it painted outside the row), and a reversed
+    /// range used to underflow the `usize` and panic in a debug build.
+    #[test]
+    fn band_geometry_stays_inside_the_plot() {
+        let inside = |(_, w): (f32, f32)| w > 0. && w <= 1.0;
+
+        // The ordinary case: bar 1..=2 of 4.
+        let (left, width) = band_geometry((1, 2), 4);
+        assert!((left - 0.25).abs() < 1e-6, "left was {left}");
+        assert!((width - 0.5).abs() < 1e-6, "width was {width}");
+
+        // Past the end: clamped to the last slot, never `left == 1.0`.
+        let (left, width) = band_geometry((5, 5), 5);
+        assert!(left < 1.0, "left was {left}");
+        assert!((left + width) <= 1.0 + 1e-6, "band ran past the plot");
+
+        // Reversed range: no underflow, a one-slot band at the clamped start.
+        let (left, width) = band_geometry((40, 16), 60);
+        assert!(inside((left, width)));
+        assert!(left < 1.0);
+
+        // Every index clamped out (an empty chart) still yields a valid band.
+        let band = band_geometry((0, 0), 0);
+        assert!(inside(band), "empty chart gave {band:?}");
+    }
 }
