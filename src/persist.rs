@@ -370,6 +370,11 @@ fn save_to(path: &Path, s: &StoredSettings) -> bool {
 /// Write `contents` to `dir/name` via a temp file + rename. Creates `dir`
 /// when missing. Logs and returns `false` on any error; never leaves the
 /// temp file behind.
+///
+/// The temp file is opened `O_EXCL` so a symlink planted at its path cannot
+/// redirect the write, and the directory is fsynced after the rename so the
+/// new name survives a power loss — renaming alone orders the data but not
+/// the directory entry.
 fn atomic_write(dir: &Path, name: &str, contents: &str) -> bool {
     if let Err(e) = fs::create_dir_all(dir) {
         eprintln!("persist: cannot create {}: {e}", dir.display());
@@ -377,8 +382,15 @@ fn atomic_write(dir: &Path, name: &str, contents: &str) -> bool {
     }
     let tmp = dir.join(format!(".{name}.tmp-{}", std::process::id()));
     let target = dir.join(name);
+    // A temp file orphaned by a kill was never renamed, so it holds no
+    // state anyone reads. Clear it first: `create_new` would otherwise fail
+    // on it forever, wedging every later save under the same pid.
+    let _ = fs::remove_file(&tmp);
     let written = (|| -> io::Result<()> {
-        let mut f = fs::File::create(&tmp)?;
+        let mut f = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&tmp)?;
         f.write_all(contents.as_bytes())?;
         f.sync_all()
     })();
@@ -395,6 +407,14 @@ fn atomic_write(dir: &Path, name: &str, contents: &str) -> bool {
         );
         let _ = fs::remove_file(&tmp);
         return false;
+    }
+    // Persist the directory entry itself. On a crash the file contents are
+    // already on disk, but without this the rename can be lost, leaving the
+    // previous settings in place — a silent revert rather than data loss.
+    // Best-effort: not every platform can open a directory, and the write
+    // above already succeeded, so a failure here is not a failed save.
+    if let Ok(d) = fs::File::open(dir) {
+        let _ = d.sync_all();
     }
     true
 }
@@ -1025,5 +1045,20 @@ mod tests {
 
         // Absent path is not managed.
         assert!(!is_managed(&dir.join("missing"), marker));
+    }
+
+    /// `atomic_write` must survive a temp file left behind by a kill: with
+    /// `create_new` that orphan would otherwise block every later save under the
+    /// same pid, turning one interrupted save into permanent silence.
+    #[test]
+    fn atomic_write_replaces_an_orphaned_temp_file() {
+        let dir = tempdir("orphan");
+        let _g = Cleanup(dir.clone());
+        let orphan = dir.join(format!(".x.conf.tmp-{}", std::process::id()));
+        fs::write(&orphan, "stale").unwrap();
+
+        assert!(atomic_write(&dir, "x.conf", "fresh"));
+        assert_eq!(fs::read_to_string(dir.join("x.conf")).unwrap(), "fresh");
+        assert!(!orphan.exists(), "the orphan must be cleared, not left");
     }
 }
