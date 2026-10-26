@@ -79,7 +79,7 @@ tokens; `base.*` accent shades (`base.cyan` `#124b68`/`#18c7e2`, etc.)
 track the zdesk accent/status hues.
 
 Theme-level keys in both configs (`mono.json`): `"radius": 8`,
-`"radius.lg": 16`, `"shadow": false`, `"font.family": "Inclusive Sans"`,
+`"radius.lg": 16`, `"shadow": false`, `"font.family": "Momo Trust Sans"`,
 `"font.size": 14`, `"mono_font.family": "Google Sans Code"`,
 `"mono_font.size": 12`.
 
@@ -173,16 +173,24 @@ inactive sidebar labels use `muted.foreground` instead of
 
 | Role | Family | Weights vendored | Applied as |
 |---|---|---|---|
-| UI sans (body, labels, controls) | Inclusive Sans | 400 / 500 / 600 / 700 | `font.family`, `font.size` = 14 (zdesk `text-body`; raised from 13 by the beUI pilot); sidebar labels are native `SidebarMenuItem` `text_sm` |
+| UI sans (body, labels, controls) | Momo Trust Sans | 400 / 500 / 600 / 700 | `font.family`, `font.size` = 14 (zdesk `text-body`; raised from 13 by the beUI pilot); sidebar labels are native `SidebarMenuItem` `text_sm` |
 | Mono (code, telemetry) | Google Sans Code | 400 / 500 | `mono_font.family`, `mono_font.size` = 12 (zdesk `text-code`) |
 | Wordmark | Xanh Mono | 400 regular + 400 italic | `sidebar_brand()` wordmark — 17px italic in `theme.foreground` (`src/shell.rs:45-67`); zdesk specifies a 15px semibold sans wordmark — locked deviation per owner decision. Xanh Mono ships no 600 face, so the requested `SEMIBOLD` resolves to Regular; presence comes from size + colour |
 
-Vendoring: Inclusive Sans was copied as static TTFs from
-`~/Library/Fonts` (installed upstream statics — no instancer pass
-needed); registered alongside Hanken Grotesk, Google Sans Code, and Xanh
-Mono in `theme::install` (`src/theme.rs:85-100`) via
-`cx.text_system().add_fonts` before `Theme::change`. Hanken Grotesk
-remains registered but is no longer the theme family.
+Vendoring: Momo Trust Sans is vendored as static TTFs (400/500/600/700)
+downloaded from the Google Fonts static endpoints for
+`family=Momo+Trust+Sans` — the variable `MomoTrustSans[wght].ttf` is *not*
+usable because GPUI has no variation-axis support and never synthesizes
+bold, so it would render every weight at 400. The four statics are
+registered alongside Google Sans Code and Xanh Mono in `theme::install`
+(`src/theme.rs:197-213`) via `cx.text_system().add_fonts` before
+`Theme::change`. The family is declared via `TYPOGRAPHIC_FAMILY` (name 16)
+on the 500/600 faces, so `fontdb` (Linux) and CoreText (macOS) both
+resolve all four under `Momo Trust Sans`;
+`embedded_ui_faces_share_one_family_and_distinct_weights` pins that.
+Hanken Grotesk remains registered but is no longer the theme family.
+Upstream licence: `assets/fonts/MomoTrustSans-OFL.txt` (SIL OFL 1.1, no
+Reserved Font Name).
 
 ## Interactions
 
