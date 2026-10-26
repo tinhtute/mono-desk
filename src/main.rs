@@ -1211,6 +1211,9 @@ fn timezone_field(
         div()
             .id("timezone-combo")
             .debug_selector(|| "timezone-combo".into())
+            // The row carries the visible title; name the combobox itself so
+            // the control is announced rather than just its container.
+            .aria_label(tr("item.timezone", &lang))
             .when(options.layout().is_horizontal(), |this| this.w_64())
             .child(
                 Combobox::new(&state)
@@ -1294,6 +1297,13 @@ fn accent_swatch(name: &SharedString, color: Hsla, selected: bool, cx: &App) -> 
         .border_1()
         .border_color(border)
         .cursor_pointer()
+        // A swatch is colour-only, so the name is the only thing a screen
+        // reader can announce. The selected one says so too.
+        .aria_label(if selected {
+            SharedString::from(format!("{name}, selected"))
+        } else {
+            name.clone()
+        })
         .on_click(move |_, _, cx| set_accent(Some(color), cx))
 }
 
@@ -1303,6 +1313,9 @@ fn set_launch_at_login(val: bool, cx: &mut App) {
     AppSettings::global_mut(cx).launch_at_login = val;
     persist::autostart_converge(val);
     save_settings(cx);
+    // The row mirrors the global on render; refresh so the change shows up
+    // without waiting for the next unrelated re-render.
+    cx.refresh_windows();
 }
 
 /// The settings-row `Switch`.
@@ -1594,6 +1607,11 @@ impl SettingsWindow {
                                         AppSettings::global_mut(cx).notifications_enabled =
                                             notifications_default;
                                         save_settings(cx);
+                                        // The field mirrors the global on
+                                        // render; refresh so the reset shows
+                                        // up without waiting for the next
+                                        // unrelated re-render.
+                                        cx.refresh_windows();
                                     },
                                 ),
                             )

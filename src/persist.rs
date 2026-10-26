@@ -399,10 +399,20 @@ fn atomic_write(dir: &Path, name: &str, contents: &str) -> bool {
     true
 }
 
-/// Whether the file at `path` carries our ownership `marker`.
+/// Whether the file at `path` carries our ownership `marker` on a line of
+/// its own.
+///
+/// The check is line-anchored on purpose: a whole-file `contains` would
+/// treat any foreign file that merely *mentions* the marker — inside a
+/// comment, or as a fragment of a longer value — as ours, and
+/// `write_guarded`/`remove_guarded` would then overwrite or delete it.
+/// Both formats we write put the marker alone on its line (indented in the
+/// plist, column-zero in the `.desktop` file), so comparing trimmed lines
+/// accepts every file we really wrote and rejects one that only quotes the
+/// marker.
 fn is_managed(path: &Path, marker: &str) -> bool {
     fs::read_to_string(path)
-        .map(|text| text.contains(marker))
+        .map(|text| text.lines().any(|line| line.trim() == marker))
         .unwrap_or(false)
 }
 
@@ -481,9 +491,28 @@ pub fn autostart_path() -> Option<PathBuf> {
 /// `std::env::current_exe()` display path.
 #[cfg(target_os = "linux")]
 pub fn desktop_entry(exe: &str) -> String {
-    // freedesktop quoting: inside double quotes, `\` and `"` must be
-    // backslash-escaped or the Exec line mis-parses.
-    let exe = exe.replace('\\', "\\\\").replace('"', "\\\"");
+    // freedesktop quoting: inside double quotes `\`, `"`, `$` and a
+    // backtick must be backslash-escaped or the Exec line mis-parses.
+    let mut escaped = String::with_capacity(exe.len());
+    for ch in exe.chars() {
+        match ch {
+            '\\' => escaped.push_str("\\\\"),
+            '"' => escaped.push_str("\\\""),
+            '$' => escaped.push_str("\\$"),
+            '`' => escaped.push_str("\\`"),
+            // A raw newline would end the `Exec=` line and let the rest of
+            // the string inject arbitrary `.desktop` keys. Control
+            // characters are written as their `\n`/`\t`/`\r` escapes,
+            // which the spec defines for string values; anything else
+            // unprintable is dropped.
+            '\n' => escaped.push_str("\\n"),
+            '\r' => escaped.push_str("\\r"),
+            '\t' => escaped.push_str("\\t"),
+            c if c.is_control() => {}
+            c => escaped.push(c),
+        }
+    }
+    let exe = escaped;
     format!(
         "[Desktop Entry]\n\
          Type=Application\n\
@@ -830,6 +859,11 @@ mod tests {
         assert_eq!(entries.len(), 1);
     }
 
+    /// The ownership check is line-anchored: a foreign file that merely
+    /// *mentions* the marker must not be treated as ours, or a guarded
+    /// write/remove would clobber it. Both formats we write put the marker
+    /// alone on its line (indented in the plist, column-zero in the
+    /// `.desktop` file).
     #[test]
     fn is_managed_checks_marker() {
         let dir = tempdir("managed");
@@ -838,8 +872,19 @@ mod tests {
         assert!(!is_managed(&path, "MARK")); // absent
         fs::write(&path, "no marker here").unwrap();
         assert!(!is_managed(&path, "MARK"));
-        fs::write(&path, "has MARK inside").unwrap();
+        // Marker alone on a line — our own shape — is ours.
+        fs::write(&path, "body\nMARK\n").unwrap();
         assert!(is_managed(&path, "MARK"));
+        // Indented marker is ours too (the plist's `<key>` line).
+        fs::write(&path, "<dict>\n\tMARK\n</dict>").unwrap();
+        assert!(is_managed(&path, "MARK"));
+        // A bare mention inside a longer line is NOT ours: that is exactly
+        // the case that let `is_managed` clobber foreign files.
+        fs::write(&path, "has MARK inside").unwrap();
+        assert!(!is_managed(&path, "MARK"));
+        // A comment that quotes the marker is NOT ours either.
+        fs::write(&path, "# do not edit — MARK was here\n").unwrap();
+        assert!(!is_managed(&path, "MARK"));
     }
 
     #[test]
@@ -854,10 +899,25 @@ mod tests {
         assert_eq!(fs::read_to_string(&path).unwrap(), "foreign");
         assert!(!remove_guarded(&path, "MARK"));
         assert_eq!(fs::read_to_string(&path).unwrap(), "foreign");
-        // Managed file: write replaces, remove deletes.
-        fs::write(&path, "MARK old").unwrap();
-        assert!(write_guarded(&path, "MARK body", "MARK"));
-        assert_eq!(fs::read_to_string(&path).unwrap(), "MARK body");
+        // Foreign file that only *mentions* the marker still refuses.
+        fs::write(&path, "foreign with MARK quoted").unwrap();
+        assert!(!write_guarded(&path, "MARK body", "MARK"));
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            "foreign with MARK quoted"
+        );
+        // Managed file: marker alone on its line. Write replaces, remove
+        // deletes.
+        fs::write(&path, "[Desktop Entry]\nMARK\n").unwrap();
+        assert!(write_guarded(
+            &path,
+            "[Desktop Entry]\nMARK\nbody\n",
+            "MARK"
+        ));
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            "[Desktop Entry]\nMARK\nbody\n"
+        );
         assert!(remove_guarded(&path, "MARK"));
         assert!(!path.exists());
         // Absent remove is already converged.
@@ -931,5 +991,39 @@ mod tests {
         fs::write(&path, "foreign").unwrap();
         assert!(!remove_at(&path));
         assert!(path.exists());
+    }
+
+    /// The ownership check is line-anchored: a foreign file that merely
+    /// *mentions* the marker must not be treated as ours, or a guarded
+    /// write/remove would clobber it.
+    #[test]
+    fn is_managed_requires_the_marker_on_its_own_line() {
+        let dir = tempdir("managed");
+        let _g = Cleanup(dir.clone());
+        let path = dir.join("entry");
+        let marker = "X-Mono-Desk-Managed=true";
+
+        // Our own shape: marker alone on a line, trimmed either way.
+        fs::write(
+            &path,
+            "[Desktop Entry]\nExec=\"/usr/bin/mono\"\nX-Mono-Desk-Managed=true\n",
+        )
+        .unwrap();
+        assert!(is_managed(&path, marker));
+
+        // Indented (the plist's `<key>` line has leading whitespace) is ours.
+        fs::write(&path, "<dict>\n\t<key>MonoDeskManaged</key>\n</dict>").unwrap();
+        assert!(is_managed(&path, "<key>MonoDeskManaged</key>"));
+
+        // A comment that mentions the marker is NOT ours.
+        fs::write(&path, "# do not edit — X-Mono-Desk-Managed=true was here\n").unwrap();
+        assert!(!is_managed(&path, marker));
+
+        // A value that merely contains the marker as a substring is NOT ours.
+        fs::write(&path, "Comment=X-Mono-Desk-Managed=true and more\n").unwrap();
+        assert!(!is_managed(&path, marker));
+
+        // Absent path is not managed.
+        assert!(!is_managed(&dir.join("missing"), marker));
     }
 }

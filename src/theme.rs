@@ -28,7 +28,16 @@ pub const FONT_SIZE_MIN: f64 = 8.0;
 pub const FONT_SIZE_MAX: f64 = 32.0;
 
 /// Clamp a requested UI font size into the supported range.
+///
+/// `f64::clamp` is NaN-transparent — `NaN.clamp(8.0, 32.0)` returns `NaN`
+/// — so a NaN would flow straight into `px()` and poison the rem-based
+/// layout. NaN falls back to the default size instead. Infinities need no
+/// special case: `clamp` already saturates them to the bounds. Callers
+/// gate on `is_finite` before this, so the NaN arm is a backstop.
 pub fn clamp_font_size(size: f64) -> f64 {
+    if size.is_nan() {
+        return 14.0;
+    }
     size.clamp(FONT_SIZE_MIN, FONT_SIZE_MAX)
 }
 
@@ -646,6 +655,11 @@ mod tests {
         assert_eq!(clamp_font_size(FONT_SIZE_MAX), FONT_SIZE_MAX);
         assert_eq!(clamp_font_size(33.0), FONT_SIZE_MAX);
         assert_eq!(clamp_font_size(999.0), FONT_SIZE_MAX);
+        // Non-finite input must not pass through: `f64::clamp` alone is
+        // NaN-transparent and would hand `px()` a NaN rem size.
+        assert_eq!(clamp_font_size(f64::NAN), 14.0);
+        assert_eq!(clamp_font_size(f64::INFINITY), FONT_SIZE_MAX);
+        assert_eq!(clamp_font_size(f64::NEG_INFINITY), FONT_SIZE_MIN);
     }
 
     /// The startup default and the page reset closures both use
