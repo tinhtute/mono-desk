@@ -1260,9 +1260,14 @@ fn timezone_field(
         div()
             .id("timezone-combo")
             .debug_selector(|| "timezone-combo".into())
-            // The row carries the visible title; name the combobox itself so
-            // the control is announced rather than just its container.
-            .aria_label(tr("item.timezone", &lang))
+            // TODO(a11y): the Timezone `Combobox` is announced without a name.
+            // `Combobox` exposes no `accessibility_label` at any layer (unlike
+            // `Select`, which does), and a plain `div` wrapper with
+            // `aria_label` is filtered out of the a11y tree, so a name here
+            // would announce nothing while looking like it worked. Naming it
+            // needs either a vendored patch following the
+            // `select.rs:642` pattern or a switch to `Select`, which is a
+            // product change (Combobox is searchable here).
             .when(options.layout().is_horizontal(), |this| this.w_64())
             .child(
                 Combobox::new(&state)

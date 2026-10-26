@@ -60,8 +60,18 @@ registered leaf. For a container or a non-leaf, filter
 
 ## Still unverified
 
-The accent swatch row and its `ColorPicker` produce **no** a11y node in a
-headless frame at all (26 snapshots total, none under `accent`), so the
-`.role(Role::Button)` + `.aria_label(...)` added to `accent_swatch` cannot
-be confirmed by test. That needs a real `make run`. Do not read the
-passing test suite as evidence that the swatches are announced.
+Two controls could not be named, and are now marked rather than faked:
+
+- **Accent swatch row / `ColorPicker`** produce no a11y node at all in a
+  headless frame (26 snapshots total, none under `accent`), so the
+  `.role(Role::Button)` + `.aria_label(...)` on `accent_swatch` cannot be
+  confirmed by test. Needs a real `make run`.
+- **Timezone `Combobox`** is announced with no name. `Combobox` exposes no
+  `accessibility_label` at any layer — unlike `Select`
+  (`vendor/gpui-component/src/select.rs:642`), it never passes one to
+  `BaseSelect` in `render`. A `div` wrapper with `aria_label` (and even with
+  `.role(Role::ComboBox)`) still did not appear in the tree, so it was
+  removed rather than left as decoration that looks like it works. Fixing
+  this properly means a vendored patch following the `select.rs:642` pattern,
+  or switching the field to `Select` — which loses search, a product change.
+
