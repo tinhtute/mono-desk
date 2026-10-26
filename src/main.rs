@@ -862,6 +862,19 @@ fn font_size_field(label: SharedString) -> SettingField<SharedString> {
                             .items_center()
                             .child(
                                 div().flex_1().min_w_0().child(
+                                    // TODO(a11y): the Font Size slider is
+                                    // announced as "14, slider" with no name.
+                                    // The vendored `Slider` sets value, min,
+                                    // max and orientation on the a11y node but
+                                    // never a name, and it exposes no label
+                                    // API. Wrapping it in a div with
+                                    // `aria_label` was tried on the running
+                                    // app and did NOT work — a role-less div
+                                    // is filtered out of the tree, so the name
+                                    // was still absent from the real AX tree.
+                                    // Fixing it needs a vendored patch, or a
+                                    // role + label on a node that also owns
+                                    // the value.
                                     Slider::new(&state)
                                         .horizontal()
                                         .disabled(options.is_disabled()),
@@ -1354,13 +1367,19 @@ fn accent_swatch(name: &SharedString, color: Hsla, selected: bool, cx: &App) -> 
         // A swatch is colour-only, so the name is the only thing a screen
         // reader can announce. `role` is required, not decorative: a `div`
         // with no role is filtered out of the accessibility tree, so the
-        // label alone would announce nothing. The selected one says so too.
+        // label alone would announce nothing.
         .role(gpui_kit::Role::Button)
-        .aria_label(if selected {
-            SharedString::from(format!("{name}, selected"))
-        } else {
-            name.clone()
-        })
+        .aria_label(name.clone())
+        // Selection is a *description*, not part of the name: "violet,
+        // selected" made the state read as the swatch's name.
+        //
+        // Checked against the running app. `aria_selected` does not survive
+        // the trip — gpui writes `AccessKit::Node::selected`, but macOS
+        // exposes no `AXSelected` on a plain AXButton, and `Role::RadioButton`
+        // (which would) drops the swatch out of the tree entirely.
+        // `aria_description` does survive, landing in `AXHelp`, so a screen
+        // reader still announces the selected swatch.
+        .when(selected, |this| this.aria_description("Selected"))
         .on_click(move |_, _, cx| set_accent(Some(color), cx))
 }
 

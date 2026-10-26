@@ -58,20 +58,37 @@ registered leaf. For a container or a non-leaf, filter
 `.label()` / `.role()`. The working assertion is
 `view_tests::sidebar_collapse_toggle_is_named`.
 
-## Still unverified
+## Verified on the running app (macOS AX tree)
 
-Two controls could not be named, and are now marked rather than faked:
+`make run`, then dump the real tree with `AXUIElementCreateApplication` —
+this is the only way to know what a screen reader actually gets. Findings:
 
-- **Accent swatch row / `ColorPicker`** produce no a11y node at all in a
-  headless frame (26 snapshots total, none under `accent`), so the
-  `.role(Role::Button)` + `.aria_label(...)` on `accent_swatch` cannot be
-  confirmed by test. Needs a real `make run`.
-- **Timezone `Combobox`** is announced with no name. `Combobox` exposes no
-  `accessibility_label` at any layer — unlike `Select`
-  (`vendor/gpui-component/src/select.rs:642`), it never passes one to
-  `BaseSelect` in `render`. A `div` wrapper with `aria_label` (and even with
-  `.role(Role::ComboBox)`) still did not appear in the tree, so it was
-  removed rather than left as decoration that looks like it works. Fixing
-  this properly means a vendored patch following the `select.rs:642` pattern,
-  or switching the field to `Select` — which loses search, a product change.
+- **Accent swatches are named**: `AXButton title=teal|blue|green|violet|
+  amber|red`. The `.role(Role::Button)` is what put them in the tree; the
+  headless test suite could never have shown this (the swatch row produces
+  no a11y node in a test frame at all).
+- **Selection is `AXHelp`, not `AXSelected`.** `aria_selected` is written by
+  gpui as `AccessKit::Node::selected`, but macOS exposes no `AXSelected` on a
+  plain `AXButton`; `Role::RadioButton`, which would, drops the swatch out of
+  the tree entirely (verified — the swatches vanished). `aria_description`
+  survives and lands in `AXHelp`: the selected swatch reads
+  `AXHelp=Selected`. So selection is announced by description, not by state.
+- **The sidebar toggle is named**: `AXButton title=Toggle sidebar`.
+- **The Font Size slider is NOT named**: `AXSlider` with
+  `AXValue=14 AXMinValue=8 AXMaxValue=32` and no title. The vendored
+  `Slider` sets value/min/max/orientation but never a name and exposes no
+  label API. Wrapping it in `div().aria_label(...)` was tried on the running
+  app and did **not** work — a role-less div is filtered out, so the name was
+  still absent. Recorded as a TODO at the slider.
+- **The Timezone combobox is NOT named**: `AXPopUpButton` with no title.
+  `Combobox` exposes no `accessibility_label` at any layer — unlike `Select`
+  (`vendor/gpui-component/src/select.rs:642`) it never passes one to
+  `BaseSelect`. A `div` wrapper with `aria_label` *and* `.role(Role::ComboBox)`
+  also failed to appear. Fixed only by a vendored patch, or by switching the
+  field to `Select` (loses search — a product change).
+
+Note that the AX tree is unstable while the app is not frontmost: reads
+return zero windows when another app has focus. `app.unhide()` +
+`activate` + set `AXFrontmost` makes the tree readable.
+
 
