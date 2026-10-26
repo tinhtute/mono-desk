@@ -326,6 +326,12 @@ fn reconcile(
     field: &mut FieldState,
 ) -> Option<SharedString> {
     if current == value.as_ref() {
+        // Same text, but the message may still be stale: the validator closes
+        // over the UI language, so a locale change must re-render the error in
+        // the new one. `adopt_validation` re-validates without shaking — the
+        // user typed nothing, so a shake here would punish them for switching
+        // language.
+        field.adopt_validation(validate(value));
         return None;
     }
     field.set_validation(validate(value));
@@ -586,6 +592,40 @@ mod tests {
 
     fn error(message: &str) -> Option<Validation> {
         Some(Validation::Error(message.into()))
+    }
+
+    /// The message must follow the language, not the keystroke. A validator
+    /// closes over the UI language, so after switching locale the same text
+    /// deserves a different message — but the old message used to survive
+    /// because `reconcile` skipped validation when the text was unchanged.
+    #[test]
+    fn reconcile_retranslates_a_message_for_unchanged_text() {
+        let mut field = FieldState::new();
+        let english: Validator = Rc::new(|_: &str| error("too short"));
+        let vietnamese: Validator = Rc::new(|_: &str| error("quá ngắn"));
+
+        // Type an invalid value: the English message shows and shakes once.
+        assert!(reconcile("ab", &"ab".into(), &english, &mut field).is_none());
+        assert_eq!(
+            field.visible_message().map(|m| m.as_ref()),
+            Some("too short")
+        );
+        let shakes = field.shake_generation();
+
+        // Switch language: same text, same error, new wording. Adopting it
+        // must not shake — the user did not type.
+        assert!(reconcile("ab", &"ab".into(), &vietnamese, &mut field).is_none());
+        assert_eq!(
+            field.visible_message().map(|m| m.as_ref()),
+            Some("quá ngắn"),
+            "message kept the old language"
+        );
+        assert_eq!(
+            field.shake_generation(),
+            shakes,
+            "a locale switch must not shake"
+        );
+        assert_eq!(field.status(), FieldStatus::Error);
     }
 
     fn success(message: &str) -> Option<Validation> {

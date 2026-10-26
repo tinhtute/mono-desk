@@ -630,7 +630,17 @@ mod tests {
         let set: serde_json::Value =
             serde_json::from_str(MONO_THEMES).expect("embedded mono.json must deserialize");
 
-        for theme in set["themes"].as_array().expect("themes array") {
+        let themes = set["themes"].as_array().expect("themes array");
+        // Without this, an empty or renamed `themes` array would make the
+        // loop below iterate zero times and the test would pass while
+        // pinning nothing at all.
+        assert_eq!(
+            themes.len(),
+            2,
+            "expected exactly mono-light and mono-dark, found {} theme(s)",
+            themes.len()
+        );
+        for theme in themes {
             let name = theme["name"].as_str().expect("theme name");
             let canonical = canonical_colors(&theme["colors"]);
             let expected = match name {
