@@ -5,7 +5,7 @@
     {
       "name": "mono-light",
       "mode": "light",
-      "font.family": "Inclusive Sans",
+      "font.family": "Momo Trust Sans",
       "font.size": 14,
       "mono_font.family": "Google Sans Code",
       "mono_font.size": 12,
@@ -156,7 +156,7 @@
     {
       "name": "mono-dark",
       "mode": "dark",
-      "font.family": "Inclusive Sans",
+      "font.family": "Momo Trust Sans",
       "font.size": 14,
       "mono_font.family": "Google Sans Code",
       "mono_font.size": 12,

@@ -15,8 +15,10 @@ gpui-kit = "=0.6.1"
 # default features).
 gpui-kit = { version = "=0.6.1", features = ["test-support"] }
 serde_json = "1.0.154"
-# Same parser the font stack uses (`fontdb` → `ttf-parser`), so the wordmark
-# face test loads the embedded bytes exactly as the app does.
+# Parses the embedded font bytes the way the Linux text backend does
+# (`cosmic_text` → `fontdb` → `ttf-parser`); macOS renders through
+# `zed-font-kit` → CoreText but reads the same `name`/`OS/2` tables, so the
+# face tests catch a bad face on either platform.
 ttf-parser = "0.25"
 
 # Vendored gpui-component 0.6.1 — deltas in vendor/patches/

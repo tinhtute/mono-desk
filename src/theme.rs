@@ -200,10 +200,10 @@ pub fn install(cx: &mut App, font_size: f64, accent: Option<Hsla>) {
             Cow::Borrowed(&include_bytes!("../assets/fonts/HankenGrotesk-Medium.ttf")[..]),
             Cow::Borrowed(&include_bytes!("../assets/fonts/HankenGrotesk-SemiBold.ttf")[..]),
             Cow::Borrowed(&include_bytes!("../assets/fonts/HankenGrotesk-Bold.ttf")[..]),
-            Cow::Borrowed(&include_bytes!("../assets/fonts/InclusiveSans-Regular.ttf")[..]),
-            Cow::Borrowed(&include_bytes!("../assets/fonts/InclusiveSans-Medium.ttf")[..]),
-            Cow::Borrowed(&include_bytes!("../assets/fonts/InclusiveSans-SemiBold.ttf")[..]),
-            Cow::Borrowed(&include_bytes!("../assets/fonts/InclusiveSans-Bold.ttf")[..]),
+            Cow::Borrowed(&include_bytes!("../assets/fonts/MomoTrustSans-Regular.ttf")[..]),
+            Cow::Borrowed(&include_bytes!("../assets/fonts/MomoTrustSans-Medium.ttf")[..]),
+            Cow::Borrowed(&include_bytes!("../assets/fonts/MomoTrustSans-SemiBold.ttf")[..]),
+            Cow::Borrowed(&include_bytes!("../assets/fonts/MomoTrustSans-Bold.ttf")[..]),
             Cow::Borrowed(&include_bytes!("../assets/fonts/GoogleSansCode-Regular.ttf")[..]),
             Cow::Borrowed(&include_bytes!("../assets/fonts/GoogleSansCode-Medium.ttf")[..]),
             Cow::Borrowed(&include_bytes!("../assets/fonts/XanhMono-Regular.ttf")[..]),
@@ -232,9 +232,13 @@ mod tests {
 
     /// The wordmarks ask for `Xanh Mono` at `FontWeight::SEMIBOLD`, and GPUI
     /// never synthesizes bold — so the request only reads as SemiBold if the
-    /// embedded face really carries that weight. Parsing the registered bytes
-    /// with the same parser the font stack uses (`fontdb` → `ttf-parser`)
-    /// catches a missing, stale, or mis-tagged face.
+    /// embedded face really carries that weight.
+    ///
+    /// `ttf-parser` is not literally what macOS renders through (`zed-font-kit`
+    /// → CoreText); it is what the Linux backend uses (`cosmic_text` →
+    /// `fontdb` → `ttf-parser`), and both backends read the same `name`/`OS/2`
+    /// tables that this parses. Reading the registered bytes directly catches
+    /// a missing, stale, or mis-tagged face on either platform.
     #[test]
     fn embedded_wordmark_face_is_semibold_italic() {
         let face = ttf_parser::Face::parse(XANH_MONO_SEMIBOLD_ITALIC, 0)
@@ -268,6 +272,76 @@ mod tests {
             regular.weight().to_number() < face.weight().to_number(),
             "the 400 italic and the wordmark face must differ in weight"
         );
+    }
+
+    /// Every embedded UI sans face must belong to the `Momo Trust Sans`
+    /// family and carry a distinct weight.
+    ///
+    /// This is the one property that makes the swap work on *both* font
+    /// backends, and neither is forgiving when it is violated:
+    ///
+    /// - macOS (`zed-font-kit` → CoreText) asks CoreText for the family, then
+    ///   picks the closest weight with `find_best_match`.
+    /// - Linux (`cosmic_text` → `fontdb`) looks a family up by
+    ///   `TYPOGRAPHIC_FAMILY` (name 16) and only falls back to `FAMILY`
+    ///   (name 1) when 16 is absent.
+    ///
+    /// GPUI never synthesizes bold, so a face that lands in the wrong family
+    /// silently degrades to whatever weight the family *does* have — the bug
+    /// `XANH_MONO_SEMIBOLD_ITALIC` exists to avoid. Resolving the name the way
+    /// `fontdb` does keeps that from recurring when the fonts are re-vendored
+    /// or upgraded.
+    #[test]
+    fn embedded_ui_faces_share_one_family_and_distinct_weights() {
+        const FACES: [(&[u8], u16); 4] = [
+            (
+                include_bytes!("../assets/fonts/MomoTrustSans-Regular.ttf"),
+                400,
+            ),
+            (
+                include_bytes!("../assets/fonts/MomoTrustSans-Medium.ttf"),
+                500,
+            ),
+            (
+                include_bytes!("../assets/fonts/MomoTrustSans-SemiBold.ttf"),
+                600,
+            ),
+            (
+                include_bytes!("../assets/fonts/MomoTrustSans-Bold.ttf"),
+                700,
+            ),
+        ];
+
+        for (bytes, expected_weight) in FACES {
+            let face = ttf_parser::Face::parse(bytes, 0).expect("embedded face must parse");
+
+            assert_eq!(
+                face.weight().to_number(),
+                expected_weight,
+                "embedded face should be weight {expected_weight}",
+            );
+
+            // Mirrors `fontdb`'s rule: typographic family wins when present.
+            let names: Vec<_> = face.names().into_iter().collect();
+            let typed_family = names
+                .iter()
+                .filter(|name| name.name_id == ttf_parser::name_id::TYPOGRAPHIC_FAMILY)
+                .filter_map(|name| name.to_string())
+                .next();
+            let family = typed_family.or_else(|| {
+                names
+                    .iter()
+                    .filter(|name| name.name_id == ttf_parser::name_id::FAMILY)
+                    .filter_map(|name| name.to_string())
+                    .next()
+            });
+            assert_eq!(
+                family.as_deref(),
+                Some("Momo Trust Sans"),
+                "weight {expected_weight} must resolve under `Momo Trust Sans`; \
+                 a per-weight family name makes the face unreachable",
+            );
+        }
     }
 
     /// The app turns the framework's outer focus ring off and clamps the font
@@ -722,6 +796,12 @@ mod tests {
             assert!(colors.danger.is_some(), "{name}: danger.background");
             assert!(colors.ring.is_some(), "{name}: ring");
             assert!(config.font_family.is_some(), "{name}: font.family");
+            assert_eq!(
+                config.font_family.as_deref(),
+                Some("Momo Trust Sans"),
+                "{name}: font.family must name the embedded UI sans, \
+                 otherwise the theme asks for a family the app never registers",
+            );
             assert!(
                 config.mono_font_family.is_some(),
                 "{name}: mono_font.family"
