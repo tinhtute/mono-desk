@@ -1044,3 +1044,22 @@ fn reset_panel_covers_the_channel_digest_and_timezone_settings(cx: &mut TestAppC
         "a timezone change must be listed and revertable"
     );
 }
+
+/// The sidebar collapse toggle is icon-only, so its accessible name is all a
+/// screen reader has. It must sit on the `Button` itself: a plain `div`
+/// wrapper has no a11y role and is filtered out of the tree entirely, so
+/// naming the wrapper announces nothing.
+#[gpui_kit::test]
+fn sidebar_collapse_toggle_is_named(cx: &mut TestAppContext) {
+    let cx = app_window(cx);
+    cx.update(|window, cx| window.render_frame(cx));
+    cx.update(|window, _| {
+        let toggles: Vec<_> = gpui_kit::base::test_support::snapshots(window)
+            .into_iter()
+            .filter(|s| format!("{:?}", s.path()).contains("sidebar-collapse-toggle"))
+            .collect();
+        assert_eq!(toggles.len(), 1, "expected exactly one toggle snapshot");
+        assert_eq!(toggles[0].label(), Some("Toggle sidebar"));
+        assert_eq!(toggles[0].role(), Some(gpui_kit::Role::Button));
+    });
+}

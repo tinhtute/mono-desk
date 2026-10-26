@@ -1347,7 +1347,10 @@ fn accent_swatch(name: &SharedString, color: Hsla, selected: bool, cx: &App) -> 
         .border_color(border)
         .cursor_pointer()
         // A swatch is colour-only, so the name is the only thing a screen
-        // reader can announce. The selected one says so too.
+        // reader can announce. `role` is required, not decorative: a `div`
+        // with no role is filtered out of the accessibility tree, so the
+        // label alone would announce nothing. The selected one says so too.
+        .role(gpui_kit::Role::Button)
         .aria_label(if selected {
             SharedString::from(format!("{name}, selected"))
         } else {

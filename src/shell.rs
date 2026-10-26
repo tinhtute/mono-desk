@@ -4,9 +4,8 @@ use gpui_kit::component::{
     v_flex,
 };
 use gpui_kit::{
-    AnyElement, App, FontWeight, Global, Hsla, InteractiveElement as _, IntoElement,
-    ParentElement as _, Pixels, Point, RenderOnce, StatefulInteractiveElement as _,
-    StyleRefinement, Styled as _, Window, div, img, point, px,
+    AnyElement, App, FontWeight, Global, Hsla, IntoElement, ParentElement as _, Pixels, Point,
+    RenderOnce, StyleRefinement, Styled as _, Window, div, img, point, px,
 };
 
 /// Titlebar height, from zdesk `spacing.css`.
@@ -104,25 +103,21 @@ impl RenderOnce for AppShell {
                 TitleBar::new()
                     .refine_style(&StyleRefinement::default().h(TITLEBAR_H).border_0())
                     .child(
-                        // An icon-only toggle has no text for a screen
-                        // reader, so the wrapper is named (`.id()` is what
-                        // brings `aria_label` into scope) and the button
-                        // carries the same words as a tooltip. The vendored
-                        // `Button` exposes no label of its own.
-                        div()
-                            .id("sidebar-collapse-toggle-wrap")
-                            .aria_label("Toggle sidebar")
-                            .child(
-                                Button::new("sidebar-collapse-toggle")
-                                    .ghost()
-                                    .icon(IconName::PanelLeft)
-                                    .tooltip("Toggle sidebar")
-                                    .on_click(|_, window, cx| {
-                                        let state = cx.global_mut::<ShellState>();
-                                        state.collapsed = !state.collapsed;
-                                        window.refresh();
-                                    }),
-                            ),
+                        // An icon-only toggle has no text for a screen reader,
+                        // so it needs an explicit accessible name. This must
+                        // go on the Button itself: a plain `div` wrapper has no
+                        // a11y role and is filtered out of the tree, so naming
+                        // the wrapper would announce nothing.
+                        Button::new("sidebar-collapse-toggle")
+                            .ghost()
+                            .icon(IconName::PanelLeft)
+                            .accessibility_label("Toggle sidebar")
+                            .tooltip("Toggle sidebar")
+                            .on_click(|_, window, cx| {
+                                let state = cx.global_mut::<ShellState>();
+                                state.collapsed = !state.collapsed;
+                                window.refresh();
+                            }),
                     ),
             )
             .children(self.settings)
