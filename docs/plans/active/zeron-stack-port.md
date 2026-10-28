@@ -155,7 +155,7 @@ lane: high-risk
   `git branch -D feat/zeron-stack`; to roll back a phase: `git checkout
   <last-good-commit> -- .` on the branch.
 - phase_slug: `stack-bringup`
-  status: in-progress
+  status: checked
   - goal: R1 | depends_on: none
   - surfaces: `Cargo.toml`, `Cargo.lock`, `src/` (replaced with the new
     bootstrap), `Makefile` (only if the build needs it) | avoided:
@@ -184,7 +184,7 @@ lane: high-risk
   - phase check: `cargo build` + `make run` window/AX probe (recording the
     AX frame and the window id).
 - phase_slug: `theme-foundation`
-  status: planned
+  status: in-progress
   - goal: R5 | depends_on: `stack-bringup`
   - surfaces: `vendor/zeron-theme/`, `vendor/zeron-ui/theme.rs`,
     `typography.rs`, `icons.rs`, `motion.rs`, `frost.rs`, `glass.rs`,
@@ -307,16 +307,59 @@ lane: high-risk
   0) although `CGWindowListCopyWindowInfo` sees it; later phases must not
   depend on AX bounds probes (use CGWindow bounds + zeron/gpui test support +
   owner visual checks). Recorded under risks.
+- 2026-10-28T15:04Z — stack-bringup — decision — correction to the earlier entry: the
+  zui-fork window DOES expose one AX window (frame 1320×880, and an AX size
+  write of 400×300 reads back 900×600, so the minimum is enforced) — the
+  earlier "windows = 0" observation was a probe-state error. The remaining
+  caveat is narrower and real: the AX *content* tree exposes only
+  AXWindow/AXGroup plus the three native traffic-light buttons, not
+  GPUI-painted nodes, so Phase 3 acceptance needs explicit role/aria labels
+  and an early probe. Also recorded here: `src/main.rs` still hardcodes
+  `WindowBackgroundAppearance::Opaque` and a placeholder base colour (T2/R1
+  ask for the theme/glass-driven background); deferred to `theme-foundation`
+  where the theme global exists, and it must land before the glass
+  acceptance.
+- 2026-10-28T15:04Z — theme-foundation — start — beginning the visual foundation port. The
+  vendored zeron-theme domain crate is already in the tree and compiles as a
+  path dependency; next: port `theme.rs` (tokens/appearance global),
+  `typography.rs` (Momo Trust Sans registration), icons + Solar SVG subset,
+  and motion/frost/glass, then wire the theme-driven `window_background`.
 
 ## Validation
 
-- (no phase gated yet)
+- 2026-10-28T15:04Z — phase `stack-bringup` — verdict: APPROVED — mode: gate, independent judge (high-risk lane)
+  - judge: independent subagent (separate context); judge_model: deepseek-v4.1-flash
+  - `cargo build` / `cargo build --locked` — rc 0 — pass
+  - `cargo run` (~7s): CGWindow layer 0 alpha 1 onscreen 1, bounds
+    1320×880 at (120,120); direct AX probe: 1 window, frame 1320×880; AX
+    resize 400×300 reads back 900×600 (minimum enforced); 3 native
+    traffic-light buttons at relative x 13/33/53, y 14 — pass
+  - `grep -rn "gpui_kit\|gpui-kit\|gpui-component\|vendor/patches" src Cargo.toml
+    Cargo.lock` — no matches — pass
+  - `make check` rc 0; `make lint` rc 0; `make fmt-check` rc 0; `cargo test`
+    rc 0 (0 tests; Phase 5 owns coverage) — pass
+  - surfaces: `src/` only `main.rs`; `vendor/` absent — pass
+  - findings: (1) minor/deferred — hardcoded `WindowBackgroundAppearance::Opaque`
+    + placeholder base; deferred to `theme-foundation`, must land before the
+    glass acceptance. (2) minor — the earlier Log "AX windows=0" claim was
+    wrong (direct AX probe sees the window); corrected above, content-tree
+    caveat carried into Phase 3.
+  - scope: on target (`Cargo.toml`, `Cargo.lock`, `src/main.rs`, plan/memory/
+    notices; deletions of `vendor/` + old `src/` modules).
+  - rollback_point: `feat/zeron-stack` commit `94ff732`; previous approach on
+    `wip/gpui-kit-shell` (`50823e3`).
+
 
 ## Current State and Next Action
-- active_phase: stack-bringup
+- active_phase: theme-foundation
 - lifecycle_status: in-progress
 - blockers: none
-- open_items: Phase 1 tasks T1–T3 (dependency swap, zeron-style bootstrap
-  window, old-stack deletion); then Phase 2 theme foundation.
-- exact_next_action: independent phase gate for `stack-bringup` (cargo build +
-  run + CGWindow bounds + grep sweep), then work phase `theme-foundation`.
+- open_items: port theme/typography/icons/motion/frost/glass and wire the
+  theme-driven `window_background` (deferred gate finding 1, must land before
+  the glass acceptance); Phase 3 AX content-tree caveat (explicit role/aria
+  labels + early probe); AGENTS.md updated to the new stack this session;
+  README/docs/design/memory cleanup is Phase 5 (R6).
+- exact_next_action: work full phase `theme-foundation` — T1 port `theme.rs` +
+  `typography.rs` on top of the vendored `zeron-theme` crate (window background
+  from the theme), T2 vendor the icon SVG subset + `motion.rs`/`frost.rs`/
+  `glass.rs`.

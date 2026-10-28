@@ -8,7 +8,7 @@ into `vendor/zeron-ui/` keep this notice; the plan that introduced them is
 
 UI source ported into `vendor/zeron-ui/` (window chrome, sidebar/settings
 layout, settings widgets, theme/motion/frost helpers, icon asset registry)
-comes from zeron: https://github.com/zeronsh/zeron (pinned commit
+and the theme domain model in `vendor/zeron-theme/` come from zeron: https://github.com/zeronsh/zeron (pinned commit
 `8b7afb3`, version v0.2.129).
 
 ```
