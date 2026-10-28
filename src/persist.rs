@@ -12,6 +12,11 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
+use crate::theme::{
+    SIDEBAR_TONE_DEFAULT, SIDEBAR_WIDTH_DEFAULT, WINDOW_OPACITY_DEFAULT, clamp_sidebar_tone,
+    clamp_sidebar_width, clamp_window_opacity,
+};
+
 /// First line of every settings file written by [`save`]; also the
 /// ownership check used by [`parse`] and the foreign-file guard.
 const SETTINGS_MARKER: &str = "# managed-by: mono-desk";
@@ -41,6 +46,20 @@ pub struct StoredSettings {
     pub language: String,
     /// UI font size; finite, expected `8.0..=32.0`.
     pub font_size: f64,
+    /// Whether the window background is translucent (the glass master
+    /// switch). `false` renders the opaque palette.
+    pub background_translucent: bool,
+    /// The single frost-shell opacity in percent while translucent; finite,
+    /// expected `40.0..=100.0` (opaque).
+    pub window_opacity: f64,
+    /// Sidebar ink tone in percent of the max wash, `0.0..=100.0`; painted
+    /// over the frost, never a second surface.
+    pub sidebar_tone: f64,
+    /// Persisted rail width in logical pixels, `242.0..=400.0`.
+    pub sidebar_width: f64,
+    /// Whether the window asks the platform for a blurred (frosted)
+    /// backdrop. Only meaningful while `background_translucent` is on.
+    pub background_blur: bool,
     /// Whether an OS autostart entry should exist.
     pub launch_at_login: bool,
     /// Whether notifications are enabled.
@@ -68,6 +87,11 @@ impl Default for StoredSettings {
             appearance: "light".to_string(),
             language: "en".to_string(),
             font_size: 14.0,
+            background_translucent: false,
+            window_opacity: WINDOW_OPACITY_DEFAULT,
+            sidebar_tone: SIDEBAR_TONE_DEFAULT,
+            sidebar_width: SIDEBAR_WIDTH_DEFAULT,
+            background_blur: false,
             launch_at_login: false,
             notifications_enabled: true,
             username: "ninja".to_string(),
@@ -163,6 +187,14 @@ pub fn serialize(s: &StoredSettings) -> String {
     out.push_str(&format!("appearance={}\n", escape(&s.appearance)));
     out.push_str(&format!("language={}\n", escape(&s.language)));
     out.push_str(&format!("font_size={}\n", s.font_size));
+    out.push_str(&format!(
+        "background_translucent={}\n",
+        s.background_translucent
+    ));
+    out.push_str(&format!("window_opacity={}\n", s.window_opacity));
+    out.push_str(&format!("sidebar_tone={}\n", s.sidebar_tone));
+    out.push_str(&format!("sidebar_width={}\n", s.sidebar_width));
+    out.push_str(&format!("background_blur={}\n", s.background_blur));
     out.push_str(&format!("launch_at_login={}\n", s.launch_at_login));
     out.push_str(&format!(
         "notifications_enabled={}\n",
@@ -238,6 +270,41 @@ pub fn parse(text: &str) -> Option<StoredSettings> {
                     // Same bound as the NumberField control (8–32): a
                     // hand-edited file cannot push rem size out of range.
                     s.font_size = f.clamp(8.0, 32.0);
+                }
+            }
+            // The glass trio: booleans follow the same strict
+            // `true`/`false` rule as the other switches; the opacity uses
+            // the theme's own clamp so a hand-edited file and the slider
+            // cannot disagree about the supported range.
+            "background_translucent" => {
+                if let Some(b) = parse_bool(value) {
+                    s.background_translucent = b;
+                }
+            }
+            "window_opacity" => {
+                if let Ok(f) = value.trim().parse::<f64>()
+                    && f.is_finite()
+                {
+                    s.window_opacity = clamp_window_opacity(f);
+                }
+            }
+            "sidebar_tone" => {
+                if let Ok(f) = value.trim().parse::<f64>()
+                    && f.is_finite()
+                {
+                    s.sidebar_tone = clamp_sidebar_tone(f);
+                }
+            }
+            "sidebar_width" => {
+                if let Ok(f) = value.trim().parse::<f64>()
+                    && f.is_finite()
+                {
+                    s.sidebar_width = clamp_sidebar_width(f);
+                }
+            }
+            "background_blur" => {
+                if let Some(b) = parse_bool(value) {
+                    s.background_blur = b;
                 }
             }
             "launch_at_login" => {
@@ -711,6 +778,11 @@ mod tests {
                 appearance: "system".into(),
                 language: "zh-CN".into(),
                 font_size: 13.5,
+                background_translucent: true,
+                window_opacity: 62.0,
+                sidebar_tone: 74.0,
+                sidebar_width: 300.0,
+                background_blur: true,
                 launch_at_login: true,
                 notifications_enabled: false,
                 username: "tinhpt".into(),
@@ -733,6 +805,11 @@ mod tests {
             appearance: "dark".into(),
             language: "ja".into(),
             font_size: 8.0,
+            background_translucent: true,
+            window_opacity: 55.0,
+            sidebar_tone: 55.0,
+            sidebar_width: 300.0,
+            background_blur: false,
             launch_at_login: false,
             notifications_enabled: true,
             // backslash, newline, CR, `=`, leading/trailing spaces
@@ -746,11 +823,88 @@ mod tests {
         };
         let text = serialize(&s);
         // Hostile bytes must not create extra lines.
-        assert_eq!(text.lines().count(), 14);
+        assert_eq!(text.lines().count(), 19);
         assert_eq!(parse(&text), Some(s));
         // Empty strings round-trip too.
         let empty = StoredSettings::default();
         assert_eq!(parse(&serialize(&empty)), Some(empty));
+    }
+
+    /// The glass trio: defaults on absence, strict booleans, clamped opacity,
+    /// and every key is written back.
+    #[test]
+    fn glass_settings_round_trip_and_validate() {
+        let written = StoredSettings {
+            background_translucent: true,
+            window_opacity: 55.0,
+            sidebar_tone: 65.0,
+            sidebar_width: 275.0,
+            background_blur: true,
+            ..StoredSettings::default()
+        };
+        assert_eq!(parse(&serialize(&written)), Some(written.clone()));
+
+        let parsed = |body: &str| parse(&format!("{SETTINGS_MARKER}\n{body}")).unwrap();
+        // A file written before the keys existed keeps the opaque defaults.
+        let legacy = parsed("font_size=18\n");
+        assert!(!legacy.background_translucent);
+        assert_eq!(legacy.window_opacity, WINDOW_OPACITY_DEFAULT);
+        assert_eq!(legacy.sidebar_tone, SIDEBAR_TONE_DEFAULT);
+        assert_eq!(legacy.sidebar_width, SIDEBAR_WIDTH_DEFAULT);
+        // The pre-release pane keys are dropped, not migrated: a file that
+        // still carries them keeps the shipped defaults.
+        let stale = parsed("sidebar_opacity=10\npane_opacity=10\n");
+        assert_eq!(stale.window_opacity, WINDOW_OPACITY_DEFAULT);
+        assert_eq!(stale.sidebar_tone, SIDEBAR_TONE_DEFAULT);
+        assert!(!legacy.background_blur);
+
+        // The opacity clamps into the supported range; non-finite and
+        // malformed values keep the default.
+        assert_eq!(parsed("window_opacity=5\n").window_opacity, 40.0);
+        assert_eq!(parsed("window_opacity=500\n").window_opacity, 100.0);
+        assert_eq!(
+            parsed("window_opacity=NaN\n").window_opacity,
+            WINDOW_OPACITY_DEFAULT
+        );
+        assert_eq!(
+            parsed("window_opacity=inf\n").window_opacity,
+            WINDOW_OPACITY_DEFAULT
+        );
+        assert_eq!(
+            parsed("window_opacity=banana\n").window_opacity,
+            WINDOW_OPACITY_DEFAULT
+        );
+        // The tone is 0–100 (0 = no ink) and falls back to 50% on junk.
+        assert_eq!(parsed("sidebar_tone=0\n").sidebar_tone, 0.0);
+        assert_eq!(parsed("sidebar_tone=500\n").sidebar_tone, 100.0);
+        assert_eq!(
+            parsed("sidebar_tone=NaN\n").sidebar_tone,
+            SIDEBAR_TONE_DEFAULT
+        );
+        assert_eq!(
+            parsed("sidebar_tone=banana\n").sidebar_tone,
+            SIDEBAR_TONE_DEFAULT
+        );
+        // The rail width clamps to 242–400 and keeps 256 on junk.
+        assert_eq!(parsed("sidebar_width=10\n").sidebar_width, 242.0);
+        assert_eq!(parsed("sidebar_width=9999\n").sidebar_width, 400.0);
+        assert_eq!(
+            parsed("sidebar_width=banana\n").sidebar_width,
+            SIDEBAR_WIDTH_DEFAULT
+        );
+        // Booleans are strict: junk keeps the default.
+        assert!(!parsed("background_blur=maybe\n").background_blur);
+        assert!(!parsed("background_translucent=1\n").background_translucent);
+        assert!(parsed("background_translucent=true\n").background_translucent);
+
+        // The serialized file carries all three keys. An older build ignores
+        // unknown keys, so this stays forward/backward compatible.
+        let text = serialize(&written);
+        assert!(text.contains("background_translucent=true\n"), "{text}");
+        assert!(text.contains("window_opacity=55\n"), "{text}");
+        assert!(text.contains("sidebar_tone=65\n"), "{text}");
+        assert!(text.contains("sidebar_width=275\n"), "{text}");
+        assert!(text.contains("background_blur=true\n"), "{text}");
     }
 
     #[test]

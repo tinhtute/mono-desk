@@ -23,6 +23,34 @@ static STRINGS: &[(&str, &str, &str, &str, &str)] = &[
         "プロフィール",
     ),
     ("page.about", "About", "Giới thiệu", "关于", "情報"),
+    (
+        "appearance.cycle",
+        "Toggle light / dark",
+        "Chuyển sáng / tối",
+        "切换浅色 / 深色",
+        "ライト / ダークを切り替え",
+    ),
+    (
+        "nav.all_settings",
+        "All settings",
+        "Tất cả cài đặt",
+        "所有设置",
+        "すべての設定",
+    ),
+    (
+        "nav.preferences",
+        "Preferences",
+        "Tuỳ chọn",
+        "偏好设置",
+        "環境設定",
+    ),
+    (
+        "nav.workspace",
+        "Workspace",
+        "Không gian làm việc",
+        "工作区",
+        "ワークスペース",
+    ),
     // Groups
     ("group.channels", "Channels", "Kênh", "渠道", "チャンネル"),
     (
@@ -163,6 +191,72 @@ static STRINGS: &[(&str, &str, &str, &str, &str)] = &[
         "Cỡ chữ giao diện cơ bản, 8–32.",
         "基础界面字体大小，8–32。",
         "基本UIフォントサイズ（8〜32）。",
+    ),
+    // Units
+    ("unit.percent", "%", "%", "%", "%"),
+    // Background (glass) group
+    ("group.background", "Background", "Nền", "背景", "背景"),
+    (
+        "item.background_translucent",
+        "Translucent window",
+        "Cửa sổ trong suốt",
+        "透明窗口",
+        "半透明ウィンドウ",
+    ),
+    (
+        "item.background_translucent.desc",
+        "Let the desktop show through the window.",
+        "Cho phép nhìn xuyên qua cửa sổ ra màn hình nền.",
+        "让桌面透过窗口显示。",
+        "デスクトップがウィンドウ越しに見えるようにします。",
+    ),
+    (
+        "item.window_opacity",
+        "Window opacity",
+        "Độ đục của cửa sổ",
+        "窗口不透明度",
+        "ウィンドウの不透明度",
+    ),
+    (
+        "item.window_opacity.desc",
+        "Alpha of the single frosted window layer, 40–100%. One layer for the \
+         whole window; the sidebar tone and content sit on top of it.",
+        "Độ trong suốt của lớp kính phủ toàn cửa sổ, 40–100%. Một lớp duy nhất \
+         cho cả cửa sổ; thanh bên và nội dung nằm trên lớp đó.",
+        "整窗毛玻璃层的透明度，40–100%。整个窗口只有一层；侧边栏色调和内容叠加其上。",
+        "ウィンドウ全体のすりガラス層の不透明度（40〜100%）。層は1枚だけで、サイドバーの色調とコンテンツはその上に載ります。",
+    ),
+    (
+        "item.sidebar_tone",
+        "Sidebar tone",
+        "Độ đậm thanh bên",
+        "侧边栏色调",
+        "サイドバーの色調",
+    ),
+    (
+        "item.sidebar_tone.desc",
+        "Strength of the sidebar's ink tint over the glass, 0–100%. It is not \
+         a second surface: 0 leaves only the hairline separator.",
+        "Độ đậm lớp phủ màu của thanh bên trên nền kính, 0–100%. Đây không phải \
+         bề mặt thứ hai: 0 chỉ còn đường viền mảnh.",
+        "侧边栏在玻璃上的墨水色调强度，0–100%。它不是第二层表面：0 时仅剩细分割线。",
+        "ガラス上のサイドバーのインク色の濃さ（0〜100%）。第2の面ではなく、0では細い区切り線だけが残ります。",
+    ),
+    (
+        "item.background_blur",
+        "Background blur",
+        "Làm mờ nền",
+        "背景模糊",
+        "背景のぼかし",
+    ),
+    (
+        "item.background_blur.desc",
+        "Ask the system to frost what is behind the window. macOS vibrancy; \
+         compositor-dependent on Linux, experimental on Windows.",
+        "Yêu cầu hệ thống làm mờ nội dung phía sau cửa sổ. Trên macOS là vibrancy; \
+         trên Linux phụ thuộc compositor, trên Windows còn thử nghiệm.",
+        "请求系统对窗口背后的内容做磨砂处理。macOS 使用 vibrancy；Linux 取决于合成器，Windows 仍属实验特性。",
+        "ウィンドウ背後の内容をぼかすよう OS に要求します。macOS は vibrancy、Linux はコンポジタ依存、Windows は実験的です。",
     ),
     (
         "item.launch_at_login",

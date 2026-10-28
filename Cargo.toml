@@ -35,6 +35,10 @@ ttf-parser = "0.25"
 # - settings-static-tree.patch: always-expanded settings tree — no caret/toggle, bold page labels,
 # children only for pages with >=2 titled groups; children are iconless, so SettingGroup::icon
 # (added above) is removed again here.
+# - sidebar-nav-slot.patch: Settings::sidebar_nav (caller-supplied nav tree rendered in the
+# header slot, built-in search hidden) + Settings::selected_page (caller-controlled page index,
+# reconciled only when it differs so it cannot loop). The default flat menu is unchanged when
+# neither is set.
 # - context-menu-release.patch: release the built PopupMenu on DismissEvent instead of retaining
 # it in ContextMenuSharedState (the state's subscription captures itself otherwise - a retain
 # cycle that leaks the menu entity).
@@ -46,5 +50,11 @@ ttf-parser = "0.25"
 # - settings-search-terms.patch: SettingItem::is_match requires every whitespace-separated
 # query term to appear in the item's words (title + description + keywords), instead of
 # matching the whole query as one substring — so "appearance zoom" finds Font Size.
+# - slider-accessibility-label.patch: Slider::accessibility_label + vendored SliderRoot —
+# gpui-base sets Role::Slider on a private node with no label API, so the behaviour root
+# (~40 lines: role, aria value/min/max/step/orientation, increment/decrement, release
+# listeners) is mirrored inside the vendored component and gets the name. Applied to the
+# Font Size and both glass percentage rows (Window opacity, Sidebar tone); keep in sync when
+# the vendored set is upgraded.
 [patch.crates-io]
 gpui-component = { path = "vendor/gpui-component" }

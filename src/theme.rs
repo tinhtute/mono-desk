@@ -27,6 +27,85 @@ pub const FONT_SIZE_MIN: f64 = 8.0;
 /// Upper bound of the Font Size setting, in px.
 pub const FONT_SIZE_MAX: f64 = 32.0;
 
+/// Lower bound of the Window opacity setting, in percent.
+///
+/// Floored well above zero: below ~40% the frost layer stops carrying
+/// enough contrast over an arbitrary desktop backdrop for this app's text,
+/// which is a readability cliff rather than a taste choice.
+pub const WINDOW_OPACITY_MIN: f64 = 40.0;
+/// Upper bound of the Window opacity setting, in percent (opaque).
+pub const WINDOW_OPACITY_MAX: f64 = 100.0;
+/// Default Window opacity, in percent, when translucency is first enabled.
+///
+/// Matches monocode's 0.85 surface opacity: low enough to see the frosted
+/// backdrop immediately, high enough for the settings text to stay readable.
+pub const WINDOW_OPACITY_DEFAULT: f64 = 85.0;
+
+/// Lower bound of the Sidebar tone setting, in percent of the max wash.
+pub const SIDEBAR_TONE_MIN: f64 = 0.0;
+/// Upper bound of the Sidebar tone setting, in percent of the max wash.
+pub const SIDEBAR_TONE_MAX: f64 = 100.0;
+/// Default Sidebar tone, in percent: 50% of the max wash, i.e. an ink tint of
+/// 0.05 — the same weight zeron's glass sidebar paints (`wash(0.05)`).
+pub const SIDEBAR_TONE_DEFAULT: f64 = 50.0;
+/// The strongest sidebar tone, as an alpha: 100% puts 10% ink over the frost.
+///
+/// Deliberately small: the tone separates the navigation column from the
+/// content without becoming a second surface, which is what the previous
+/// pane-alpha model did (and why it read as two stacked panels).
+pub const SIDEBAR_TONE_MAX_ALPHA: f32 = 0.10;
+
+/// Sidebar rail width bounds, in logical pixels.
+///
+/// Matches zeron's `SIDEBAR_MIN`/`SIDEBAR_MAX`/`SIDEBAR_DEFAULT`: the rail is
+/// resizable between those limits and its last width persists across launches.
+pub const SIDEBAR_WIDTH_MIN: f64 = 242.0;
+pub const SIDEBAR_WIDTH_MAX: f64 = 400.0;
+pub const SIDEBAR_WIDTH_DEFAULT: f64 = 256.0;
+
+/// Clamp a requested sidebar width into the supported pixel range.
+///
+/// A non-finite value falls back to the default width, so a malformed file
+/// cannot produce a zero-width or runaway rail.
+pub fn clamp_sidebar_width(width: f64) -> f64 {
+    if !width.is_finite() {
+        return SIDEBAR_WIDTH_DEFAULT;
+    }
+    width.clamp(SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX)
+}
+
+/// Clamp a requested window opacity into the supported percentage range.
+///
+/// Same NaN guard as [`clamp_font_size`], but the fallback is the *opaque*
+/// end: a malformed value must never make the window unexpectedly
+/// transparent.
+pub fn clamp_window_opacity(opacity: f64) -> f64 {
+    if !opacity.is_finite() {
+        return WINDOW_OPACITY_MAX;
+    }
+    opacity.clamp(WINDOW_OPACITY_MIN, WINDOW_OPACITY_MAX)
+}
+
+/// Clamp a requested sidebar tone into its percentage range.
+///
+/// The fallback is the default tone, never "more ink than asked for": a
+/// malformed file must not darken the rail unexpectedly.
+pub fn clamp_sidebar_tone(tone: f64) -> f64 {
+    if !tone.is_finite() {
+        return SIDEBAR_TONE_DEFAULT;
+    }
+    tone.clamp(SIDEBAR_TONE_MIN, SIDEBAR_TONE_MAX)
+}
+
+/// The ink alpha the sidebar paints for a tone percentage.
+///
+/// `0` returns fully transparent (the column is then separated only by its
+/// hairline), `100` returns [`SIDEBAR_TONE_MAX_ALPHA`]; a non-finite value
+/// falls back to the default tone.
+pub fn sidebar_tone_alpha(percent: f64) -> f32 {
+    (clamp_sidebar_tone(percent) / 100.0) as f32 * SIDEBAR_TONE_MAX_ALPHA
+}
+
 /// Clamp a requested UI font size into the supported range.
 ///
 /// `f64::clamp` is NaN-transparent — `NaN.clamp(8.0, 32.0)` returns `NaN`
@@ -136,6 +215,26 @@ fn write_accent(theme: &mut Theme, accent: Hsla) {
     };
 }
 
+/// The colour a window-base surface paints while the glass setting is on.
+///
+/// The palette colour keeps its hue/saturation/lightness and takes the chosen
+/// alpha. At the opaque end — and for a NaN setting — the colour comes back
+/// untouched, so the default rendering cannot drift from `mono.json`.
+///
+/// The alpha is applied at *paint* time rather than written onto the theme
+/// palette on purpose: the vendored `Root`, dialogs and sheets all read the
+/// shared `tokens.background` snapshot, and dialog/sheet content must stay
+/// opaque for readability. The alpha is instead painted as the single
+/// full-window frost layer (see `main::shell_frost_bg` and the base paint in
+/// `shell::AppShell`); chrome above it stays transparent.
+pub(crate) fn glass_surface(color: Hsla, opacity_percent: f64) -> Hsla {
+    let alpha = (clamp_window_opacity(opacity_percent) / 100.0) as f32;
+    if alpha >= 1.0 {
+        return color;
+    }
+    Hsla { a: alpha, ..color }
+}
+
 /// Write the app's theme overrides onto `theme`.
 ///
 /// Crate-visible so the token tests can exercise the override path on a bare
@@ -224,8 +323,10 @@ mod tests {
 
     use super::MONO_THEMES;
     use super::{
-        ACCENT_PRESETS, Appearance, FONT_SIZE_MAX, FONT_SIZE_MIN, XANH_MONO_SEMIBOLD_ITALIC,
-        accent_from_str, clamp_font_size, write_accent, write_overrides,
+        ACCENT_PRESETS, Appearance, FONT_SIZE_MAX, FONT_SIZE_MIN, SIDEBAR_TONE_DEFAULT,
+        SIDEBAR_TONE_MAX_ALPHA, WINDOW_OPACITY_MAX, WINDOW_OPACITY_MIN, XANH_MONO_SEMIBOLD_ITALIC,
+        accent_from_str, clamp_font_size, clamp_sidebar_tone, clamp_sidebar_width,
+        clamp_window_opacity, glass_surface, sidebar_tone_alpha, write_accent, write_overrides,
     };
     use gpui_kit::component::{Colorize as _, Theme, ThemeMode, ThemeSet};
     use gpui_kit::{Hsla, WindowAppearance, px, rems};
@@ -359,6 +460,71 @@ mod tests {
         write_overrides(&mut theme, 1.0);
         assert!(!theme.focus_ring);
         assert_eq!(theme.font_size, px(FONT_SIZE_MIN as f32));
+    }
+
+    /// Glass paint keeps the palette colour and only ever moves the alpha:
+    /// the opaque end returns the exact shipped colour, so the default
+    /// rendering cannot drift from `mono.json`.
+    #[test]
+    fn glass_paint_moves_only_alpha() {
+        for mode in [ThemeMode::Light, ThemeMode::Dark] {
+            let palette = mono_theme(mode);
+            for color in [
+                palette.colors.background,
+                palette.colors.sidebar,
+                palette.colors.title_bar,
+                palette.colors.group_box,
+            ] {
+                // 100%, and anything above it, is today's look.
+                assert_eq!(glass_surface(color, WINDOW_OPACITY_MAX), color);
+                assert_eq!(glass_surface(color, 250.0), color);
+
+                let glass = glass_surface(color, 60.0);
+                assert!((glass.a - 0.6).abs() < 1e-6, "{mode:?}: alpha {}", glass.a);
+                // Only alpha moves: hue/saturation/lightness are the palette's.
+                assert_eq!(glass.h, color.h);
+                assert_eq!(glass.s, color.s);
+                assert_eq!(glass.l, color.l);
+
+                // The floor is enforced, not just documented.
+                assert!((glass_surface(color, 1.0).a - 0.4).abs() < 1e-6);
+                // A malformed value falls back to opaque, never to invisible.
+                assert_eq!(glass_surface(color, f64::NAN), color);
+            }
+        }
+    }
+
+    /// The opacity clamp mirrors the font-size one: finite values saturate,
+    /// NaN falls back to the opaque end.
+    #[test]
+    fn glass_opacity_clamps_to_supported_range() {
+        assert_eq!(clamp_window_opacity(0.0), WINDOW_OPACITY_MIN);
+        assert_eq!(clamp_window_opacity(39.9), WINDOW_OPACITY_MIN);
+        assert_eq!(clamp_window_opacity(WINDOW_OPACITY_MIN), WINDOW_OPACITY_MIN);
+        assert_eq!(clamp_window_opacity(72.0), 72.0);
+        assert_eq!(clamp_window_opacity(WINDOW_OPACITY_MAX), WINDOW_OPACITY_MAX);
+        assert_eq!(clamp_window_opacity(100.1), WINDOW_OPACITY_MAX);
+        assert_eq!(clamp_window_opacity(f64::NAN), WINDOW_OPACITY_MAX);
+        assert_eq!(clamp_window_opacity(f64::INFINITY), WINDOW_OPACITY_MAX);
+        assert_eq!(clamp_window_opacity(f64::NEG_INFINITY), WINDOW_OPACITY_MAX);
+
+        // The sidebar tone is a wash strength, not an opacity: zero must be
+        // invisible, the default must land on zeron's 5% ink, and a bad value
+        // must fall back to the default rather than to the strongest tone.
+        assert_eq!(sidebar_tone_alpha(0.0), 0.0);
+        assert!((sidebar_tone_alpha(SIDEBAR_TONE_DEFAULT) - 0.05).abs() < f32::EPSILON);
+        assert_eq!(sidebar_tone_alpha(100.0), SIDEBAR_TONE_MAX_ALPHA);
+        assert_eq!(clamp_sidebar_tone(f64::NAN), SIDEBAR_TONE_DEFAULT);
+        assert_eq!(clamp_sidebar_tone(f64::INFINITY), SIDEBAR_TONE_DEFAULT);
+        assert_eq!(clamp_sidebar_tone(-10.0), 0.0);
+        assert_eq!(clamp_sidebar_tone(1000.0), 100.0);
+
+        // The rail width clamps to zeron's 242–400 range and falls back to the
+        // default on junk (never to a zero-width rail).
+        assert_eq!(clamp_sidebar_width(100.0), 242.0);
+        assert_eq!(clamp_sidebar_width(256.0), 256.0);
+        assert_eq!(clamp_sidebar_width(10_000.0), 400.0);
+        assert_eq!(clamp_sidebar_width(f64::NAN), 256.0);
     }
 
     /// An accent drives the brand tokens — primary, its derived shades, and
