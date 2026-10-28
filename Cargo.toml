@@ -13,3 +13,7 @@ gpui_platform = { git = "https://github.com/zeronsh/zui", rev = "b564a34413bb7ef
     "font-kit",
     "runtime_shaders",
 ] }
+
+# Vendored zeron theme domain model (MIT) — tokens/appearance registry used by
+# the ported settings surfaces. See THIRD_PARTY_NOTICES.md.
+zeron-theme = { path = "vendor/zeron-theme" }

@@ -19,7 +19,11 @@ status: active
   needed UI source and replaces zeron's app state with `AppSettings`.
 - Feasibility proven: a `/tmp/zui-probe` bin depending on `gpui` +
   `gpui_platform` from the pinned `zeronsh/zui` rev builds on stable Rust
-  (edition 2024) and opens a 900×600 CSD window (AX probe saw the window).
+  (edition 2024) and opens a 900×600 CSD window. In the real app a direct AX
+  probe sees one AXWindow (1320×880) and the native traffic lights, and the
+  window enforces its 900×600 minimum; the AX *content* tree contains no
+  GPUI-painted nodes, so tests/visual checks cannot rely on AX for app
+  controls.
 - Key port targets: `crates/ui/src/lib.rs` `open_main_window` (window
   options: 900×600 min, 1320×880 default, transparent titlebar, lights
   (14,14), `app_owns_titlebar_drag`, glass `window_background`),

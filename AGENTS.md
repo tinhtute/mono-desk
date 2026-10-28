@@ -2,13 +2,17 @@
 
 ## Project
 
-`mono-desk` — a settings-style desktop demo app. Single binary crate, Rust
-edition 2024, one direct dependency: `gpui-kit = "0.6"` (re-exports `gpui`,
-`gpui-base`, `gpui-component`, assets/icons — no other GPUI crates needed),
-plus a vendored `gpui-component` 0.6.1 carrying the full rail/cursor/tree
-patch set (`[patch.crates-io]`; deltas in `vendor/patches/` applied in the
-order listed above `[patch.crates-io]` in `Cargo.toml` — re-apply all when
-upgrading).
+`mono-desk` — a settings-style desktop demo app (single binary crate, Rust
+edition 2024) built on **zeron's GPUI stack**: `gpui` + `gpui_platform` from
+`github.com/zeronsh/zui` (zed's gpui fork, Apache-2.0; rev pinned in
+`Cargo.toml`), not the registry `gpui-kit` stack any more. Window chrome,
+sidebar/settings layout, widgets and theme are ported from zeron's
+MIT-licensed source (`github.com/zeronsh/zeron`) and vendored under
+`vendor/zeron-ui/` (UI) and `vendor/zeron-theme/` (theme domain model) — see
+`THIRD_PARTY_NOTICES.md` and `docs/plans/active/zeron-stack-port.md`. Vendored
+files are adapted copies of upstream source at a pinned rev; they are not
+drop-in updates. The pre-port gpui-kit implementation (glass feature +
+custom sidebar) is preserved on branch `wip/gpui-kit-shell`.
 
 ## Commands
 
@@ -18,49 +22,59 @@ Use the Makefile — it auto-injects the linker shim flag (see caveats):
 - `make app` — bundle `target/macos/mono-desk.app` with the vendored brand icon
   (`assets/brand/icon.icns`); macOS only, needed for the Dock/⌘-Tab icon —
   `cargo run` shows a generic one. `make open-app` builds and opens it.
-- `make check` — fast type-check (~30s cold)
+- `make check` — fast type-check
 - `make lint` — clippy `--all-targets -D warnings` (run before committing)
 - `make fmt` — format before committing
 - `make deps` — install system packages (sudo; Ubuntu 24.04 tested list)
 - `make shim` — recreate linker shims without sudo
+- Gates: `cargo test && make check && make lint && make fmt-check`.
 
 ## Environment caveats (this machine)
 
-- Missing dev symlinks `libxkbcommon-x11.so` and `libX11-xcb.so`. Shimmed at
-  `~/.local/lib/dev-shim/`; the Makefile adds `-L` only while that dir exists.
-  Proper fix is `make deps`, then delete the shim dir.
-- GUI app: needs a Wayland/X11 session to open a window — don't expect
-  `cargo run` to succeed headless; `make check`/`lint` are the headless gates.
-- First build is ~400 crates (GPUI + wgpu); dep cache in `target/` is ~8 GB.
-  Avoid `cargo clean` unless disk pressure demands it.
-- Changing `RUSTFLAGS` or edition invalidates the whole dep cache — keep flags
-  stable via the Makefile.
+- macOS; the GPUI stack needs a GUI session for `make run` — headless gates
+  are `cargo test`, `make check`, `make lint`, `make fmt-check`.
+- First build compiles the zui gpui fork + wgpu (hundreds of crates, several
+  minutes); dependency cache in `target/` is ~12 GB. Avoid `cargo clean` and
+  delete a stale `Cargo.lock` only when the dependency graph is replaced
+  wholesale (old lock pins can conflict with gpui's exact version pins).
+- Changing the pinned `zui` rev recompiles the whole dependency tree; treat a
+  rev bump as its own task with its own verification.
+- Agent tooling has no macOS Screen Recording grant: `screencapture` returns
+  wallpaper + menu bar only, and the zui fork's AX content tree exposes just
+  the window and native traffic lights (not GPUI-painted nodes). Verify layout
+  with the GPUI test support, window bounds probes, and the owner's eye.
+- Missing dev symlinks `libxkbcommon-x11.so` and `libX11-xcb.so` (Linux only)
+  are shimmed at `~/.local/lib/dev-shim/`; the Makefile adds `-L` only while
+  that dir exists. Proper fix is `make deps`.
 
 ## Code conventions
 
-- Bootstrap pattern (required, see `src/main.rs`):
-  `gpui_kit::application().with_assets(gpui_kit::assets::Assets)` →
-  `gpui_kit::init(cx)` before any component use → window root must be
-  `Root::new(view, window, cx)` → render `Root::render_{dialog,sheet,notification}_layer`
-  as children for overlays to work.
-- App state lives in a `Global` (`cx.set_global` in the view constructor) —
-  `SettingField` getters/setters only receive `&App`/`&mut App`, they cannot
-  reach the view's `Context` directly. Clone the `Entity` handle into the
-  closure if view access is needed (`view.update(cx, ...)` + `cx.notify()`).
-- Every `SettingField` gets `.default_value(...)` so page reset buttons work.
-- Styling is Tailwind-flavored chained methods (`div().v_flex().gap_2()...`);
-  theme colors via `cx.theme().*` (`ActiveTheme`), never hardcoded colors.
-- `WindowExt` trait gives `window.open_dialog/open_sheet/push_notification`.
-- Icons: `IconName` variants are PascalCase names from `gpui-kit-assets`
-  (Lucide subset — check `default-icons.txt` upstream before using a new one).
+- Bootstrap (`src/main.rs`): `gpui_platform::application().run(|cx| ...)` →
+  `cx.open_window(WindowOptions {...}, |window, cx| cx.new(...))`. Window
+  options mirror zeron's `open_main_window`: transparent titlebar, native
+  traffic lights at (14,14), `app_owns_titlebar_drag`, glass-driven
+  `window_background`, 900×600 minimum.
+- Layout constants live as numbers (zeron's titlebar 38, control cluster 88,
+  sidebar 242–400, collapsed sliver 1px); colors come from the ported zeron
+  theme (`Theme::of(cx)`), never hardcoded once the theme lands.
+- App state lives in a gpui `Global` (`AppSettings`); settings writes go
+  through the app's save path and `cx.notify()`.
+- Accessibility: GPUI-painted controls do not appear in the macOS AX tree
+  unless they carry explicit role/aria-label/tab-index metadata. Add it when
+  porting a control that tests or the owner should reach by keyboard.
+- Fonts: the app's UI stack (Momo Trust Sans and friends) lives in
+  `assets/fonts/`; the ported typography module registers them. zeron's Geist
+  fonts are not vendored.
+- Styling is GPUI's Styled/Tailwind-flavored chaining; the ported modules keep
+  zeron's layout constants and call shapes so visual comparisons stay honest.
 
 ## References
 
-- Docs: https://gpui-kit.com/docs · API: https://docs.rs/gpui-kit
-- Upstream repo: https://github.com/longbridge/gpui-kit
-  - `examples/ai_recipes/` — tested consumer patterns (bootstrap, settings, tests)
-  - `crates/story/` — component gallery; `cargo run` in that repo shows all controls
-- Agent skill pack for this stack: `npx skills add longbridge/gpui-kit`
+- zeron source (MIT): https://github.com/zeronsh/zeron — clone at
+  `/tmp/zeron-src` when porting more; the port plan is
+  `docs/plans/active/zeron-stack-port.md`.
+- GPUI fork (Apache-2.0): https://github.com/zeronsh/zui
+- Repo workflow: `docs/WORKFLOW.md`
 
 <!-- ZHARNESS:BEGIN -->
 ## Harness
