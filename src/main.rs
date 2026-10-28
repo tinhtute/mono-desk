@@ -4,7 +4,7 @@ use gpui_kit::ElementId;
 use gpui_kit::base::{self as base, StyledExt as _, spring};
 use gpui_kit::component::{
     ActiveTheme, AxisExt as _, Colorize as _, Disableable, Icon, IconName, IconNamed as _, Root,
-    Sizable, Size, Theme, ThemeStyled as _, TitleBar, WindowExt,
+    Selectable as _, Sizable, Size, Theme, ThemeStyled as _, TitleBar, WindowExt,
     button::{Button, ButtonVariants as _},
     checkbox::Checkbox,
     color_picker::{ColorPicker, ColorPickerEvent, ColorPickerState},
@@ -24,11 +24,12 @@ use gpui_kit::component::{
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{AnimationExt, Pixels, SpringAnimation, SpringConfig};
 use gpui_kit::{
-    AnyElement, App, AppContext as _, Axis, Bounds, ClipboardItem, Context, Entity, FocusHandle,
-    Focusable, FontWeight, Global, Hsla, InteractiveElement as _, IntoElement, KeyBinding, Menu,
-    MenuItem, ParentElement as _, Render, SharedString, StatefulInteractiveElement as _,
-    StyleRefinement, Styled as _, Subscription, TitlebarOptions, Window, WindowBounds,
-    WindowDecorations, WindowOptions, div, img, point, px, relative, size, svg,
+    AnyElement, App, AppContext as _, Axis, Bounds, ClipboardItem, Context, Entity, Fill,
+    FocusHandle, Focusable, FontWeight, Global, Hsla, InteractiveElement as _, IntoElement,
+    KeyBinding, Menu, MenuItem, MouseButton, MouseMoveEvent, ParentElement as _, Render,
+    SharedString, StatefulInteractiveElement as _, StyleRefinement, Styled as _, Subscription,
+    TitlebarOptions, Window, WindowBackgroundAppearance, WindowBounds, WindowDecorations,
+    WindowOptions, div, img, point, px, relative, size, svg,
 };
 use input_field::{FieldStatus, InputFieldConfig, InputFieldView, Validation};
 use shell::{AppShell, ShellState};
@@ -238,6 +239,22 @@ struct AppSettings {
     accent: Option<Hsla>,
     language: SharedString,
     font_size: f64,
+    /// Whether the window background is translucent (the glass master
+    /// switch). `false` renders the shipped opaque palette.
+    background_translucent: bool,
+    /// The single frost-shell opacity in percent while translucent; clamped
+    /// to 40–100. One layer for the whole window, zeron-style.
+    window_opacity: f64,
+    /// Sidebar ink tone in percent of the max wash, 0–100. Painted *over* the
+    /// frost (never its own glass base), so the rail separates from the
+    /// content without a second alpha surface.
+    sidebar_tone: f64,
+    /// Persisted rail width in logical pixels (242–400). The drag seam writes
+    /// it live and persists on release, like the percentage sliders.
+    sidebar_width: f64,
+    /// Whether the window asks the platform to blur what is behind it. Only
+    /// meaningful while `background_translucent` is on.
+    background_blur: bool,
     launch_at_login: bool,
     notifications_enabled: bool,
     username: SharedString,
@@ -259,6 +276,15 @@ impl Default for AppSettings {
             // preserves the approved visual baseline. `theme::tests` pins the
             // two together.
             font_size: 14.0,
+            // Glass is opt-in; when it is switched on, the default frost
+            // opacity matches monocode's 0.85 surface (see
+            // `theme::WINDOW_OPACITY_DEFAULT`), and the sidebar keeps the
+            // subtle 5% ink tone zeron's glass sidebar uses.
+            background_translucent: false,
+            window_opacity: theme::WINDOW_OPACITY_DEFAULT,
+            sidebar_tone: theme::SIDEBAR_TONE_DEFAULT,
+            sidebar_width: theme::SIDEBAR_WIDTH_DEFAULT,
+            background_blur: false,
             launch_at_login: false,
             notifications_enabled: true,
             username: "ninja".into(),
@@ -296,6 +322,25 @@ impl AppSettings {
             } else {
                 14.0
             },
+            background_translucent: s.background_translucent,
+            // The codec already clamps; this is the same guard as
+            // `font_size` for a settings struct built in memory.
+            window_opacity: if s.window_opacity.is_finite() {
+                theme::clamp_window_opacity(s.window_opacity)
+            } else {
+                AppSettings::default().window_opacity
+            },
+            sidebar_tone: if s.sidebar_tone.is_finite() {
+                theme::clamp_sidebar_tone(s.sidebar_tone)
+            } else {
+                AppSettings::default().sidebar_tone
+            },
+            sidebar_width: if s.sidebar_width.is_finite() {
+                theme::clamp_sidebar_width(s.sidebar_width)
+            } else {
+                AppSettings::default().sidebar_width
+            },
+            background_blur: s.background_blur,
             launch_at_login: s.launch_at_login,
             notifications_enabled: s.notifications_enabled,
             username: s.username.into(),
@@ -317,6 +362,11 @@ impl AppSettings {
                 .unwrap_or_default(),
             language: self.language.to_string(),
             font_size: self.font_size,
+            background_translucent: self.background_translucent,
+            window_opacity: self.window_opacity,
+            sidebar_tone: self.sidebar_tone,
+            sidebar_width: self.sidebar_width,
+            background_blur: self.background_blur,
             launch_at_login: self.launch_at_login,
             notifications_enabled: self.notifications_enabled,
             username: self.username.to_string(),
@@ -333,6 +383,195 @@ impl AppSettings {
 /// Persists the current settings; errors are logged inside `persist::save`.
 fn save_settings(cx: &App) {
     persist::save(&AppSettings::global(cx).to_stored());
+}
+
+/// Glass (translucent background) plumbing, zeron-style.
+///
+/// GPUI exposes one window-level knob for this — `WindowBackgroundAppearance` —
+/// and it makes the *window surface* transparent/blurred. The app then paints
+/// exactly one glass layer on top: the `AppShell` base (`shell_frost_bg`), a
+/// full-window frost at the Window-opacity alpha. Everything above it is
+/// transparent chrome: the title bar paints nothing, the sidebar column adds
+/// only an ink tone (`sidebar_tone_bg`) plus a 1px right hairline, and the
+/// content sits flush on the frost. The vendored `Root` would paint an opaque
+/// base of its own, so it is switched off through `WindowRoot`.
+///
+/// The old model painted each pane at its own alpha; stacking two such layers
+/// composites to `1-(1-a)^2` and reads opaque, so it is replaced rather than
+/// extended.
+impl AppSettings {
+    /// The Window-opacity percent the frost layer paints with.
+    ///
+    /// While translucency is off this is the opaque end, so the palette is
+    /// never alpha'd without the user asking for it and the default rendering
+    /// stays byte-identical to `mono.json`.
+    pub(crate) fn window_opacity(&self) -> f64 {
+        if !self.background_translucent {
+            return theme::WINDOW_OPACITY_MAX;
+        }
+        theme::clamp_window_opacity(self.window_opacity)
+    }
+
+    /// The stored Window opacity, clamped — independent of the master switch.
+    /// The slider shows this (and reset compares against it) while the painted
+    /// alpha uses [`Self::window_opacity`], which is fully opaque when off.
+    pub(crate) fn stored_window_opacity(&self) -> f64 {
+        theme::clamp_window_opacity(self.window_opacity)
+    }
+
+    /// The sidebar ink-tone percent painted by the rail.
+    ///
+    /// Unconditional: zeron paints `wash(0.05)` on its opaque shell too, and
+    /// the tone is ink over whatever base is present — only the frost shell
+    /// itself is gated by the translucency master switch.
+    pub(crate) fn sidebar_tone(&self) -> f64 {
+        theme::clamp_sidebar_tone(self.sidebar_tone)
+    }
+
+    /// The stored sidebar tone, clamped (the slider's own value).
+    pub(crate) fn stored_sidebar_tone(&self) -> f64 {
+        theme::clamp_sidebar_tone(self.sidebar_tone)
+    }
+
+    /// The persisted rail width, clamped, as layout pixels.
+    pub(crate) fn sidebar_width(&self) -> Pixels {
+        px(theme::clamp_sidebar_width(self.sidebar_width) as f32)
+    }
+
+    /// The stored (clamped) value of one glass percentage control.
+    fn stored(&self, control: GlassControl) -> f64 {
+        match control {
+            GlassControl::WindowOpacity => self.stored_window_opacity(),
+            GlassControl::SidebarTone => self.stored_sidebar_tone(),
+        }
+    }
+}
+
+/// The colour the single full-window frost layer paints right now.
+pub(crate) fn shell_frost_bg(cx: &App) -> Hsla {
+    theme::glass_surface(
+        cx.theme().background,
+        AppSettings::global(cx).window_opacity(),
+    )
+}
+
+/// The ink the sidebar column paints over the frost right now.
+///
+/// A *tone*, not a surface: it is the theme foreground at the tone alpha, so
+/// the sidebar separates from the content without becoming a second base
+/// layer (zeron paints `wash(0.05)` for the same reason).
+pub(crate) fn sidebar_tone_bg(cx: &App) -> Hsla {
+    let alpha = theme::sidebar_tone_alpha(AppSettings::global(cx).sidebar_tone());
+    Hsla {
+        a: alpha,
+        ..cx.theme().foreground
+    }
+}
+
+/// `true` while the window paints a translucent base.
+pub(crate) fn glass_enabled(cx: &App) -> bool {
+    AppSettings::global(cx).background_translucent
+}
+
+/// The window-background appearance the glass settings ask for.
+///
+/// `Blurred` is a *request*, not a guarantee: macOS installs a vibrancy view
+/// behind the content, Windows uses DWM acrylic (experimental under GPUI's
+/// DirectComposition windows), and Linux only blurs when the compositor
+/// advertises a blur protocol — elsewhere the engine degrades to plain
+/// transparency instead of failing.
+fn window_background_for(translucent: bool, blur: bool) -> WindowBackgroundAppearance {
+    if !translucent {
+        return WindowBackgroundAppearance::Opaque;
+    }
+    if blur {
+        WindowBackgroundAppearance::Blurred
+    } else {
+        WindowBackgroundAppearance::Transparent
+    }
+}
+
+/// Handle to the window's vendored `Root` element.
+///
+/// `Root` renders the window's outermost `div` and paints its own opaque
+/// `tokens.background`; a view inside it cannot reach that paint. Glass needs
+/// this handle to switch the paint off — without it the opaque Root layer
+/// would sit behind every translucent app surface and the desktop would never
+/// show through.
+///
+/// Single-window by design (NG7): the app opens one window, so the last
+/// handle published by `open_window` is the only one there is.
+struct WindowRoot(Entity<Root>);
+
+impl Global for WindowRoot {}
+
+/// The `Root` style override for the current glass state.
+///
+/// `Some(clear)` while glass is on (the app's panes own the only base paint);
+/// `None` restores the vendored token paint for the default look. One helper
+/// so startup (`open_window`'s first frame) and [`apply_glass`] cannot drift.
+fn root_glass_bg(cx: &App, translucent: bool) -> Option<Fill> {
+    translucent.then(|| cx.theme().transparent.into())
+}
+
+/// Applies the glass settings: the window background appearance (the part
+/// that makes the OS window transparent/blurred), the `Root` base-paint
+/// override, and a repaint so every per-surface paint helper re-reads the new
+/// alpha.
+fn apply_glass(window: &mut Window, cx: &mut App) {
+    let settings = AppSettings::global(cx);
+    let translucent = settings.background_translucent;
+    let background = window_background_for(translucent, settings.background_blur);
+    window.set_background_appearance(background);
+    if let Some(root) = cx.try_global::<WindowRoot>().map(|root| root.0.clone()) {
+        // `None` restores the vendored token paint, i.e. exactly the default
+        // look; a transparent fill hands the base to the app's panes. Written
+        // only when it actually changes: the mode flips and the reset funnel
+        // re-enter here with an unchanged value, and the opacity slider never
+        // reaches this function at all (it only repaints).
+        let base = root_glass_bg(cx, translucent);
+        root.update(cx, |root, _| {
+            if root.style().background.is_some() != translucent {
+                root.style().background = base;
+            }
+        });
+    }
+    cx.refresh_windows();
+}
+
+/// The Translucent-background switch's effect.
+fn set_glass_translucent(enabled: bool, window: &mut Window, cx: &mut App) {
+    AppSettings::global_mut(cx).background_translucent = enabled;
+    apply_glass(window, cx);
+    save_settings(cx);
+}
+
+/// The Background-blur switch's effect.
+fn set_glass_blur(blur: bool, window: &mut Window, cx: &mut App) {
+    AppSettings::global_mut(cx).background_blur = blur;
+    apply_glass(window, cx);
+    save_settings(cx);
+}
+
+/// One glass percentage control's effect. `persist` is false while the
+/// slider is being dragged, so one drag does not rewrite the config per frame
+/// (same contract as the Font Size slider).
+///
+/// Only painted alpha/tone changes, so this repaints instead of going through
+/// [`apply_glass`] — reconfiguring the window surface (and its GPU alpha mode)
+/// on every drag frame would be pure overhead.
+fn set_glass_percent(
+    control: GlassControl,
+    percent: f64,
+    persist: bool,
+    _window: &mut Window,
+    cx: &mut App,
+) {
+    control.set(AppSettings::global_mut(cx), percent);
+    cx.refresh_windows();
+    if persist {
+        save_settings(cx);
+    }
 }
 
 // MARK: beUI P1 composed controls
@@ -862,21 +1101,13 @@ fn font_size_field(label: SharedString) -> SettingField<SharedString> {
                             .items_center()
                             .child(
                                 div().flex_1().min_w_0().child(
-                                    // TODO(a11y): the Font Size slider is
-                                    // announced as "14, slider" with no name.
-                                    // The vendored `Slider` sets value, min,
-                                    // max and orientation on the a11y node but
-                                    // never a name, and it exposes no label
-                                    // API. Wrapping it in a div with
-                                    // `aria_label` was tried on the running
-                                    // app and did NOT work — a role-less div
-                                    // is filtered out of the tree, so the name
-                                    // was still absent from the real AX tree.
-                                    // Fixing it needs a vendored patch, or a
-                                    // role + label on a node that also owns
-                                    // the value.
+                                    // `accessibility_label` comes from the
+                                    // vendored slider-accessibility-label
+                                    // patch: without it the row announces
+                                    // only "14, slider", with no name.
                                     Slider::new(&state)
                                         .horizontal()
+                                        .accessibility_label(label.clone())
                                         .disabled(options.is_disabled()),
                                 ),
                             )
@@ -914,6 +1145,163 @@ fn font_size_field(label: SharedString) -> SettingField<SharedString> {
             apply_font_size(cx);
             save_settings(cx);
             cx.refresh_windows();
+        },
+    )
+}
+
+/// The two glass percentage controls (Window opacity, Sidebar tone).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum GlassControl {
+    WindowOpacity,
+    SidebarTone,
+}
+
+impl GlassControl {
+    /// Stable suffix for element/test ids.
+    fn key(self) -> &'static str {
+        match self {
+            GlassControl::WindowOpacity => "window-opacity",
+            GlassControl::SidebarTone => "sidebar-tone",
+        }
+    }
+
+    /// Slider range. The shell keeps the 40% readability floor; the sidebar
+    /// tone legitimately goes to zero (hairline-only separation).
+    fn range(self) -> (f32, f32) {
+        match self {
+            GlassControl::WindowOpacity => (
+                theme::WINDOW_OPACITY_MIN as f32,
+                theme::WINDOW_OPACITY_MAX as f32,
+            ),
+            GlassControl::SidebarTone => (
+                theme::SIDEBAR_TONE_MIN as f32,
+                theme::SIDEBAR_TONE_MAX as f32,
+            ),
+        }
+    }
+
+    /// The shipped default, used by page reset.
+    fn default_value(self) -> f64 {
+        match self {
+            GlassControl::WindowOpacity => theme::WINDOW_OPACITY_DEFAULT,
+            GlassControl::SidebarTone => theme::SIDEBAR_TONE_DEFAULT,
+        }
+    }
+
+    /// Write one value, clamped.
+    fn set(self, settings: &mut AppSettings, percent: f64) {
+        match self {
+            GlassControl::WindowOpacity => {
+                settings.window_opacity = theme::clamp_window_opacity(percent);
+            }
+            GlassControl::SidebarTone => {
+                settings.sidebar_tone = theme::clamp_sidebar_tone(percent);
+            }
+        }
+    }
+}
+
+/// Keyed-state slot holding one glass `SliderState` and the subscription that
+/// commits it into `AppSettings`.
+struct GlassPercentSlot {
+    state: Entity<SliderState>,
+    _subscription: Subscription,
+}
+
+/// One glass percentage field. Inert while the Translucent-window master
+/// switch is off, since nothing paints at a reduced alpha or tone then.
+///
+/// Like Font Size, the slider reports continuously while dragging, so the live
+/// paint is updated on every `Change` but the file is written only on
+/// `Release`.
+fn glass_percent_field(control: GlassControl, label: SharedString) -> SettingField<SharedString> {
+    SettingField::render(move |options, window, cx| {
+        let state_id: ElementId = format!("glass-slider-state-{}", control.key()).into();
+        let slot = window.use_keyed_state(state_id, cx, |window, cx| {
+            // Read before `cx.new`: the closure must not borrow the app.
+            let initial = AppSettings::global(cx).stored(control) as f32;
+            let (min, max) = control.range();
+            let state = cx.new(|_| {
+                SliderState::new()
+                    .min(min)
+                    .max(max)
+                    .step(1.0)
+                    .default_value(initial)
+            });
+            let subscription = cx.subscribe_in(
+                &state,
+                window,
+                move |_, _, event: &SliderEvent, window, cx| {
+                    let (value, persist) = match event {
+                        SliderEvent::Change(value) => (value, false),
+                        SliderEvent::Release(value) => (value, true),
+                    };
+                    let SliderValue::Single(percent) = value else {
+                        return;
+                    };
+                    if !percent.is_finite() {
+                        return;
+                    }
+                    set_glass_percent(control, *percent as f64, persist, window, cx);
+                },
+            );
+            GlassPercentSlot {
+                state,
+                _subscription: subscription,
+            }
+        });
+        let state = slot.read(cx).state.clone();
+        // The global is the source of truth: adopt reset/external writes.
+        let want = AppSettings::global(cx).stored(control) as f32;
+        let SliderValue::Single(shown) = state.read(cx).value() else {
+            unreachable!("a glass percentage slider is single-valued")
+        };
+        if shown != want {
+            state.update(cx, |state, cx| {
+                state.set_value(want, window, cx);
+            });
+        }
+        let percent = AppSettings::global(cx).stored(control);
+        let enabled = glass_enabled(cx);
+        let row = format!("{}-row", control.key());
+        let value = format!("{}-value", control.key());
+        div()
+            .id(ElementId::Name(format!("{}-control", control.key()).into()))
+            .when(options.layout().is_horizontal(), |this| this.w_64())
+            .child(
+                h_flex()
+                    .gap_2()
+                    .items_center()
+                    .debug_selector(move || row.clone())
+                    .child(
+                        div().flex_1().min_w_0().child(
+                            // Named through the vendored
+                            // `slider-accessibility-label` patch; the
+                            // value/min/max/orientation contract is the
+                            // patched behaviour root's.
+                            Slider::new(&state)
+                                .horizontal()
+                                .accessibility_label(label.clone())
+                                .disabled(options.is_disabled() || !enabled),
+                        ),
+                    )
+                    .child(
+                        div()
+                            .flex_none()
+                            .child(percent_text(percent, &AppSettings::global(cx).language))
+                            // The percentage duplicates the slider's a11y
+                            // numeric value for sighted users.
+                            .debug_selector(move || value.clone()),
+                    ),
+            )
+    })
+    .on_reset(
+        move |cx: &App| AppSettings::global(cx).stored(control) != control.default_value(),
+        move |window, cx: &mut App| {
+            // Page reset runs every field handler, even with translucency
+            // off; the stored default is the right target, not the effective
+            // (opaque) value the switch implies.
+            set_glass_percent(control, control.default_value(), true, window, cx);
         },
     )
 }
@@ -967,6 +1355,30 @@ fn changed_settings(cx: &App) -> Vec<ChangedSetting> {
         now.font_size != default.font_size,
         format!("{:.0} px", now.font_size),
         format!("{:.0} px", default.font_size),
+    );
+    push(
+        "item.background_translucent",
+        now.background_translucent != default.background_translucent,
+        on_off(now.background_translucent, &now.language),
+        on_off(default.background_translucent, &default.language),
+    );
+    push(
+        "item.window_opacity",
+        now.window_opacity != default.window_opacity,
+        percent_text(now.window_opacity, &now.language),
+        percent_text(default.window_opacity, &default.language),
+    );
+    push(
+        "item.sidebar_tone",
+        now.sidebar_tone != default.sidebar_tone,
+        percent_text(now.sidebar_tone, &now.language),
+        percent_text(default.sidebar_tone, &default.language),
+    );
+    push(
+        "item.background_blur",
+        now.background_blur != default.background_blur,
+        on_off(now.background_blur, &now.language),
+        on_off(default.background_blur, &default.language),
     );
     push(
         "item.language",
@@ -1052,8 +1464,14 @@ fn on_off(value: bool, lang: &SharedString) -> String {
     tr(if value { "state.on" } else { "state.off" }, lang).to_string()
 }
 
+/// `NN%` in the owner's language — the percent sign/space is a translatable
+/// unit, not a hardcoded ASCII glyph.
+fn percent_text(value: f64, lang: &SharedString) -> String {
+    format!("{value:.0}{}", tr("unit.percent", lang))
+}
+
 /// Revert everything the reset panel lists, in one pass.
-fn reset_everything(cx: &mut App) {
+fn reset_everything(window: &mut Window, cx: &mut App) {
     let default = AppSettings::default();
     let language = default.language.clone();
     *AppSettings::global_mut(cx) = default;
@@ -1064,6 +1482,10 @@ fn reset_everything(cx: &mut App) {
         AppSettings::global(cx).accent,
     );
     apply_appearance(AppSettings::global(cx).appearance, cx);
+    // The reset returns the glass setting to "off", which also has to put the
+    // window surface and Root's base paint back (the theme install above does
+    // not know about window-level state).
+    apply_glass(window, cx);
     persist::autostart_converge(AppSettings::global(cx).launch_at_login);
     save_settings(cx);
     cx.refresh_windows();
@@ -1122,9 +1544,9 @@ fn reset_page(cx: &App) -> SettingPage {
                     Button::new("reset-all")
                         .label(text)
                         .disabled(!has_changes)
-                        .on_click(move |_, _, cx| {
+                        .on_click(move |_, window, cx| {
                             if is_armed {
-                                reset_everything(cx);
+                                reset_everything(window, cx);
                             } else {
                                 armed.update(cx, |armed, cx| {
                                     armed.0 = true;
@@ -1474,6 +1896,120 @@ fn settings_checkbox(
 
 struct SettingsWindow {
     focus_handle: FocusHandle,
+    /// Rail-resize drag state lives on the view, not in a global.
+    resizing: bool,
+    /// First width limit hit in the current drag (latched per drag).
+    latched: Option<SidebarEdge>,
+    /// Selected settings page index (single source for nav + Settings).
+    current_page: usize,
+    /// Collapsible section open flags, in nav order.
+    sections_open: [bool; 2],
+    /// Header filter cycle state.
+    nav_filter: NavFilter,
+}
+
+/// Sidebar nav filter: all pages, or one section's group.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum NavFilter {
+    All,
+    Preferences,
+    Workspace,
+}
+
+impl NavFilter {
+    fn next(self) -> Self {
+        match self {
+            NavFilter::All => NavFilter::Preferences,
+            NavFilter::Preferences => NavFilter::Workspace,
+            NavFilter::Workspace => NavFilter::All,
+        }
+    }
+
+    fn label_key(self) -> &'static str {
+        match self {
+            NavFilter::All => "nav.all_settings",
+            NavFilter::Preferences => "nav.preferences",
+            NavFilter::Workspace => "nav.workspace",
+        }
+    }
+}
+
+/// The two zeron-style sidebar sections and the pages they hold.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum NavGroup {
+    Preferences,
+    Workspace,
+}
+
+impl NavGroup {
+    fn index(self) -> usize {
+        match self {
+            NavGroup::Preferences => 0,
+            NavGroup::Workspace => 1,
+        }
+    }
+
+    fn label_key(self) -> &'static str {
+        match self {
+            NavGroup::Preferences => "nav.preferences",
+            NavGroup::Workspace => "nav.workspace",
+        }
+    }
+}
+
+/// One custom-nav page row. `page_ix` indexes `Settings::pages`.
+struct NavEntry {
+    page_ix: usize,
+    title_key: &'static str,
+    icon: IconName,
+    group: NavGroup,
+}
+
+const NAV_ENTRIES: [NavEntry; 6] = [
+    NavEntry {
+        page_ix: 0,
+        title_key: "page.general",
+        icon: IconName::Settings2,
+        group: NavGroup::Preferences,
+    },
+    NavEntry {
+        page_ix: 1,
+        title_key: "page.notifications",
+        icon: IconName::Bell,
+        group: NavGroup::Preferences,
+    },
+    NavEntry {
+        page_ix: 2,
+        title_key: "page.profile",
+        icon: IconName::User,
+        group: NavGroup::Preferences,
+    },
+    NavEntry {
+        page_ix: 3,
+        title_key: "page.finance",
+        icon: IconName::LayoutDashboard,
+        group: NavGroup::Workspace,
+    },
+    NavEntry {
+        page_ix: 4,
+        title_key: "page.reset",
+        icon: IconName::RotateCw,
+        group: NavGroup::Workspace,
+    },
+    NavEntry {
+        page_ix: 5,
+        title_key: "page.about",
+        icon: IconName::Info,
+        group: NavGroup::Workspace,
+    },
+];
+
+/// Width limit a drag pressed past; latched once per drag so a held pointer
+/// does not re-trigger the limit on every move.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SidebarEdge {
+    Min,
+    Max,
 }
 
 impl SettingsWindow {
@@ -1497,6 +2033,11 @@ impl SettingsWindow {
             .detach();
         Self {
             focus_handle: cx.focus_handle(),
+            resizing: false,
+            latched: None,
+            current_page: 0,
+            sections_open: [true, true],
+            nav_filter: NavFilter::All,
         }
     }
 
@@ -1506,6 +2047,14 @@ impl SettingsWindow {
         // Copied out of `defaults` so the reset closure of the element field
         // below can be `'static`.
         let notifications_default = defaults.notifications_enabled;
+        // Same for the glass group's three fields: `AppSettings` itself is
+        // not `Copy` (it owns `SharedString`s), the scalar defaults are.
+        let glass_defaults = (
+            defaults.background_translucent,
+            defaults.window_opacity,
+            defaults.sidebar_tone,
+            defaults.background_blur,
+        );
 
         vec![
             SettingPage::new(tr("page.general", &lang))
@@ -1566,6 +2115,102 @@ impl SettingsWindow {
                             )
                             .description(tr("item.font_size.desc", &lang))
                             .keywords(["text", "size", "zoom", "scale"]),
+                        ]),
+                    SettingGroup::new()
+                        .title(tr("group.background", &lang))
+                        .items(vec![
+                            SettingItem::new(
+                                tr("item.background_translucent", &lang),
+                                SettingField::render({
+                                    let label = tr("item.background_translucent", &lang);
+                                    move |options, _window, cx| {
+                                        div()
+                                            .debug_selector(|| "background-translucent-row".into())
+                                            .child(settings_switch(
+                                                "background-translucent-switch",
+                                                AppSettings::global(cx).background_translucent,
+                                                label,
+                                                options,
+                                                |checked: &bool, window, cx| {
+                                                    set_glass_translucent(*checked, window, cx);
+                                                },
+                                            ))
+                                    }
+                                })
+                                // An element field carries no typed value, so
+                                // the page reset needs the handler explicitly.
+                                .on_reset(
+                                    move |cx: &App| {
+                                        AppSettings::global(cx).background_translucent
+                                            != glass_defaults.0
+                                    },
+                                    move |window, cx: &mut App| {
+                                        set_glass_translucent(glass_defaults.0, window, cx);
+                                    },
+                                ),
+                            )
+                            .description(tr("item.background_translucent.desc", &lang))
+                            .keywords([
+                                "glass",
+                                "transparent",
+                                "translucent",
+                                "desktop",
+                                "alpha",
+                            ]),
+                            SettingItem::new(
+                                tr("item.window_opacity", &lang),
+                                glass_percent_field(
+                                    GlassControl::WindowOpacity,
+                                    tr("item.window_opacity", &lang).into(),
+                                ),
+                            )
+                            .description(tr("item.window_opacity.desc", &lang))
+                            .keywords(["opacity", "alpha", "frost", "glass", "window"]),
+                            SettingItem::new(
+                                tr("item.sidebar_tone", &lang),
+                                glass_percent_field(
+                                    GlassControl::SidebarTone,
+                                    tr("item.sidebar_tone", &lang).into(),
+                                ),
+                            )
+                            .description(tr("item.sidebar_tone.desc", &lang))
+                            .keywords(["tone", "wash", "sidebar", "rail", "glass"]),
+                            SettingItem::new(
+                                tr("item.background_blur", &lang),
+                                SettingField::render({
+                                    let label = tr("item.background_blur", &lang);
+                                    move |options, _window, cx| {
+                                        let translucent =
+                                            AppSettings::global(cx).background_translucent;
+                                        div().debug_selector(|| "background-blur-row".into()).child(
+                                            settings_switch(
+                                                "background-blur-switch",
+                                                AppSettings::global(cx).background_blur,
+                                                label,
+                                                options,
+                                                |blur: &bool, window, cx| {
+                                                    set_glass_blur(*blur, window, cx);
+                                                },
+                                            )
+                                            // Blur is only meaningful on a
+                                            // translucent window, so the
+                                            // switch is inert while the
+                                            // master switch is off.
+                                            .disabled(options.is_disabled() || !translucent),
+                                        )
+                                    }
+                                })
+                                .on_reset(
+                                    move |cx: &App| {
+                                        AppSettings::global(cx).background_blur != glass_defaults.3
+                                    },
+                                    move |window, cx: &mut App| {
+                                        set_glass_blur(glass_defaults.3, window, cx);
+                                    },
+                                ),
+                            )
+                            .description(tr("item.background_blur.desc", &lang))
+                            .keywords(["blur", "frosted", "vibrancy", "backdrop", "glass"]),
                         ]),
                     SettingGroup::new()
                         .title(tr("group.region", &lang))
@@ -2238,14 +2883,61 @@ fn normalize_font_size(val: f64) -> Option<f64> {
 }
 
 /// Sidebar rail widths: collapsed icon rail and expanded navigation column.
-const SIDEBAR_COLLAPSED_W: Pixels = px(48.);
-const SIDEBAR_EXPANDED_W: Pixels = px(240.);
+/// Collapsed rail: zeron leaves only a hairline grab sliver, not an icon rail.
+const SIDEBAR_COLLAPSED_W: Pixels = px(1.);
 
-/// Once the expanding rail reaches 85% of `SIDEBAR_EXPANDED_W`, labels and
-/// search un-hide — "near full" without waiting for the spring to settle.
-/// (204px; `Pixels` exposes no const arithmetic, so the literal must be
-/// kept in sync.)
-const SIDEBAR_LABEL_REVEAL_W: Pixels = px(204.);
+/// The spring target for the rail: the sliver when collapsed, else the
+/// persisted width.
+fn sidebar_target_width(collapsed: bool, stored_width: Pixels) -> Pixels {
+    if collapsed {
+        SIDEBAR_COLLAPSED_W
+    } else {
+        stored_width
+    }
+}
+
+/// The app-owned chrome refinements, extracted from the render so the zeron
+/// layout invariants are inspectable by tests without a rendered frame.
+///
+/// Both appearances share one structure: the shell paints the base (opaque
+/// token or the glass frost), the rail is a transparent column carrying only
+/// an ink tone plus a hairline, and the page is flush (no inset card).
+pub(crate) fn sidebar_refinement(cx: &App, _glass: bool) -> StyleRefinement {
+    // zeron's rail column is TRANSPARENT and carries only the ink tone plus a
+    // 1px right hairline, in both appearances (zeron paints `wash(0.05)` on
+    // its opaque shell too — it is a tone, not a glass-only effect). The
+    // column still spans the full window height, while its content starts
+    // below the overlay titlebar.
+    // NOTE: the vendored `Sidebar` zeroes padding on its own root before
+    // rendering (vendor/gpui-component/src/sidebar/mod.rs), so the 38px
+    // chrome offset must live on the app-owned header element — see
+    // `sidebar_header_padding()` — not on this refinement.
+    StyleRefinement::default()
+        .w_full()
+        .border_0()
+        .text_color(cx.theme().muted_foreground)
+        .bg(sidebar_tone_bg(cx))
+        .border_r_1()
+        .border_color(cx.theme().border)
+}
+
+/// The content panel's style: zeron's flush page — no inset card in either
+/// appearance, padded below the overlay titlebar.
+pub(crate) fn content_panel_style(_cx: &App, _glass: bool) -> StyleRefinement {
+    // zeron's layout has no inset cards: the page sits flush on the shell in
+    // both appearances, padded below the overlay titlebar. The appearance
+    // only changes the shell base (frost vs opaque), never the page chrome.
+    StyleRefinement::default().pt(crate::shell::TITLEBAR_H)
+}
+
+/// Chrome offset the rail's own content needs below the overlay titlebar.
+///
+/// The vendored `Sidebar` discards padding from its style refinement, so the
+/// app pads its header element explicitly instead; the menu rows follow the
+/// header down because the panel lays them out in one column.
+pub(crate) fn sidebar_header_padding() -> Pixels {
+    crate::shell::TITLEBAR_H
+}
 
 /// Critically damped (ω₀ ≈ 32 rad/s), no overshoot: settles inside ~200 ms,
 /// and a retarget keeps velocity instead of jumping.
@@ -2255,21 +2947,203 @@ const SIDEBAR_SPRING: SpringConfig = SpringConfig::new(1024.0, 64.0, 1.0);
 /// lands on the exact target.
 const SIDEBAR_SPRING_EPSILON: f32 = 0.5;
 
-/// Whether the sidebar renders icon-only: immediately when collapsing, and
-/// until the rail is nearly full width again when expanding.
-fn sidebar_icon_mode(collapsed: bool, width: Pixels) -> bool {
-    collapsed || width < SIDEBAR_LABEL_REVEAL_W
+impl SettingsWindow {
+    /// The zeron header row: a filter "dropdown" (V1 cycles all → preferences
+    /// → workspace) styled as the rail's title row.
+    fn render_sidebar_filter(&self, cx: &mut Context<Self>) -> AnyElement {
+        let lang = AppSettings::global(cx).language.clone();
+        let label = tr(self.nav_filter.label_key(), &lang);
+        Button::new("nav-filter")
+            .ghost()
+            .icon(IconName::Folder)
+            .label(label)
+            .tooltip(tr("nav.all_settings", &lang))
+            .accessibility_label(tr("nav.all_settings", &lang))
+            .w_full()
+            .h(px(32.))
+            .justify_start()
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.nav_filter = this.nav_filter.next();
+                cx.notify();
+            }))
+            .into_any_element()
+    }
+
+    /// The zeron nav tree: two collapsible sections holding the page rows.
+    fn render_sidebar_nav(&self, cx: &mut Context<Self>) -> AnyElement {
+        let lang = AppSettings::global(cx).language.clone();
+        let current = self.current_page;
+        let filter = self.nav_filter;
+        let mut children: Vec<AnyElement> = Vec::new();
+        for group in [NavGroup::Preferences, NavGroup::Workspace] {
+            let group_visible = match filter {
+                NavFilter::All => true,
+                NavFilter::Preferences => group == NavGroup::Preferences,
+                NavFilter::Workspace => group == NavGroup::Workspace,
+            };
+            if !group_visible {
+                continue;
+            }
+            let open = self.sections_open[group.index()];
+            let group_id = match group {
+                NavGroup::Preferences => "nav-section-preferences",
+                NavGroup::Workspace => "nav-section-workspace",
+            };
+            children.push(
+                Button::new(group_id)
+                    .ghost()
+                    .icon(if open {
+                        IconName::ChevronDown
+                    } else {
+                        IconName::ChevronRight
+                    })
+                    .label(tr(group.label_key(), &lang))
+                    .w_full()
+                    .h(px(28.))
+                    .justify_start()
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.sections_open[group.index()] = !this.sections_open[group.index()];
+                        cx.notify();
+                    }))
+                    .into_any_element(),
+            );
+            if !open {
+                continue;
+            }
+            for entry in NAV_ENTRIES.iter().filter(|entry| entry.group == group) {
+                let active = entry.page_ix == current;
+                let page_ix = entry.page_ix;
+                let row_id = format!("nav-page-{page_ix}");
+                children.push(
+                    Button::new(row_id)
+                        .ghost()
+                        .icon(entry.icon.clone())
+                        .label(tr(entry.title_key, &lang))
+                        .selected(active)
+                        .w_full()
+                        .h(px(30.))
+                        .justify_start()
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.current_page = page_ix;
+                            cx.notify();
+                        }))
+                        .into_any_element(),
+                );
+            }
+        }
+        v_flex()
+            .w_full()
+            .gap_1()
+            .children(children)
+            .into_any_element()
+    }
+
+    /// zeron's footer identity row: avatar initial + display name + a theme
+    /// toggle icon button (the settings app has no account menu to open).
+    fn render_sidebar_footer_identity(&self, cx: &mut Context<Self>) -> AnyElement {
+        let settings = AppSettings::global(cx);
+        let name = if settings.display_name.is_empty() {
+            settings.username.clone()
+        } else {
+            settings.display_name.clone()
+        };
+        let initial = name
+            .chars()
+            .next()
+            .map(|c| c.to_uppercase().to_string())
+            .unwrap_or_else(|| "?".into());
+        let lang = settings.language.clone();
+        let icon = if cx.theme().mode.is_dark() {
+            IconName::Moon
+        } else {
+            IconName::Sun
+        };
+        let tooltip = tr("appearance.cycle", &lang);
+        h_flex()
+            .id("nav-footer-identity")
+            .debug_selector(|| "nav-footer-identity".into())
+            .w_full()
+            .h(px(40.))
+            .px(px(8.))
+            .gap_2()
+            .items_center()
+            .child(
+                div()
+                    .size(px(24.))
+                    .rounded_full()
+                    .bg(cx.theme().accent)
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .text_xs()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(initial),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .text_sm()
+                    .text_color(cx.theme().foreground)
+                    .child(name),
+            )
+            .child(
+                Button::new("nav-footer-theme")
+                    .ghost()
+                    .icon(icon)
+                    .tooltip(tooltip)
+                    .accessibility_label(tooltip)
+                    .on_click(|_, _, cx| {
+                        let next = match AppSettings::global(cx).appearance {
+                            Appearance::Light => Appearance::Dark,
+                            Appearance::Dark => Appearance::Light,
+                            Appearance::System => Appearance::Light,
+                        };
+                        set_appearance(next, cx);
+                    }),
+            )
+            .into_any_element()
+    }
+
+    /// End a rail drag: clear the latch, persist the width once, repaint.
+    fn finish_sidebar_resize(&mut self, cx: &mut Context<Self>) {
+        if !self.resizing {
+            return;
+        }
+        self.resizing = false;
+        self.latched = None;
+        save_settings(cx);
+        cx.notify();
+    }
 }
 
 impl Render for SettingsWindow {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let collapsed = cx.global::<ShellState>().collapsed;
-        let foreground = cx.theme().foreground;
-        let target_w = if collapsed {
-            SIDEBAR_COLLAPSED_W
+        let target_w = sidebar_target_width(collapsed, AppSettings::global(cx).sidebar_width());
+        // zeron-style glass: the rail is not a panel. It stays a transparent
+        // column on the frost shell, carrying only an ink tone and a 1px right
+        // hairline — no rounding, border box or inset margin. The content pane
+        // is flush beside it, so the two read as one continuous glass window.
+        let glass = glass_enabled(cx);
+        let sidebar_style = sidebar_refinement(cx, glass);
+        // zeron's collapsed rail is a bare 1px grab sliver, so its content
+        // leaves the tree with it: nothing paints outside the sliver, no
+        // invisible control stays in the tab order, and the vendored
+        // `Sidebar` is never handed its icon-collapse mode — that mode pins
+        // its own width to a 48px icon rail and overflows the 1px panel
+        // across the page (the "nồi thập cẩm" collapse state).
+        let expanded = !collapsed;
+        let sidebar_filter = expanded.then(|| self.render_sidebar_filter(cx));
+        let sidebar_nav = if expanded {
+            self.render_sidebar_nav(cx)
         } else {
-            SIDEBAR_EXPANDED_W
+            div().into_any_element()
         };
+        let sidebar_footer_identity = expanded.then(|| self.render_sidebar_footer_identity(cx));
+        let lang = AppSettings::global(cx).language.clone();
+        let page_title: SharedString = tr(NAV_ENTRIES[self.current_page].title_key, &lang).into();
 
         let settings = Settings::new("settings-demo")
             .sidebar_width(target_w)
@@ -2289,34 +3163,41 @@ impl Render for SettingsWindow {
             // `Sidebar` sees no expanded pixel width and skips its own
             // wrapper tween — the spring below is the single width driver
             // and the sidebar fills its panel exactly.
-            .sidebar_style(
-                &StyleRefinement::default()
+            .sidebar_style(&sidebar_style)
+            .sidebar_header(
+                div()
                     .w_full()
-                    .border_0()
-                    .text_color(cx.theme().muted_foreground),
+                    .pt(crate::sidebar_header_padding())
+                    .children(sidebar_filter),
             )
+            .sidebar_nav(sidebar_nav)
+            .sidebar_footer(
+                div()
+                    .w_full()
+                    .px(px(8.))
+                    .pb(px(8.))
+                    .children(sidebar_footer_identity),
+            )
+            .selected_page(self.current_page)
             // Raised pill on the active sidebar item: the app-owned `sm`
             // elevation from the resolved token snapshot (O1).
-            .active_item_style(
-                &StyleRefinement::default()
-                    .bg(cx.theme().group_box)
+            .active_item_style(&{
+                // Under glass the rail is a tone, so the raised pill is a
+                // translucent chip over it (70% of the token colour, one
+                // layer above the tone); opaque mode keeps the flat token.
+                let pill = if glass {
+                    theme::glass_surface(cx.theme().group_box, 70.0)
+                } else {
+                    cx.theme().group_box
+                };
+                StyleRefinement::default()
+                    .bg(pill)
                     .border_1()
                     .border_color(cx.theme().border)
-                    .shadow(cx.global::<UiTokens>().shadow.sm.clone()),
-            )
-            // Raised zdesk card around the settings content: rounded,
-            // stroked, lighter than the window base, with a 6px inset on all
-            // four sides, clipped so page content can't bleed past the
-            // radius.
-            .content_panel_style(
-                &StyleRefinement::default()
-                    .rounded_lg()
-                    .border_1()
-                    .border_color(cx.theme().border)
-                    .bg(cx.theme().group_box)
-                    .m(px(6.))
-                    .overflow_hidden(),
-            )
+                    .shadow(cx.global::<UiTokens>().shadow.sm.clone())
+            })
+            // zeron's flush page (no inset card in either appearance).
+            .content_panel_style(&content_panel_style(cx, glass))
             .pages(Self::setting_pages(cx))
             // One spring drives the sidebar panel's width; the element id
             // preserves spring state across frames, so a mid-flight toggle
@@ -2326,23 +3207,99 @@ impl Render for SettingsWindow {
                 SpringAnimation::new(SIDEBAR_SPRING)
                     .to(target_w)
                     .with_epsilon(SIDEBAR_SPRING_EPSILON),
-                move |this, w| {
-                    this.sidebar_width(w)
-                        .sidebar_size_range(w..w)
-                        // Icon-only while narrow: labels and search hide the
-                        // moment collapse starts and reappear only once the
-                        // rail is nearly back at full width.
-                        .sidebar_collapsed(sidebar_icon_mode(collapsed, w))
-                        .sidebar_header(shell::sidebar_brand(
-                            sidebar_icon_mode(collapsed, w),
-                            foreground,
-                        ))
-                },
+                // Never `.sidebar_collapsed(...)`: the vendored icon rail
+                // would pin a 48px column inside the shrinking panel and
+                // paint it over the page. The animated width is the only
+                // collapse driver.
+                move |this, w| this.sidebar_width(w).sidebar_size_range(w..w),
             );
+        // No base paint here on purpose: `Root` owns the opaque palette
+        // background and `AppShell` owns the single window base (opaque
+        // palette, or clear while glass is on so the pane alpha is the only
+        // layer). A second full-window fill would stack alpha and go opaque.
+        // The rail seam is a zero-layout-width hit target straddling the
+        // rail/content boundary, drawn above the page but below the dialogs.
+        // While dragging, a full-window capture overlay owns every mouse move
+        // (a 20px seam loses the pointer on a fast drag otherwise), shows the
+        // column-resize cursor and occludes hover from the page.
+        let collapsed = cx.global::<ShellState>().collapsed;
+        let resizing = self.resizing;
+        let rail_now = AppSettings::global(cx).sidebar_width();
+        let seam = (!collapsed && !resizing).then(|| {
+            div()
+                .id("sidebar-resize-seam")
+                .debug_selector(|| "sidebar-resize-seam".into())
+                .absolute()
+                .top(crate::shell::TITLEBAR_H)
+                .bottom_0()
+                .left(rail_now - px(10.))
+                .w(px(20.))
+                .cursor_col_resize()
+                .occlude()
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|this, _, _, cx| {
+                        this.resizing = true;
+                        this.latched = None;
+                        cx.notify();
+                    }),
+                )
+        });
+        let capture = resizing.then(|| {
+            div()
+                .id("sidebar-resize-capture")
+                .debug_selector(|| "sidebar-resize-capture".into())
+                .absolute()
+                .top_0()
+                .left_0()
+                .right_0()
+                .bottom_0()
+                .cursor_col_resize()
+                .occlude()
+                .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _, cx| {
+                    // A lost release (pointer released outside the window)
+                    // arrives as a move with no button held: end the drag
+                    // instead of leaving the overlay swallowing clicks.
+                    if event.pressed_button.is_none() {
+                        this.finish_sidebar_resize(cx);
+                        return;
+                    }
+                    let raw = f32::from(event.position.x);
+                    let width = raw.clamp(
+                        theme::SIDEBAR_WIDTH_MIN as f32,
+                        theme::SIDEBAR_WIDTH_MAX as f32,
+                    );
+                    AppSettings::global_mut(cx).sidebar_width = width as f64;
+                    // Latch the first limit of this drag; a visual bounce is
+                    // not animated yet (recorded as a follow-up).
+                    if raw <= theme::SIDEBAR_WIDTH_MIN as f32 {
+                        this.latched = this.latched.or(Some(SidebarEdge::Min));
+                    } else if raw >= theme::SIDEBAR_WIDTH_MAX as f32 {
+                        this.latched = this.latched.or(Some(SidebarEdge::Max));
+                    } else {
+                        this.latched = None;
+                    }
+                    cx.notify();
+                }))
+                .on_mouse_up(
+                    MouseButton::Left,
+                    cx.listener(|this, _, _, cx| this.finish_sidebar_resize(cx)),
+                )
+                .on_mouse_up_out(
+                    MouseButton::Left,
+                    cx.listener(|this, _, _, cx| this.finish_sidebar_resize(cx)),
+                )
+        });
         div()
             .size_full()
-            .bg(cx.theme().background)
-            .child(AppShell::new().settings_view(settings.into_any_element()))
+            .relative()
+            .child(
+                AppShell::new()
+                    .page_title(page_title)
+                    .settings_view(settings.into_any_element()),
+            )
+            .children(seam)
+            .children(capture)
             .children(Root::render_dialog_layer(window, cx))
             .children(Root::render_sheet_layer(window, cx))
             .children(Root::render_notification_layer(window, cx))
@@ -2412,15 +3369,15 @@ fn main() {
             // ⌘W is close-window semantics; with a single window and no tabs
             // to close, closing the window quits the app.
             cx.on_action(|_: &CloseWindow, cx: &mut App| cx.quit());
-            // ⌘B toggles the settings sidebar between 240px and the 48px
-            // icon rail (same affordance as the titlebar collapse button).
+            // ⌘B toggles the rail between the persisted width and the 1px
+            // grab sliver (same affordance as the titlebar collapse button).
             cx.on_action(|_: &ToggleSidebar, cx: &mut App| {
                 let state = cx.global_mut::<ShellState>();
                 state.collapsed = !state.collapsed;
                 cx.refresh_windows();
             });
-            // Frameless window driven by the vendored `TitleBar`: transparent
-            // titlebar with macOS traffic lights at zdesk's (16,18) and an
+            // Frameless window driven by the vendored `TitleBar`: a 38px
+            // overlay bar with macOS traffic lights at (14,14) and an
             // app-owned drag region; only the bounds are customized.
             //
             // On Linux (GNOME/Wayland + XWayland) the compositor otherwise
@@ -2437,10 +3394,19 @@ fn main() {
 
             let window_options = WindowOptions {
                 window_bounds: Some(default_window_bounds(cx)),
+                // zeron's chrome floor: below this the overlay titlebar and the
+                // rail/content split stop being usable.
+                window_min_size: Some(size(px(900.), px(600.))),
                 titlebar: Some(TitlebarOptions {
                     traffic_light_position: Some(shell::traffic_light_origin()),
                     ..TitleBar::title_bar_options()
                 }),
+                // Applied at creation so a stored translucent window opens
+                // translucent, with no opaque first frame to flash.
+                window_background: window_background_for(
+                    AppSettings::global(cx).background_translucent,
+                    AppSettings::global(cx).background_blur,
+                ),
                 window_decorations,
                 ..TitleBar::window_options()
             };
@@ -2448,7 +3414,18 @@ fn main() {
                 cx.open_window(window_options, |window, cx| {
                     let view = cx.new(|cx| SettingsWindow::new(window, cx));
                     // The first level on the window must be a Root.
-                    cx.new(|cx| Root::new(view, window, cx))
+                    let root = cx.new(|cx| Root::new(view, window, cx));
+                    // Publish the handle so the glass rows can switch Root's
+                    // opaque base paint off (see `apply_glass`), and apply
+                    // the stored setting to the very first frame.
+                    cx.set_global(WindowRoot(root.clone()));
+                    let translucent = AppSettings::global(cx).background_translucent;
+                    if let Some(base) = root_glass_bg(cx, translucent) {
+                        root.update(cx, |root, _| {
+                            root.style().background = Some(base);
+                        });
+                    }
+                    root
                 })
                 .expect("failed to open window");
             })
@@ -2458,31 +3435,31 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        SIDEBAR_COLLAPSED_W, SIDEBAR_EXPANDED_W, SIDEBAR_LABEL_REVEAL_W, normalize_font_size,
-        sidebar_icon_mode,
-    };
-    use gpui_kit::px;
+    use super::{normalize_font_size, window_background_for};
+    use gpui_kit::WindowBackgroundAppearance;
 
-    /// Icon-mode is asymmetric: collapsing hides labels at the very first
-    /// animated frame (width still ~full), while expanding only restores
-    /// them once the rail is nearly back at `SIDEBAR_EXPANDED_W`.
+    /// The window surface only leaves the opaque default when the master
+    /// switch is on, and only blurs when both switches are on — this is what
+    /// stops a translucent-but-unblurred or blur-but-opaque combination.
     #[test]
-    fn sidebar_icon_mode_hides_early_and_reveals_late() {
-        // Collapse direction: `collapsed` alone forces icon mode at any width.
-        assert!(sidebar_icon_mode(true, SIDEBAR_EXPANDED_W));
-        assert!(sidebar_icon_mode(true, SIDEBAR_COLLAPSED_W));
-
-        // Expand direction: labels stay hidden below the reveal width...
-        assert!(sidebar_icon_mode(false, SIDEBAR_COLLAPSED_W));
-        assert!(sidebar_icon_mode(false, SIDEBAR_LABEL_REVEAL_W - px(1.)));
-        // ...and appear at the reveal width, including a settled full rail.
-        assert!(!sidebar_icon_mode(false, SIDEBAR_LABEL_REVEAL_W));
-        assert!(!sidebar_icon_mode(false, SIDEBAR_EXPANDED_W));
-
-        // The reveal width must sit strictly between the two rail sizes.
-        assert!(SIDEBAR_COLLAPSED_W < SIDEBAR_LABEL_REVEAL_W);
-        assert!(SIDEBAR_LABEL_REVEAL_W < SIDEBAR_EXPANDED_W);
+    fn window_appearance_follows_the_glass_switches() {
+        assert_eq!(
+            window_background_for(false, false),
+            WindowBackgroundAppearance::Opaque
+        );
+        // Blur is ignored while the window stays opaque.
+        assert_eq!(
+            window_background_for(false, true),
+            WindowBackgroundAppearance::Opaque
+        );
+        assert_eq!(
+            window_background_for(true, false),
+            WindowBackgroundAppearance::Transparent
+        );
+        assert_eq!(
+            window_background_for(true, true),
+            WindowBackgroundAppearance::Blurred
+        );
     }
 
     /// The sidebar tree shows children only for pages with at least two
