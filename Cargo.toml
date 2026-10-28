@@ -3,58 +3,13 @@ name = "mono-desk"
 version = "0.1.0"
 edition = "2024"
 
+# UI stack: zeron's GPUI fork (MIT). Zeron's own UI source is vendored under
+# `vendor/zeron-ui/` and adapted to this settings app — see
+# `docs/plans/active/zeron-stack-port.md` and `THIRD_PARTY_NOTICES.md`.
+# The rev is pinned exactly; zeron's own workspace manifest pins the same one.
 [dependencies]
-# Pinned exactly: gpui-kit 0.6.2+ requires gpui-component ^0.6.2, which the
-# vendored 0.6.1 (plus vendor/patches/) cannot satisfy — a looser "0.6" lets
-# `cargo update` resolve the registry gpui-component and silently drop the patch.
-gpui-kit = "=0.6.1"
-
-[dev-dependencies]
-# View-level tests mount real views in the headless test window; the feature
-# unifies onto the shared `gpui-kit` dep for test builds only (the binary keeps
-# default features).
-gpui-kit = { version = "=0.6.1", features = ["test-support"] }
-serde_json = "1.0.154"
-# Parses the embedded font bytes the way the Linux text backend does
-# (`cosmic_text` → `fontdb` → `ttf-parser`); macOS renders through
-# `zed-font-kit` → CoreText but reads the same `name`/`OS/2` tables, so the
-# face tests catch a bad face on either platform.
-ttf-parser = "0.25"
-
-# Vendored gpui-component 0.6.1 — deltas in vendor/patches/
-# (apply inside vendor/gpui-component):
-# - sidebar-cursor.patch: pointer cursor on Settings rail items.
-# - sidebar-slots.patch: Settings::sidebar_header/sidebar_footer element slots.
-# - settings-content-style.patch: Settings::content_panel_style → ResizablePanel style.
-# - settings-group-icon.patch: SettingGroup::icon → sidebar menu item icon (API later removed by settings-static-tree).
-# - settings-collapse.patch: Settings::sidebar_collapsed (icon rail) + show_handle.
-# - settings-item-style.patch: Settings::active_item_style + SidebarMenuItem::active_style.
-# - settings-search-placeholder-locale.patch: re-apply the cached search placeholder when the locale changes.
-# - controls-cursor.patch: pointer cursor on interactive Button/Checkbox/Select/Switch.
-# - settings-collapsed-header.patch: keep the header slot (brand) when collapsed; hide only the search.
-# - settings-static-tree.patch: always-expanded settings tree — no caret/toggle, bold page labels,
-# children only for pages with >=2 titled groups; children are iconless, so SettingGroup::icon
-# (added above) is removed again here.
-# - sidebar-nav-slot.patch: Settings::sidebar_nav (caller-supplied nav tree rendered in the
-# header slot, built-in search hidden) + Settings::selected_page (caller-controlled page index,
-# reconciled only when it differs so it cannot loop). The default flat menu is unchanged when
-# neither is set.
-# - context-menu-release.patch: release the built PopupMenu on DismissEvent instead of retaining
-# it in ContextMenuSharedState (the state's subscription captures itself otherwise - a retain
-# cycle that leaks the menu entity).
-# - searchable-list-test-support.patch: `.test_support()` on searchable-list rows so the
-# gpui-kit test backend can observe popup rows (Select/Combobox items).
-# - combobox-value-change.patch: detect a Combobox selection change by item value, not by
-# row index — a filtered list reuses indices, so clicking a filtered row that lands on the
-# selected row's index was treated as "no change" (no Change/Confirm, no close).
-# - settings-search-terms.patch: SettingItem::is_match requires every whitespace-separated
-# query term to appear in the item's words (title + description + keywords), instead of
-# matching the whole query as one substring — so "appearance zoom" finds Font Size.
-# - slider-accessibility-label.patch: Slider::accessibility_label + vendored SliderRoot —
-# gpui-base sets Role::Slider on a private node with no label API, so the behaviour root
-# (~40 lines: role, aria value/min/max/step/orientation, increment/decrement, release
-# listeners) is mirrored inside the vendored component and gets the name. Applied to the
-# Font Size and both glass percentage rows (Window opacity, Sidebar tone); keep in sync when
-# the vendored set is upgraded.
-[patch.crates-io]
-gpui-component = { path = "vendor/gpui-component" }
+gpui = { git = "https://github.com/zeronsh/zui", rev = "b564a34413bb7ef1da04121c4a287758f94993d9" }
+gpui_platform = { git = "https://github.com/zeronsh/zui", rev = "b564a34413bb7ef1da04121c4a287758f94993d9", features = [
+    "font-kit",
+    "runtime_shaders",
+] }
