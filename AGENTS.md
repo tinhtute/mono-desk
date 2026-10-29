@@ -11,8 +11,11 @@ MIT-licensed source (`github.com/zeronsh/zeron`) and vendored under
 `vendor/zeron-ui/` (UI) and `vendor/zeron-theme/` (theme domain model) — see
 `THIRD_PARTY_NOTICES.md` and `docs/plans/active/zeron-stack-port.md`. Vendored
 files are adapted copies of upstream source at a pinned rev; they are not
-drop-in updates. The pre-port gpui-kit implementation (glass feature +
-custom sidebar) is preserved on branch `wip/gpui-kit-shell`.
+drop-in updates. The three crates form one cargo workspace
+(`vendor/zeron-theme` and `vendor/zeron-ui` are `default-members`, so the gates
+cover them); the module map and the adaptation rules live in
+`docs/memory/zeron-stack-port.md`. The pre-port gpui-kit implementation (glass
+feature + custom sidebar) is preserved on branch `wip/gpui-kit-shell`.
 
 ## Commands
 
@@ -22,9 +25,12 @@ Use the Makefile — it auto-injects the linker shim flag (see caveats):
 - `make app` — bundle `target/macos/mono-desk.app` with the vendored brand icon
   (`assets/brand/icon.icns`); macOS only, needed for the Dock/⌘-Tab icon —
   `cargo run` shows a generic one. `make open-app` builds and opens it.
-- `make check` — fast type-check
-- `make lint` — clippy `--all-targets -D warnings` (run before committing)
-- `make fmt` — format before committing
+- `make check` — fast type-check (all workspace members)
+- `make lint` — clippy `-p mono-desk --all-targets -D warnings` (run before
+  committing); vendored crates are compiled and tested by the gates but not
+  re-linted, since their style lints are upstream's
+- `make fmt` / `make fmt-check` — first-party formatting only; vendored files
+  keep upstream formatting
 - `make deps` — install system packages (sudo; Ubuntu 24.04 tested list)
 - `make shim` — recreate linker shims without sudo
 - Gates: `cargo test && make check && make lint && make fmt-check`.
@@ -43,6 +49,15 @@ Use the Makefile — it auto-injects the linker shim flag (see caveats):
   wallpaper + menu bar only, and the zui fork's AX content tree exposes just
   the window and native traffic lights (not GPUI-painted nodes). Verify layout
   with the GPUI test support, window bounds probes, and the owner's eye.
+  `Window::render_to_image()` exists in the fork but is gated behind the
+  `test-support` feature and unimplemented on the macOS platform, so
+  in-process screenshots are not available yet.
+- Dev review hooks in `src/main.rs`: `MONO_DESK_APPEARANCE=dark|light` pins the
+  palette without touching the OS setting, and `MONO_DESK_SELFTEST=1` prints
+  the resolved appearance, tokens, registered font families, icon asset load
+  and native window background, then quits. Use the selftest as the
+  machine-checkable half of a visual phase check; the owner supplies the
+  pixels. Do not claim pixel evidence from an agent run.
 - Missing dev symlinks `libxkbcommon-x11.so` and `libX11-xcb.so` (Linux only)
   are shimmed at `~/.local/lib/dev-shim/`; the Makefile adds `-L` only while
   that dir exists. Proper fix is `make deps`.
@@ -52,8 +67,11 @@ Use the Makefile — it auto-injects the linker shim flag (see caveats):
 - Bootstrap (`src/main.rs`): `gpui_platform::application().run(|cx| ...)` →
   `cx.open_window(WindowOptions {...}, |window, cx| cx.new(...))`. Window
   options mirror zeron's `open_main_window`: transparent titlebar, native
-  traffic lights at (14,14), `app_owns_titlebar_drag`, glass-driven
-  `window_background`, 900×600 minimum.
+  traffic lights at (14,14), `app_owns_titlebar_drag`, 900×600 minimum, and
+  `window_background` read from the already-installed `Theme`
+  (`Theme::window_background_appearance()`) — install the theme before
+  `open_window`, then re-sync it from the window's own appearance once the
+  window is attached.
 - Layout constants live as numbers (zeron's titlebar 38, control cluster 88,
   sidebar 242–400, collapsed sliver 1px); colors come from the ported zeron
   theme (`Theme::of(cx)`), never hardcoded once the theme lands.

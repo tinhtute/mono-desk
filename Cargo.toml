@@ -1,3 +1,11 @@
+[workspace]
+# Vendored zeron crates are workspace members so `cargo test`/`make lint` cover
+# them like first-party code (their own unit tests run with the gates).
+members = ["vendor/zeron-theme", "vendor/zeron-ui"]
+# Plain `cargo test`/`clippy`/`check` cover the vendored crates too.
+default-members = [".", "vendor/zeron-theme", "vendor/zeron-ui"]
+resolver = "3"
+
 [package]
 name = "mono-desk"
 version = "0.1.0"
@@ -17,3 +25,8 @@ gpui_platform = { git = "https://github.com/zeronsh/zui", rev = "b564a34413bb7ef
 # Vendored zeron theme domain model (MIT) — tokens/appearance registry used by
 # the ported settings surfaces. See THIRD_PARTY_NOTICES.md.
 zeron-theme = { path = "vendor/zeron-theme" }
+
+# Vendored/adapted subset of zeron's own UI source (MIT): theme tokens,
+# typography, icons, motion, frost and glass. Ported phase by phase — see
+# `docs/plans/active/zeron-stack-port.md`.
+zeron-ui = { path = "vendor/zeron-ui" }

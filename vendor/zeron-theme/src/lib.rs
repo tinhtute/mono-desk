@@ -4,6 +4,13 @@
 //! as VS Code are deliberately isolated in [`vscode`], so a component never
 //! needs to understand a workbench color id or TextMate scope.
 
+
+// Vendored upstream source. Clippy's evolving style lints (derivable impls,
+// argument counts, collapsible branches) are upstream's to fix: patching them
+// here would diverge from the pinned rev and complicate re-sync. First-party
+// code under `src/` is still linted with `-D warnings`.
+#![allow(clippy::all)]
+
 mod builtins;
 mod library;
 pub mod vscode;
