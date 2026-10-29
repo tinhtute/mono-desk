@@ -89,9 +89,9 @@ impl GeneralPage {
     fn toggle_launch_at_login(&mut self, cx: &mut Context<Self>) {
         let enabled = AppSettings::global(cx).launch_at_login;
         AppSettings::global_mut(cx).launch_at_login = !enabled;
-        // The launch agent itself is converged by the startup wiring (T2);
-        // T1 persists the choice and leaves the OS entry alone.
         super::persist_now(cx);
+        // Converge the real autostart entry (pre-port R5) on every change.
+        super::apply_launch_at_login(cx);
         cx.notify();
     }
 }

@@ -13,7 +13,10 @@ toggle switch, select/dropdown, popover/menu layer, edge fades) and the theme
 domain model in `vendor/zeron-theme/` come from zeron:
 https://github.com/zeronsh/zeron (pinned commit `8b7afb3`, version v0.2.129) —
 `crates/theme`, `crates/ui/src/{theme,typography,icons,motion,frost,glass,
-popover,edge_fade,chrome,shell}.rs`, `crates/ui/src/settings/{widgets,mod}.rs`
+popover,edge_fade,chrome,shell}.rs`, `crates/ui/src/settings/{widgets,mod}.rs`,
+the structure and helper functions of `crates/ui/src/settings/appearance.rs`
+(ported into first-party `src/settings/appearance.rs`) and the search-field
+layout of `crates/ui/src/shell/settings_search.rs` (ported into `src/shell.rs`),
 and the pure phases in `crates/proto/src/motion.rs`.
 
 ```
@@ -142,3 +145,11 @@ The UI foundation is zeron's GPUI fork, https://github.com/zeronsh/zui
 (pinned rev `b564a344`), derived from Zed's gpui. `crates/gpui` and
 `crates/gpui_platform` declare `license = "Apache-2.0"` (Copyright 2022-2025
 Zed Industries, Inc.); they are consumed as git dependencies, not vendored.
+
+One file is adapted from that fork's examples rather than vendored:
+`src/settings/text_field.rs` (the settings text input) is a trimmed adaptation
+of `crates/gpui/examples/input.rs` — same Apache-2.0 license and copyright
+notice as the fork above. Changes: the standalone example bootstrap, keystroke
+log and demo colors were removed, the colors/typography come from the ported
+zeron theme, the field is single-line, and a value/`on_change` API was added so
+settings pages can persist edits.

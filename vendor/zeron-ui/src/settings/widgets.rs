@@ -11,19 +11,23 @@
 //! the option cards ([`option_card_row`], [`option_card`]) and the toggle
 //! switch ([`toggle_switch`], `SwitchVisual`).
 //!
-//! Not ported yet: the widgets that need zeron's popover/overlay stack and the
-//! settings-search infrastructure — `SettingsSidebarWidth`/`set_sidebar_width`,
-//! `pane_bounds`/`column_width`, `dropdown*`, `PageScroll`/`rail`, the
-//! `select_*` block, `action_button`/`text_action`/`ghost_action`,
-//! `error_strip`/`warning_strip`, `scroll_faded` and `TextTooltip`. They land
-//! with the follow-up settings widgets task.
+//! Ported in phase `settings-surface` T2: the settings actions
+//! ([`action_button`]/[`text_action`]/[`ghost_action`] with [`ActionTone`]),
+//! the [`error_strip`]/[`warning_strip`] notes, the sidebar overflow fade
+//! ([`scroll_faded`]) and the hover notes ([`text_tooltip`],
+//! [`text_tooltip_above`]). T2 also ports zeron's accent swatch
+//! ([`accent_swatch`]) for the Appearance page.
+//!
+//! Not ported: `PageScroll`/`rail` (this app's shell paints its own nav and
+//! uses gpui's default scrollbars) and zeron's wallpaper/import machinery.
+//! The menu and select halves of upstream's one file live in the sibling
+//! `settings::menu` and `settings::select` modules and are re-exported here
+//! through `crate::settings`.
 //!
 //! Adaptation principle: upstream code, formatting and doc comments stay
 //! verbatim; only imports/paths change, and the widgets resolve through this
-//! crate's vendored `theme`, `motion`, `typography` and `icons` modules. The
-//! scroll edge-fade wrapper (`scroll_faded`) and the faded label are not
-//! ported yet (they use zeron's `edge_fade` module); callers use plain
-//! overflow containers until that module lands.
+//! crate's vendored `theme`, `motion`, `typography` and `icons` modules.
+//! [`scroll_faded`] uses the vendored `edge_fade` module.
 
 use gpui::prelude::*;
 use gpui::{AnyElement, Div, FontWeight, SharedString, Stateful, Window, div, px};
@@ -712,6 +716,308 @@ pub fn section_tab(
         .bg(motion::hover_blend(&hover_key, base_bg, hover_bg))
         .id(id.into())
         .on_hover(motion::hover_listener(hover_key))
+}
+
+/// Settings actions share one size, corner radius, and hover language. Use
+/// outlined for selectors, quiet for secondary actions, filled for row
+/// actions on a block (the dropdown trigger's glass wash), solid for
+/// commits, and danger for destructive actions behind a confirmation.
+#[derive(Clone, Copy)]
+pub enum ActionTone {
+    Quiet,
+    /// The secondary action: a borderless filled pill, the same as a
+    /// dropdown trigger beside it.
+    Filled,
+    Solid,
+    Danger,
+}
+
+pub fn action_button(theme: &Theme, tone: ActionTone) -> gpui::Div {
+    let button = div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap(px(6.0))
+        .rounded(px(8.0))
+        .min_h(px(32.0))
+        .px(px(10.0))
+        .py(px(5.0))
+        .text_size(crate::typography::ui_rems(12.5))
+        .cursor_pointer();
+    match tone {
+        ActionTone::Quiet => button
+            .text_color(theme.text_muted)
+            .hover(|s| s.bg(theme.glass_hover()).text_color(theme.text)),
+        ActionTone::Filled => {
+            let lifted = crate::settings::select::select_fill(theme, true);
+            button
+                .bg(crate::settings::select::select_fill(theme, false))
+                .text_color(theme.text)
+                .hover(move |s| s.bg(lifted))
+        }
+        ActionTone::Solid => button
+            .bg(theme.solid)
+            .font_weight(gpui::FontWeight::MEDIUM)
+            .text_color(theme.on_solid)
+            .hover(|s| s.opacity(0.9)),
+        // The dialogs' destructive fill (`popover::btn_danger`).
+        ActionTone::Danger => button
+            .bg(theme.danger_strong)
+            .text_color(gpui::white())
+            .hover(|s| s.opacity(0.9)),
+    }
+}
+
+pub fn text_action(theme: &Theme, tone: ActionTone, label: impl Into<SharedString>) -> gpui::Div {
+    action_button(theme, tone).child(label.into())
+}
+
+pub fn ghost_action(theme: &Theme) -> gpui::Div {
+    action_button(theme, ActionTone::Quiet)
+}
+
+/// The dismissible red error strip (`flex items-start gap-2 rounded-xl border
+/// border-red-400/20 bg-red-400/[0.06] text-red-300/90` with a leading
+/// `DangerTriangle mt-0.5 size-4`).
+pub fn error_strip(theme: &Theme, message: impl Into<SharedString>) -> gpui::Div {
+    let red = theme.danger; // red-400
+    let red_text = theme.danger_muted; // red-300
+    div()
+        .mt(px(16.0))
+        .px(px(16.0))
+        .py(px(12.0))
+        .rounded(px(12.0))
+        .border_1()
+        .border_color(red.opacity(0.2))
+        .bg(red.opacity(0.06))
+        .text_size(crate::typography::ui_rems(12.5))
+        .text_color(red_text.opacity(0.9))
+        .flex()
+        .flex_row()
+        .items_start()
+        .gap(px(8.0))
+        .child(
+            div().flex_none().mt(px(2.0)).child(
+                crate::icons::icon(crate::icons::DANGER_TRIANGLE)
+                    .size(px(16.0))
+                    .text_color(red_text.opacity(0.9)),
+            ),
+        )
+        .child(div().min_w_0().child(message.into()))
+}
+
+/// The amber warning strip (`flex items-start gap-2 border-amber-400/20
+/// bg-amber-400/[0.06] text-amber-200/90` with a leading `DangerTriangle
+/// mt-0.5 size-3.5`).
+pub fn warning_strip(theme: &Theme, message: impl Into<SharedString>) -> gpui::Div {
+    let amber = theme.warning; // amber-400
+    let amber_text = theme.warning_muted; // amber-200
+    div()
+        .mt(px(8.0))
+        .px(px(16.0))
+        .py(px(10.0))
+        .rounded(px(12.0))
+        .border_1()
+        .border_color(amber.opacity(0.2))
+        .bg(amber.opacity(0.06))
+        .text_size(crate::typography::ui_rems(12.0))
+        .text_color(amber_text.opacity(0.9))
+        .flex()
+        .flex_row()
+        .items_start()
+        .gap(px(8.0))
+        .child(
+            div().flex_none().mt(px(2.0)).child(
+                crate::icons::icon(crate::icons::DANGER_TRIANGLE)
+                    .size(px(14.0))
+                    .text_color(amber_text.opacity(0.9)),
+            ),
+        )
+        .child(div().min_w_0().child(message.into()))
+}
+
+/// The sidebar's paint-time overflow fade, with a persistent scroll handle per
+/// settings surface. No fade is painted when the content fits or at a reached edge.
+pub fn scroll_faded(
+    key: impl Into<SharedString>,
+    area: gpui::Stateful<gpui::Div>,
+) -> impl IntoElement {
+    SettingsScroll {
+        key: key.into(),
+        area,
+    }
+}
+
+#[derive(IntoElement)]
+struct SettingsScroll {
+    key: SharedString,
+    area: gpui::Stateful<gpui::Div>,
+}
+
+impl RenderOnce for SettingsScroll {
+    fn render(self, window: &mut gpui::Window, _: &mut gpui::App) -> impl IntoElement {
+        let scroll = window.with_global_id(self.key.into(), |id, window| {
+            window.with_element_state(id, |previous: Option<gpui::ScrollHandle>, _| {
+                let scroll = previous.unwrap_or_default();
+                (scroll.clone(), scroll)
+            })
+        });
+        crate::edge_fade::edge_faded(16.0, true, true, self.area.track_scroll(&scroll))
+            .fade_overflow_y(&scroll)
+    }
+}
+
+/// A one-line hover note for settings controls (reset times, icon-only
+/// actions), in the same frosted chip as the rest of the app's tooltips.
+pub struct TextTooltip {
+    text: SharedString,
+    above: bool,
+}
+
+/// How far a [`text_tooltip_above`] chip sits over the pointer; clears a
+/// small control the pointer is anywhere inside.
+const TOOLTIP_ABOVE_GAP: f32 = 20.0;
+
+impl Render for TextTooltip {
+    fn render(
+        &mut self,
+        _window: &mut gpui::Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> impl IntoElement {
+        let theme = Theme::of(cx);
+        let card = div()
+            .max_w(px(320.0))
+            .px(px(9.0))
+            .py(px(6.0))
+            .rounded(px(6.0))
+            .border_1()
+            .border_color(theme.border)
+            .bg(crate::popover::surface_bg(theme))
+            .text_size(px(11.0))
+            .text_color(theme.text_muted)
+            .child(self.text.clone());
+        let card = crate::frost::frosted(6.0, crate::frost::MENU_BLUR, card);
+        if !self.above {
+            return card.into_any_element();
+        }
+        // gpui hangs a tooltip below-right of the pointer. A zero-height box
+        // with end-aligned content makes the chip overflow upward instead.
+        div()
+            .h(px(0.0))
+            .flex()
+            .flex_col()
+            .justify_end()
+            .child(div().relative().bottom(px(TOOLTIP_ABOVE_GAP)).child(card))
+            .into_any_element()
+    }
+}
+
+/// `.tooltip(...)` builder for a [`TextTooltip`].
+pub fn text_tooltip(
+    text: impl Into<SharedString>,
+) -> impl Fn(&mut gpui::Window, &mut gpui::App) -> gpui::AnyView + 'static {
+    let text: SharedString = text.into();
+    move |_, cx| {
+        cx.new(|_| TextTooltip {
+            text: text.clone(),
+            above: false,
+        })
+        .into()
+    }
+}
+
+/// Like [`text_tooltip`], shown above the pointer instead of below it, for
+/// controls with content underneath that the chip would otherwise cover.
+pub fn text_tooltip_above(
+    text: impl Into<SharedString>,
+) -> impl Fn(&mut gpui::Window, &mut gpui::App) -> gpui::AnyView + 'static {
+    let text: SharedString = text.into();
+    move |_, cx| {
+        cx.new(|_| TextTooltip {
+            text: text.clone(),
+            above: true,
+        })
+        .into()
+    }
+}
+
+/// One accent choice in the Appearance page's swatch row: a 30×34 swatch with
+/// a selected underline, built by re-resolving the theme for the candidate
+/// selection so the sample shows the accent it actually selects.
+pub fn accent_swatch(
+    page_theme: &Theme,
+    selection: zeron_theme::AccentSelection,
+    selected: bool,
+) -> gpui::Stateful<gpui::Div> {
+    use zeron_theme::AccentSelection;
+    let swatch_theme = Theme::for_selection(
+        page_theme.appearance,
+        page_theme.variant_id.as_ref(),
+        selection,
+        page_theme.surface_preference,
+    );
+    let sample = match selection {
+        AccentSelection::ThemeDefault => div()
+            .size_full()
+            .rounded(px(6.0))
+            .bg(swatch_theme.accent_wash)
+            .flex()
+            .items_center()
+            .justify_center()
+            .gap(px(2.0))
+            .child(
+                div()
+                    .w(px(4.0))
+                    .h(px(13.0))
+                    .rounded(px(2.0))
+                    .bg(swatch_theme.glyph.light),
+            )
+            .child(
+                div()
+                    .w(px(4.0))
+                    .h(px(16.0))
+                    .rounded(px(2.0))
+                    .bg(swatch_theme.glyph.mid),
+            )
+            .child(
+                div()
+                    .w(px(4.0))
+                    .h(px(11.0))
+                    .rounded(px(2.0))
+                    .bg(swatch_theme.glyph.deep),
+            ),
+        AccentSelection::Preset(_) => div().size_full().rounded(px(6.0)).bg(swatch_theme.accent),
+    };
+    div()
+        .id(SharedString::from(format!("accent-{}", selection.label())))
+        .aria_label(selection.label())
+        .aria_selected(selected)
+        .tooltip(text_tooltip(selection.label()))
+        .flex_none()
+        .w(px(30.0))
+        .h(px(34.0))
+        .pb(px(4.0))
+        .border_b_2()
+        .border_color(if selected {
+            swatch_theme.accent
+        } else {
+            gpui::transparent_black()
+        })
+        .cursor_pointer()
+        .child(
+            div()
+                .size(px(30.0))
+                .p(px(2.0))
+                .rounded(px(8.0))
+                .border_1()
+                .border_color(if selected {
+                    page_theme.border_strong
+                } else {
+                    page_theme.border
+                })
+                .bg(page_theme.surface_raised.opacity(0.42))
+                .child(sample),
+        )
 }
 
 #[cfg(test)]

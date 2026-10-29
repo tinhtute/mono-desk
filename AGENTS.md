@@ -59,9 +59,10 @@ Use the Makefile — it auto-injects the linker shim flag (see caveats):
   settings state, then quits, and `MONO_DESK_SECTION=<general|appearance|
   notifications|profile|finance-ui|reset|about>` opens the shell on that
   section (use it with the selftest to prove a page other than General
-  paints). Use the selftest as the machine-checkable half of a visual phase
-  check; the owner supplies the pixels. Do not claim pixel evidence from an
-  agent run.
+  paints), and `MONO_DESK_SEARCH=<text>` seeds the sidebar query so a headless
+  run prints the filtered section list. Use the selftest as the
+  machine-checkable half of a visual phase check; the owner supplies the
+  pixels. Do not claim pixel evidence from an agent run.
 - Missing dev symlinks `libxkbcommon-x11.so` and `libX11-xcb.so` (Linux only)
   are shimmed at `~/.local/lib/dev-shim/`; the Makefile adds `-L` only while
   that dir exists. Proper fix is `make deps`.
@@ -88,6 +89,17 @@ Use the Makefile — it auto-injects the linker shim flag (see caveats):
   `persist::load()` before the window opens); a settings write mirrors the
   global through `to_stored()` into `persist::save` via
   `settings::persist_now(cx)` and then `cx.notify()`s the writing view.
+  Anything that changes appearance, accent, glass/surface or font size must
+  also call `settings::apply_appearance(window, cx)` — the single funnel into
+  zeron's `Theme::install_selection` + window background + rem size; and
+  anything that can change `launch_at_login` calls
+  `settings::apply_launch_at_login(cx)` so the OS autostart entry converges.
+- Text input: zeron's kit has no text field, so `src/settings/text_field.rs`
+  wraps an adaptation of the zui fork's `crates/gpui/examples/input.rs`
+  (Apache-2.0, attributed in `THIRD_PARTY_NOTICES.md`). Register its editing
+  actions through `TextField::key_bindings()` (already bound in `main.rs` for
+  the `TextField` key context); pages own `Entity<TextField>` and mirror edits
+  into `AppSettings` via `on_change`.
 - Settings pages (`src/settings/`): built from zeron's vendored kit
   (`settings::widgets` rows/cards + `settings::select`), one gpui *view* per
   page so it can own its `SelectState`s and `ScrollHandle`; the shell keeps the
