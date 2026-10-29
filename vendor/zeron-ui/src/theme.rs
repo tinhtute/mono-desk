@@ -736,10 +736,10 @@ pub struct Theme {
     pub terminal: TerminalColors,
 
     // ---- fonts ----
-    /// UI font family (bundling of Geist lands with asset work; until then the
+    /// UI font family (mono-desk registers its own bundled families; the
     /// text system falls back to the system sans when the family is missing).
     pub font_sans: SharedString,
-    /// Fixed Geist chrome for code-adjacent surfaces and recovery controls.
+    /// Fixed-width face for code-adjacent chrome and recovery controls.
     pub font_sans_fixed: SharedString,
     /// User-selected family for code, diffs, and file editors.
     pub font_mono: SharedString,
@@ -1202,10 +1202,10 @@ impl Theme {
             diff_del: oklch(0.704, 0.191, 22.216),  // red-400
             diff_hunk_bg: hsla(0.6, 0.35, 0.6, 0.05),
             terminal: TerminalColors::zeron(Appearance::Dark),
-            font_sans: "Geist".into(),
-            font_sans_fixed: "Geist".into(),
-            font_mono: "Geist Mono".into(),
-            font_terminal: "Geist Mono".into(),
+            font_sans: BUNDLED_FONT_SANS.into(),
+            font_sans_fixed: BUNDLED_FONT_SANS_FIXED.into(),
+            font_mono: BUNDLED_FONT_MONO.into(),
+            font_terminal: BUNDLED_FONT_MONO.into(),
             code_font_size: crate::typography::CODE_FONT_SIZE_DEFAULT,
             terminal_font_size: crate::typography::TERMINAL_FONT_SIZE_DEFAULT,
             font_sans_fallback: system_sans().into(),
@@ -1302,10 +1302,10 @@ impl Theme {
             diff_del: oklch(0.577, 0.245, 27.325),  // red-600
             diff_hunk_bg: hsla(0.6, 0.35, 0.35, 0.07),
             terminal: TerminalColors::zeron(Appearance::Light),
-            font_sans: "Geist".into(),
-            font_sans_fixed: "Geist".into(),
-            font_mono: "Geist Mono".into(),
-            font_terminal: "Geist Mono".into(),
+            font_sans: BUNDLED_FONT_SANS.into(),
+            font_sans_fixed: BUNDLED_FONT_SANS_FIXED.into(),
+            font_mono: BUNDLED_FONT_MONO.into(),
+            font_terminal: BUNDLED_FONT_MONO.into(),
             code_font_size: crate::typography::CODE_FONT_SIZE_DEFAULT,
             terminal_font_size: crate::typography::TERMINAL_FONT_SIZE_DEFAULT,
             font_sans_fallback: system_sans().into(),
@@ -1327,6 +1327,11 @@ impl Theme {
 
     fn with_font_sans(mut self, family: SharedString) -> Self {
         self.font_sans = family;
+        self
+    }
+
+    fn with_font_sans_fixed(mut self, family: SharedString) -> Self {
+        self.font_sans_fixed = family;
         self
     }
 
@@ -1506,6 +1511,7 @@ impl Theme {
         set_current_appearance(appearance);
         let next = Self::for_preferences(appearance, accent)
             .with_font_sans(crate::typography::effective_family_name(cx))
+            .with_font_sans_fixed(crate::typography::code_effective_family_name(cx))
             .with_font_mono(crate::typography::code_effective_family_name(cx))
             .with_font_terminal(crate::typography::terminal_effective_family_name(cx))
             .with_code_font_size(crate::typography::code_font_size(cx))
@@ -1572,6 +1578,7 @@ impl Theme {
             None,
         )
         .with_font_sans(crate::typography::effective_family_name(cx))
+        .with_font_sans_fixed(crate::typography::code_effective_family_name(cx))
         .with_font_mono(crate::typography::code_effective_family_name(cx))
         .with_font_terminal(crate::typography::terminal_effective_family_name(cx))
         .with_code_font_size(crate::typography::code_font_size(cx))
@@ -1618,6 +1625,14 @@ impl Default for Theme {
 }
 
 impl Global for Theme {}
+
+/// The bundled families the port installs when no persisted typography
+/// choice has been applied yet. Upstream these defaulted to zeron's Geist
+/// bundle; mono-desk registers Momo Trust Sans / Google Sans Code instead (see
+/// `typography.rs`), and Geist is not vendored.
+pub const BUNDLED_FONT_SANS: &str = "Momo Trust Sans";
+pub const BUNDLED_FONT_SANS_FIXED: &str = "Google Sans Code";
+pub const BUNDLED_FONT_MONO: &str = "Google Sans Code";
 
 fn system_sans() -> &'static str {
     if cfg!(target_os = "macos") {

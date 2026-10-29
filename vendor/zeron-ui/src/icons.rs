@@ -241,8 +241,9 @@ icon_assets![
     (MUSE_MARK, "muse-mark"),
 ];
 
-/// Serves both the compact control-icon set and the complete file-identity
-/// icon theme through the single asset source registered at app startup.
+/// Serves the compact control-icon set through the single asset source
+/// registered at app startup. zeron's file-identity icon theme
+/// (`file_icons.rs`) is not ported, so no other path resolves.
 pub struct Assets;
 
 impl AssetSource for Assets {

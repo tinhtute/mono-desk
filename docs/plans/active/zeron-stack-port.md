@@ -413,6 +413,25 @@ lane: high-risk
   and depends on zeron's wallpaper/theme-library rows; the port keeps the
   structure and drops wallpaper/cloud rows per NG2.
 
+- 2026-10-29T12:45Z — theme-foundation — gate — verdict REJECTED (independent
+  judge; 1 blocking, 4 minor, 2 deferred — everything else re-ran green).
+  Blocking: the probe's swatch caption used a hardcoded `hsla(0,0,0.45,1)`
+  instead of a theme token, contradicting the phase's "tokens, not hardcoded
+  colours" claim; fixed to `theme.text_faint`. Minors fixed: stale
+  `MONO_DESK_CAPTURE` doc comment (no such hook exists), `icons.rs` doc still
+  claiming the file-identity icon theme, `motion.rs` doc claiming OS
+  reduce-motion detection (now a documented no-op), and the `Cargo.toml`
+  comment claiming `make lint` covers the vendored crates. Deferred items were
+  fixed now rather than carried: the unvendored Geist defaults (including
+  `font_sans_fixed`, which no builder set) now map to the bundled families via
+  `BUNDLED_FONT_*` constants plus a `with_font_sans_fixed` builder, and
+  upstream's "Bundled theme palette adaptations" attributions were carried
+  into `THIRD_PARTY_NOTICES.md`. Scope-drift note accepted: the Makefile gate
+  scoping (lint/fmt `-p mono-desk`) changed in this phase although it is not in
+  the phase's declared surface list — it is a consequence of the vendored
+  crates becoming workspace members in the same phase and is recorded in the
+  decision entry above.
+
 ## Validation
 
 - 2026-10-28T15:04Z — phase `stack-bringup` — verdict: APPROVED — mode: gate, independent judge (high-risk lane)

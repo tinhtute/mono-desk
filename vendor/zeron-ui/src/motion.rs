@@ -19,8 +19,10 @@
 //! repeating ones to their start state, and no frames are scheduled. The
 //! [`set_reduced_motion`]/[`reduced_motion`] wrappers make it a single global
 //! switch; pure helpers take the flag explicitly where they run outside elements.
-//! [`ReduceMotion`] drives that switch from the OS accessibility setting or the
-//! user's override, and optionally from main-window focus.
+//! [`ReduceMotion`] drives that switch from the user's override, and optionally
+//! from main-window focus. Reading the OS accessibility setting
+//! ([`refresh_system`]) is not ported, so [`ReduceMotion::System`] currently
+//! resolves as "no reduction" until that platform wiring lands.
 //! Activity grids use [`ActivityPulse`] to retain a gentle brightness cue under
 //! system reduced motion; explicit On and background pause keep them still.
 //!
