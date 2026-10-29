@@ -7,246 +7,22 @@
 //! model lives in `vendor/zeron-theme/`. See
 //! `docs/plans/active/zeron-stack-port.md` and `THIRD_PARTY_NOTICES.md`.
 //!
-//! Current phase (`theme-foundation`): zeron's theme tokens, typography, icons
-//! and frost/glass surfaces are installed on the new stack, the window
-//! background follows the theme, and the root view paints the theme base in
-//! both appearances. The shell/chrome replace this probe surface in the
-//! `chrome` phase.
+//! Current phase (`chrome`): the window runs on zeron's shell — glass root
+//! surface over the blurred window background, the 38px titlebar drag strip and
+//! the settings sidebar tone/column. `src/shell.rs` owns that chrome; the
+//! settings section list, the settings pages and the vendored widget kit land
+//! in the following tasks/phases.
+
+mod shell;
 
 use gpui::{
-    App, AppContext as _, AssetSource as _, Bounds, Div, FontWeight, IntoElement,
-    ParentElement as _, Render, Styled as _, Window, WindowBackgroundAppearance, WindowBounds,
-    WindowOptions, div, point, px, size,
+    App, AppContext as _, AssetSource as _, Bounds, Window, WindowBackgroundAppearance,
+    WindowBounds, WindowOptions, point, px, size,
 };
+use shell::Shell;
 use zeron_ui::icons;
 use zeron_ui::theme::{AccentColor, Appearance, Theme};
 use zeron_ui::typography::{self, UiFontFamily, UiFontSize};
-
-/// zeron's titlebar height (`Theme::TITLEBAR_HEIGHT`): the window chrome is an
-/// overlay strip in the `chrome` phase; the probe keeps the same geometry.
-const TITLEBAR_HEIGHT: f32 = 38.0;
-
-/// Root view for the theme-foundation phase; replaced by the zeron shell in the
-/// `chrome` phase.
-struct SettingsApp;
-
-impl SettingsApp {
-    /// One labelled colour chip.
-    fn swatch(
-        label: &'static str,
-        color: gpui::Hsla,
-        border: gpui::Hsla,
-        caption: gpui::Hsla,
-    ) -> Div {
-        div()
-            .flex()
-            .flex_col()
-            .gap_1()
-            .child(
-                div()
-                    .h(px(36.))
-                    .w_full()
-                    .rounded_md()
-                    .bg(color)
-                    .border_1()
-                    .border_color(border),
-            )
-            .child(div().text_xs().text_color(caption).child(label))
-    }
-}
-
-impl Render for SettingsApp {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let theme = Theme::of(cx);
-        let bg = theme.bg;
-        let surface = theme.surface;
-        let card = theme.surface_card;
-        let border = theme.border;
-        let hairline = theme.hairline(0.12);
-        let text = theme.text;
-        let muted = theme.text_muted;
-        let faint = theme.text_faint;
-        let accent = theme.accent;
-        let accent_strong = theme.accent_strong;
-        let sans = theme.font_sans.clone();
-        let mono = theme.font_mono.clone();
-        let display: gpui::SharedString = UiFontFamily::XanhMono.family_name().into();
-        let appearance = theme.appearance;
-        let frost = theme.is_frost();
-        let window_background = theme.window_background_appearance();
-
-        div()
-            .size_full()
-            .flex()
-            .flex_col()
-            .bg(bg)
-            .text_color(text)
-            .font_family(sans.clone())
-            .child(
-                // Titlebar strip: 38px, hairline at the bottom, title centered.
-                div()
-                    .h(px(TITLEBAR_HEIGHT))
-                    .flex_none()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .border_b_1()
-                    .border_color(hairline)
-                    .text_sm()
-                    .font_weight(FontWeight::MEDIUM)
-                    .child("Theme foundation"),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .min_h_0()
-                    .flex()
-                    .child(
-                        // Sidebar column: full height, surface tone + 1px hairline.
-                        div()
-                            .w(px(256.))
-                            .h_full()
-                            .flex_none()
-                            .flex()
-                            .flex_col()
-                            .gap_3()
-                            .p_4()
-                            .bg(surface)
-                            .border_r_1()
-                            .border_color(hairline)
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .text_color(faint)
-                                    .child("SURFACES"),
-                            )
-                            .child(Self::swatch("bg", bg, border, faint))
-                            .child(Self::swatch("surface", surface, border, faint))
-                            .child(Self::swatch("surface_card", card, border, faint))
-                            .child(Self::swatch(
-                                "element_hover",
-                                theme.element_hover,
-                                border,
-                                faint,
-                            ))
-                            .child(Self::swatch("accent", accent, border, faint))
-                            .child(Self::swatch("accent_strong", accent_strong, border, faint)),
-                    )
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .h_full()
-                            .flex()
-                            .flex_col()
-                            .gap_4()
-                            .p_6()
-                            .child(
-                                div()
-                                    .flex()
-                                    .flex_col()
-                                    .gap_1()
-                                    .child(div().text_xl().font_weight(FontWeight::SEMIBOLD).child(
-                                        format!(
-                                            "{} appearance",
-                                            match appearance {
-                                                Appearance::Dark => "Dark",
-                                                Appearance::Light => "Light",
-                                            }
-                                        ),
-                                    ))
-                                    .child(div().text_xs().text_color(muted).child(format!(
-                                        "window background: {window_background:?} · frost: {frost}"
-                                    ))),
-                            )
-                            .child(
-                                div()
-                                    .flex()
-                                    .flex_col()
-                                    .gap_3()
-                                    .p_4()
-                                    .rounded_lg()
-                                    .bg(card)
-                                    .border_1()
-                                    .border_color(border)
-                                    .child(
-                                        div()
-                                            .text_sm()
-                                            .font_weight(FontWeight::MEDIUM)
-                                            .text_color(muted)
-                                            .child("Typography"),
-                                    )
-                                    .child(
-                                        div()
-                                            .font_family(display)
-                                            .text_size(px(26.))
-                                            .italic()
-                                            .child("mono-desk"),
-                                    )
-                                    .child(
-                                        div()
-                                            .font_family(sans.clone())
-                                            .text_lg()
-                                            .child("Momo Trust Sans — the quick brown fox"),
-                                    )
-                                    .child(
-                                        div()
-                                            .font_family(sans.clone())
-                                            .text_sm()
-                                            .font_weight(FontWeight::MEDIUM)
-                                            .text_color(muted)
-                                            .child("Momo Trust Sans Medium — settings body copy"),
-                                    )
-                                    .child(
-                                        div()
-                                            .font_family(mono)
-                                            .text_sm()
-                                            .text_color(faint)
-                                            .child("Google Sans Code — 0123456789 { keystroke }"),
-                                    ),
-                            )
-                            .child(
-                                div()
-                                    .flex()
-                                    .flex_col()
-                                    .gap_3()
-                                    .p_4()
-                                    .rounded_lg()
-                                    .bg(card)
-                                    .border_1()
-                                    .border_color(border)
-                                    .child(
-                                        div()
-                                            .text_sm()
-                                            .font_weight(FontWeight::MEDIUM)
-                                            .text_color(muted)
-                                            .child("Solar icons (CC BY 4.0 — 480 Design)"),
-                                    )
-                                    .child(
-                                        div().flex().items_center().gap_5().children(
-                                            [
-                                                icons::SUN,
-                                                icons::MOON,
-                                                icons::SETTINGS,
-                                                icons::TUNING,
-                                                icons::MAGNIFER,
-                                            ]
-                                            .into_iter()
-                                            .map(
-                                                |asset| {
-                                                    icons::icon(asset)
-                                                        .size(px(18.))
-                                                        .text_color(accent)
-                                                },
-                                            ),
-                                        ),
-                                    ),
-                            ),
-                    ),
-            )
-    }
-}
 
 /// zeron's window options (`crates/ui/src/lib.rs` `open_main_window`): a
 /// frameless-inset macOS chrome with custom-drawn titlebar, native traffic
@@ -293,10 +69,11 @@ fn desired_appearance(window_appearance: gpui::WindowAppearance) -> Appearance {
 }
 
 /// Dev-only review hook: `MONO_DESK_SELFTEST=1` prints the resolved theme
-/// foundation (appearance, tokens, registered families, icon asset, native
-/// window background) and quits. This is the machine-checkable half of the
-/// phase check: the agent has no Screen Recording grant, so pixels are the
-/// owner's check and these assertions are the agent's.
+/// foundation and shell chrome (appearance, tokens, registered families, icon
+/// asset, native window background, glass/tone values and the ported titlebar
+/// numbers) and quits. This is the machine-checkable half of the phase check:
+/// the agent has no Screen Recording grant, so pixels are the owner's check and
+/// these assertions are the agent's.
 fn selftest_and_quit(cx: &mut App) {
     let theme = Theme::of(cx);
     let fonts = cx.text_system().all_font_names();
@@ -326,6 +103,29 @@ fn selftest_and_quit(cx: &mut App) {
         theme.window_background_appearance(),
         theme.is_frost(),
         typography::font_size(cx).pixels(),
+    );
+    // Shell chrome: the root surface is theme.glass() over the blurred window,
+    // and the sidebar stands on zeron's wash(0.05) tone.
+    eprintln!(
+        "selftest shell glass={:?} is_glass={} tone={:?} border={:?} sidebar={}",
+        theme.glass(),
+        theme.is_glass(),
+        zeron_ui::theme::wash(0.05),
+        theme.border,
+        shell::SIDEBAR_WIDTH,
+    );
+    eprintln!(
+        "selftest chrome titlebar={} top_pad={} cluster_start={} cluster_pad={} spacer={} clearance={}",
+        Theme::TITLEBAR_HEIGHT,
+        Theme::TITLEBAR_TOP_PAD,
+        zeron_ui::chrome::titlebar_cluster_start(false),
+        zeron_ui::chrome::TITLEBAR_CLUSTER_PAD,
+        zeron_ui::chrome::titlebar_spacer_width(
+            cfg!(target_os = "macos"),
+            false,
+            zeron_ui::chrome::TITLEBAR_CLUSTER_PAD
+        ),
+        zeron_ui::chrome::cluster_clearance(true, false, 0, 16.0),
     );
     cx.refresh_windows();
     cx.spawn(async move |cx: &mut gpui::AsyncApp| {
@@ -377,7 +177,7 @@ fn main() {
                 window.set_rem_size(px(typography::font_size(cx).pixels()));
                 sync_appearance(window, cx);
                 window.observe_window_appearance(sync_appearance).detach();
-                cx.new(|_| SettingsApp)
+                cx.new(|_| Shell::new())
             })
             .expect("failed to open window");
 
