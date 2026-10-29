@@ -7,11 +7,11 @@
 //! model lives in `vendor/zeron-theme/`. See
 //! `docs/plans/active/zeron-stack-port.md` and `THIRD_PARTY_NOTICES.md`.
 //!
-//! Current phase (`chrome`): the window runs on zeron's shell — glass root
-//! surface over the blurred window background, the 38px titlebar drag strip and
-//! the settings sidebar tone/column. `src/shell.rs` owns that chrome; the
-//! settings section list, the settings pages and the vendored widget kit land
-//! in the following tasks/phases.
+//! Current phase (`chrome`): the window runs on zeron's Settings-route shell —
+//! the glass root surface over the blurred window background, the 38px titlebar
+//! drag strip, the sidebar tone/column, its seven-section list with the roving
+//! tab focus and the footer identity row. `src/shell.rs` owns that chrome; the
+//! settings *pages* and the vendored widget kit land with `settings-surface`.
 
 mod shell;
 
@@ -115,16 +115,11 @@ fn selftest_and_quit(cx: &mut App) {
         shell::SIDEBAR_WIDTH,
     );
     eprintln!(
-        "selftest chrome titlebar={} top_pad={} cluster_start={} cluster_pad={} spacer={} clearance={}",
+        "selftest chrome titlebar={} top_pad={} cluster_start={} spacer={} clearance={}",
         Theme::TITLEBAR_HEIGHT,
         Theme::TITLEBAR_TOP_PAD,
         zeron_ui::chrome::titlebar_cluster_start(false),
-        zeron_ui::chrome::TITLEBAR_CLUSTER_PAD,
-        zeron_ui::chrome::titlebar_spacer_width(
-            cfg!(target_os = "macos"),
-            false,
-            zeron_ui::chrome::TITLEBAR_CLUSTER_PAD
-        ),
+        zeron_ui::chrome::titlebar_spacer_width(cfg!(target_os = "macos"), false, 10.0),
         zeron_ui::chrome::cluster_clearance(true, false, 0, 16.0),
     );
     // Settings section list: the nav renders from this list alone.
