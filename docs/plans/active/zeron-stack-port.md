@@ -242,7 +242,7 @@ lane: high-risk
   - phase check: `cargo build`, `make run`, and an AX/probe check that the
     theme base is painted in both appearances.
 - phase_slug: `chrome`
-  status: in-progress
+  status: checked
   - goal: R2, R3, R5 (translucent parity) | depends_on: `theme-foundation`
   - surfaces: `vendor/zeron-ui/chrome.rs` (ported titlebar geometry +
     upstream's tests), `vendor/zeron-ui/settings/` (section model + nav row
@@ -283,25 +283,26 @@ lane: high-risk
     `theme.glass()`, sidebar tone from `wash(0.05)`), then owner visual
     checkpoint.
 - phase_slug: `settings-surface`
-  status: planned
+  status: in-progress
   - goal: R4 | depends_on: `chrome`
-  - surfaces: `vendor/zeron-ui/settings/widgets.rs` (ported helpers),
-    `src/settings/` (our six pages), `src/app_settings.rs`/`persist.rs`
-    (ported), `src/main.rs` | avoided: zeron settings pages that are NG2
+  - surfaces: `vendor/zeron-ui/settings/{widgets,select,menu}.rs`,
+    `vendor/zeron-ui/{popover.rs,popover/,edge_fade.rs}` (the select stack's
+    primitives), `src/settings/` (our pages), `src/app_settings.rs`,
+    `src/persist.rs`, `src/i18n.rs` (ported from `wip/gpui-kit-shell`),
+    `src/shell.rs`, `src/main.rs` | avoided: zeron settings pages that are NG2
   - escalate_when: a ported widget requires popover/search infrastructure
     whose port would exceed the phase, or a control has no zeron widget
     equivalent.
-  - known gaps to close in this phase (from the `chrome` gate):
-    `AppSettings`/persistence do not exist on this branch (they live on
-    `wip/gpui-kit-shell`) and must be recreated with unchanged keys (NG4) with
-    pure round-trip tests (there is no windowed test harness); the footer's
-    identity row is hardcoded/static (`IDENTITY_NAME` in `src/shell.rs`) and
-    must read the Profile display name; the nav still lacks zeron's
-    `scroll_faded`/edge-fade wrapper; `page_column` must be ported verbatim
-    (760 max width, 40px padding, `TITLEBAR_HEIGHT + 16` top, 48 bottom,
-    `mx_auto`) rather than the placeholder's approximations; `text_tooltip`
-    and the popover/dropdown stack are unported and stand between the current
-    chrome and zeron's real controls.
+  - known gaps to close in this phase (from the `chrome` gate), status after
+    wave 1: `AppSettings`/persistence/i18n now exist with unchanged keys (NG4)
+    and round-trip tests (T1b); the footer reads the Profile display name
+    (T1d); `page_column` is ported verbatim (T1a) and is what the pages use;
+    zeron's popover/menu/select stack is ported (T1c) so the pages use the real
+    dropdown, not an approximation. Still open: the nav has no
+    `scroll_faded`/edge-fade wrapper (the pages do scroll inside
+    `page_column`; the nav list is short enough until the search row lands in
+    T4), `text_tooltip` is unported (no page uses a tooltip yet), and the
+    Appearance/fonts/glass rows belong to T3.
   - wave 1:
     - T1 — port the settings page scaffolding (`page_column`, `page_header`,
       `page_subtitle`, `section`, `section_card`, `card_row`, `row_title`,
@@ -608,6 +609,79 @@ lane: high-risk
   UI|Reset|About` and the same `chrome titlebar=38 ... spacer=78
   clearance=162` line without `cluster_pad`.
 
+- 2026-10-29T14:06Z — chrome — owner verdict — R7's owner visual checkpoint is
+  closed by the owner's direct instruction **"Ok làm tiếp số 4"**
+  (2026-10-29T20:56+07:00): move on to phase 4, with no visual defect reported
+  on the four points listed in the checkpoint (translucent window background +
+  sidebar tone/hairline, titlebar drag + double-click zoom, nav
+  hover/selection/keyboard, footer sun-moon toggle). This is the only evidence
+  R7 can rest on — agent tooling cannot capture painted pixels or synthesize
+  input — so `chrome` moves to `checked`. If the owner reports a visual defect
+  in `chrome` later, it is fixed inside `chrome` before `fidelity-close`
+  instead of being carried forward. No code changed in this entry.
+
+- 2026-10-29T14:06Z — settings-surface — start — phase 4 wave 1 is split into
+  four delivery slices run in parallel over disjoint files: T1a
+  `widget-scaffold` (page scaffolding + `toggle_switch` into
+  `vendor/zeron-ui/src/settings/widgets.rs`), T1b `state-persist`
+  (`src/app_settings.rs`, `src/persist.rs`, `src/i18n.rs`), T1c `select-stack`
+  (zeron's popover/menu/select primitive so the Region rows use zeron's own
+  select instead of a local approximation — pulled forward from T2 because a
+  page without its controls is not a page, and R8 forbids approximating the
+  dropdown), T1d (lead: General + Notifications pages, page routing, gates,
+  commit). Two scope decisions recorded here: (a) the appearance/glass/font/
+  accent rows of the old General page are **not** rebuilt in General — zeron's
+  own Appearance page owns them (T3, R8), so T1's General is Region (language,
+  timezone) + Startup (launch at login); (b) zeron has no checkbox/radio
+  widget, so Notifications' channels become `toggle_switch` rows and the
+  digest cadence becomes a `select`, while the delivery master toggle stays a
+  `toggle_switch` and the test-notification action is T2. `AppSettings` keeps
+  all 16 fields and persisted keys; applying appearance/glass/accent is T2/T3
+  work, not T1's.
+
+- 2026-10-29T14:18Z — settings-surface — wave 1 landed — General and
+  Notifications now render on zeron's page scaffolding and every control writes
+  through to the `AppSettings` global and the settings file. Delivered as four
+  parallel slices on disjoint files: **T1a** `vendor/zeron-ui/settings/widgets.rs`
+  grew the scaffolding (`page_column`, `page_header`, `page_subtitle`,
+  `field_label`, `section*`, `section_card`, `card_row`, `row_tile`,
+  `row_title`, `meta_line`, `block_fill`, `row_divider`, `option_card*`,
+  `badge*`, `toggle_switch`) plus the upstream switch tests — all 558
+  non-blank lines of the cited upstream ranges are present verbatim
+  (subsequence check); **T1b** `src/app_settings.rs`, `src/persist.rs`,
+  `src/i18n.rs` recreated the old state/persistence/locales with unchanged
+  keys, order, marker, foreign-file guards and autostart (the state has **18
+  persisted fields, not 16 — correction to the previous entry**, which
+  miscounted; `AppSettings::default()` ↔ `StoredSettings::default()` is
+  asserted by a test); **T1c** vendored zeron's popover/menu/select stack
+  (`popover.rs` + `popover/{contained,hover_intent}.rs`, `edge_fade.rs` as its
+  transitive dependency, `settings/{menu,select}.rs`) so the Region rows use
+  zeron's real select instead of a local approximation (R8); **T1d** the pages
+  (`src/settings/{mod,general,notifications}.rs`), the shell's page entities and
+  routing, `menu::set_sidebar_width` publication and a `MONO_DESK_SECTION`
+  dev hook (`src/shell.rs`, `src/main.rs`). Content map is the one recorded at
+  phase start: General = Region (language, timezone) + Startup (launch at
+  login); Notifications = delivery master + channel switches + digest select;
+  zeron ships no checkbox/radio widget, so channels are `toggle_switch` rows
+  and cadence is zeron's `select`. `AppSettings` is installed as a global from
+  `persist::load()` before the window opens, and the sidebar footer now reads
+  the Profile display name (closing that known gap). Check: `cargo test` 94
+  pass (mono-desk 33 = 9 app_settings + 3 i18n + 21 persist, zeron-theme 24,
+  zeron-ui 37); `make check`/`lint`/`fmt-check` rc 0; `MONO_DESK_SELFTEST=1`
+  prints the new `selftest settings …` line, and `MONO_DESK_SECTION=notifications`
+  / `=appearance` render those panes headlessly without a panic (General and
+  Notifications pages both painted); a 60s runtime probe kept the window at
+  1320×880 @ (120,120) with empty stderr and a clean exit. Known adaptations
+  in the vendored ports: `edge_fade.rs` was added beyond the original T1c file
+  list because `dropdown_rows`'s scrolling menu needs it (no stub allowed);
+  popover's `search_highlight*` helpers are omitted (they paint through
+  `crate::markdown`, not vendored, and no select path calls them); 7 upstream
+  tests are not ported (4 highlight tests + 3 windowed ones that need gpui's
+  `test-support` feature, not enabled for the vendored crate). Not claimed:
+  click/hover/keyboard behaviour and the painted result — the owner's
+  `make run` is the visual half of this wave. Next: wave 2 (remaining widget
+  set + Profile/Finance UI/Reset/About + test notification + glass controls).
+
 ## Validation
 
 - 2026-10-28T15:04Z — phase `stack-bringup` — verdict: APPROVED — mode: gate, independent judge (high-risk lane)
@@ -689,31 +763,41 @@ lane: high-risk
   - **unverified, not passed**: rendered pixels, synthetic click/keyboard/drag, hover/selection motion, AX exposure of the nav rows; and the **owner visual checkpoint has not happened**, so this phase stays `in-progress` until it does (R7).
   - rollback_point: `feat/zeron-stack` commit `e287006` (T1 only) / `b8ad958` (gated).
 
+- 2026-10-29T14:06Z — phase `chrome` — verdict: APPROVED — owner verdict (direct instruction; no separate visual report)
+  - owner message: "Ok làm tiếp số 4" (2026-10-29T20:56+07:00) — instruction to continue with phase 4, no defect reported on the four visual points asked for in the checkpoint.
+  - the machine-verifiable half was already gated APPROVED in the entry above (34 tests, check/lint/fmt, both selftests, runtime probes, upstream structure diff).
+  - unverified, by construction: rendered pixels, synthetic click/keyboard/drag, hover/selection motion, AX exposure — agent tooling has no capture or input grant. This entry records the owner's acceptance, not agent-captured evidence; a defect the owner reports later is fixed inside `chrome` before `fidelity-close`.
+  - rollback_point: `feat/zeron-stack` commit `5c1e92b`.
+
 ## Current State and Next Action
-- active_phase: chrome
-- lifecycle_status: in-progress
-- blockers: the owner's visual checkpoint for `chrome` — R7 puts one after this
-  phase, and the gate judge explicitly refused to let the phase flip to
-  `checked` without it. Pixels, synthetic click/keyboard/drag, hover/selection
-  motion and AX exposure are unverifiable by agent tooling (no Screen
-  Recording, no AX nodes for GPUI controls, no in-process capture on macOS).
-- open_items: `chrome` T1+T2 are implemented, machine-checked and gated
-  APPROVED for that scope (see Validation); the seven gate minors are fixed
-  except the two documented fidelity gaps (M6: the nav has no
-  `scroll_faded`/edge-fade wrapper yet; the footer pill is identity-only).
-  Deliberately not ported from zeron's chat chrome: titlebar cluster/toggle,
-  centered title, sidebar resize and collapsed sliver (R2, owner decision).
-  The nav is now seven sections; the `Appearance` row exists and its page is
-  `settings-surface` T3. `vendor/zeron-ui/` code is compiled and tested but
-  not clippy-linted (`make lint` is `-p mono-desk`), so new non-verbatim code
-  is reviewed by hand; `ReduceMotion::System` stays a no-op; `font_sans_fixed`
-  resolves to the bundled Google Sans Code.
-- exact_next_action: owner runs `make run` and checks the four visual points
-  (translucent window background over the desktop blur; sidebar 5% tone +
-  1px hairline; titlebar drag + double-click zoom; nav hover/selection/
-  keyboard and the footer sun-moon toggle) — after that, append the owner's
-  verdict to Validation, mark `chrome` `checked`, and start `settings-surface`
-  T1 (port `page_column`/`page_header`/`section`/`section_card`/`card_row`
-  verbatim, recreate `AppSettings` + persistence with unchanged keys, rebuild
-  General + Notifications). If the owner reports a visual defect, fix it inside
-  `chrome` first.
+- active_phase: settings-surface
+- lifecycle_status: in-progress (wave 1 of 4 landed; phase gate comes after
+  wave 4)
+- blockers: none.
+- open_items: wave 1 (T1) landed — see the Log entry at 2026-10-29T14:18Z:
+  zeron's page scaffolding + toggle are vendored, `AppSettings`/`persist`/
+  `i18n` are recreated with unchanged keys, zeron's popover/menu/select stack
+  is vendored, and General (Region + Startup) and Notifications (delivery,
+  channels, digest) render and write through. Machine gates are green
+  (`cargo test` 94, check/lint/fmt-check rc 0, both pages rendered headlessly,
+  window probe stable). Outstanding: the owner's visual pass on the two pages;
+  wave 2 (T2: the remaining widget set — `action_button`/`text_action`/
+  `ghost_action`/`error_strip`/`warning_strip`/`scroll_faded`/`text_tooltip` —
+  plus Profile, Finance UI, Reset, About, the test-notification action and the
+  glass controls); wave 3 (T3: zeron's own Appearance page — option cards,
+  variant rows, `accent_swatch`, Glass select — filling the existing nav row);
+  wave 4 (T4: the search row on the zui fork's input example). Known gaps
+  carried: no `scroll_faded`/edge-fade wrapper on the nav; `text_tooltip`
+  unported (unused so far); `AppSettings`' appearance/accent/font-size/glass
+  fields persist but are not applied yet (T2/T3 wire them); the accent hex
+  codec keeps its pre-port lossy HSL round-trip (NG4: behaviour frozen, noted
+  in the tests); `ReduceMotion::System` stays a no-op.
+- exact_next_action: owner runs `make run` and checks the two new pages —
+  General (language + timezone selects open as zeron's dropdowns with keyboard
+  ↑/↓/Home/End/Enter/Escape, the launch switch toggles) and Notifications
+  (delivery master + its Enabled/Disabled badge, the three channel switches,
+  the all-channels switch reading as the tri-state parent, the digest select)
+  — and confirms the rows read like zeron's cards. Writes land in
+  `~/Library/Application Support/mono-desk/settings.conf` (marker
+  `# managed-by: mono-desk`); wave 2 starts after the visual pass (a defect is
+  fixed inside wave 1 first).

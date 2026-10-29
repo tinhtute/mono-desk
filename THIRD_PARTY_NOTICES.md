@@ -7,11 +7,13 @@ into `vendor/zeron-ui/` keep this notice; the plan that introduced them is
 ## zeron — MIT
 
 UI source adapted into `vendor/zeron-ui/` (theme tokens, typography, icon
-asset registry, motion catalog and pure loader math, frost/glass surfaces, and
-the window chrome/settings widgets as they are ported) and the theme domain
-model in `vendor/zeron-theme/` come from zeron:
+asset registry, motion catalog and pure loader math, frost/glass surfaces, the
+window chrome, and the settings kit as it is ported — page scaffolding,
+toggle switch, select/dropdown, popover/menu layer, edge fades) and the theme
+domain model in `vendor/zeron-theme/` come from zeron:
 https://github.com/zeronsh/zeron (pinned commit `8b7afb3`, version v0.2.129) —
-`crates/theme`, `crates/ui/src/{theme,typography,icons,motion,frost,glass}.rs`
+`crates/theme`, `crates/ui/src/{theme,typography,icons,motion,frost,glass,
+popover,edge_fade,chrome,shell}.rs`, `crates/ui/src/settings/{widgets,mod}.rs`
 and the pure phases in `crates/proto/src/motion.rs`.
 
 ```

@@ -11,6 +11,8 @@
 //! cards, toggles, selects) lands with the `settings-surface` phase.
 
 
+pub mod menu;
+pub mod select;
 pub mod widgets;
 
 use crate::icons;

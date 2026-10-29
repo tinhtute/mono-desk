@@ -13,6 +13,10 @@
 //! tab focus and the footer identity row. `src/shell.rs` owns that chrome; the
 //! settings *pages* and the vendored widget kit land with `settings-surface`.
 
+mod app_settings;
+mod i18n;
+mod persist;
+mod settings;
 mod shell;
 
 use gpui::{
@@ -132,7 +136,22 @@ fn selftest_and_quit(cx: &mut App) {
         sections.len(),
         sections.join("|"),
         zeron_ui::settings::SettingsSection::FinanceUi.label(),
-        zeron_ui::settings::SettingsSection::default().label(),
+        shell::section_from_env().unwrap_or_default().label(),
+    );
+    // Settings state: the global the pages read and write, with the persisted
+    // shape it round-trips through (`settings-surface` T1).
+    let settings = app_settings::AppSettings::global(cx);
+    eprintln!(
+        "selftest settings language={} timezone={} launch={} notifications={} channels={}{}{} digest={:?} display_name={}",
+        settings.language,
+        settings.timezone,
+        settings.launch_at_login,
+        settings.notifications_enabled,
+        u8::from(settings.channel_email),
+        u8::from(settings.channel_desktop),
+        u8::from(settings.channel_digest),
+        settings.digest,
+        settings.display_name,
     );
     cx.refresh_windows();
     cx.spawn(async move |cx: &mut gpui::AsyncApp| {
@@ -178,6 +197,11 @@ fn main() {
                 cx,
             );
             Theme::install_preferences(system, AccentColor::default(), cx);
+
+            // The persisted settings global, installed before any window (the
+            // shell's footer and the pages read it): `AppSettings` is the live
+            // state, `persist` is its file form, keys unchanged.
+            cx.set_global(app_settings::AppSettings::from_stored(persist::load()));
 
             let window_background = Theme::of(cx).window_background_appearance();
             cx.open_window(window_options(window_background), |window, cx| {

@@ -27,12 +27,14 @@
 
 
 pub mod chrome;
+pub mod edge_fade;
 pub mod frost;
 pub(crate) mod glass;
 pub mod highlight;
 pub mod icons;
 pub mod loader_math;
 pub mod motion;
+pub mod popover;
 pub mod settings;
 pub mod theme;
 pub mod typography;
