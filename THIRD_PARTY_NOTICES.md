@@ -45,6 +45,12 @@ subset of the Solar Icons set (Linear weight), licensed CC BY 4.0
 (https://creativecommons.org/licenses/by/4.0/). Attribution: "Solar Icons by
 480 Design".
 
+One file there is a mono-desk addition rather than upstream zeron source:
+`user.svg` (the Profile section glyph) was hand-drawn for this project in the
+same Solar Linear style, because neither the embedded subset nor zeron's icon
+file ships a user glyph. It is original artwork for this repository, not part
+of the Solar set.
+
 ## Bundled fonts — SIL Open Font License 1.1
 
 `assets/fonts/` carries Momo Trust Sans, Hanken Grotesk, Google Sans Code and

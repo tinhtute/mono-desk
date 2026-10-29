@@ -11,24 +11,47 @@
 //! (cluster at 88px, sidebar resize/collapse, centered title) is deliberately
 //! not ported; the plan's R2 records that decision.
 //!
-//! Phase `chrome` T1 (this task): the shell surface, the drag strip, the
-//! sidebar tone/column and the page pane's titlebar clearance. T2 adds the
-//! section list and the footer identity row.
+//! Phase `chrome` T1 landed the shell surface, the drag strip, the sidebar
+//! tone/column and the page's titlebar clearance; T2 adds the section list
+//! (`render_nav`, zeron `render_settings_nav`) and the footer identity row
+//! (`render_footer`, zeron's `render_sidebar_footer_row` / user-menu trigger).
 
 use gpui::prelude::*;
-use gpui::{Context, Div, Hsla, MouseButton, Render, Stateful, Window, WindowControlArea, div, px};
+use gpui::{
+    AnyElement, Context, Div, FocusHandle, Hsla, MouseButton, Render, SharedString, Stateful,
+    Window, WindowControlArea, div, px,
+};
 
-use zeron_ui::theme::{self, Theme};
+use zeron_ui::icons;
+use zeron_ui::motion;
+use zeron_ui::settings::{SettingsSection, widgets};
+use zeron_ui::theme::{self, Appearance, Theme};
 use zeron_ui::typography;
 
 /// zeron's default sidebar width (`settings.rs` `SIDEBAR_DEFAULT`). zeron's
 /// settings route reads the persisted chat-sidebar width; mono-desk has no
-/// resizable sidebar (settings route has no drag handle), so the column is
+/// resizable sidebar (the settings route has no drag handle), so the column is
 /// fixed at the default. Bounds for reference: `SIDEBAR_MIN` 242,
 /// `SIDEBAR_MAX` 400.
 pub const SIDEBAR_WIDTH: f32 = 256.0;
+/// Square action beside the account trigger in the sidebar footer (zeron
+/// `SIDEBAR_FOOTER_ACTION_SIZE` = `SIDEBAR_FOOTER_BUTTON_SIZE`).
+const SIDEBAR_FOOTER_ACTION_SIZE: f32 = 28.0;
+/// Breathing room between the account trigger and its adjacent action.
+const SIDEBAR_FOOTER_ACTION_GAP: f32 = 4.0;
+/// The identity pill's height (zeron `SIDEBAR_FOOTER_BUTTON_SIZE`).
+const SIDEBAR_FOOTER_BUTTON_SIZE: f32 = 28.0;
+/// The avatar circle (zeron `SIDEBAR_FOOTER_AVATAR_SIZE`).
+const SIDEBAR_FOOTER_AVATAR_SIZE: f32 = 16.0;
+/// Identity shown in the footer until `settings-surface` wires `AppSettings`
+/// (the Profile page's display name).
+const IDENTITY_NAME: &str = "Mono Desk";
 
 pub struct Shell {
+    /// Selected settings section — the page pane follows it.
+    section: SettingsSection,
+    /// One roving focus handle per section row (zeron `settings_nav_focus`).
+    nav_focus: Vec<FocusHandle>,
     /// Armed by a left press on the titlebar strip: the next pointer move with
     /// the button down hands the drag to the compositor (zeron's
     /// `titlebar_should_move`).
@@ -36,10 +59,43 @@ pub struct Shell {
 }
 
 impl Shell {
-    pub fn new() -> Self {
+    pub fn new(cx: &mut Context<Self>) -> Self {
         Self {
+            section: SettingsSection::default(),
+            nav_focus: SettingsSection::ALL
+                .iter()
+                .map(|_| cx.focus_handle())
+                .collect(),
             titlebar_should_move: false,
         }
+    }
+
+    fn select_section(&mut self, section: SettingsSection, cx: &mut Context<Self>) {
+        if self.section != section {
+            self.section = section;
+            cx.notify();
+        }
+    }
+
+    /// Flip light/dark and re-point the native window background at the new
+    /// surface (zeron re-installs the theme through the same
+    /// `Theme::install_preferences` path; the window background follows from
+    /// `Theme::window_background_appearance`). The Appearance page owns the
+    /// persisted mode in `settings-surface`; this footer action is the quick
+    /// toggle the demo window has always had.
+    fn toggle_appearance(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let (appearance, accent) = {
+            let theme = Theme::of(cx);
+            (theme.appearance, theme.accent_color)
+        };
+        let next = match appearance {
+            Appearance::Dark => Appearance::Light,
+            Appearance::Light => Appearance::Dark,
+        };
+        Theme::install_preferences(next, accent, cx);
+        window.set_background_appearance(Theme::of(cx).window_background_appearance());
+        cx.refresh_windows();
+        cx.notify();
     }
 
     /// zeron `Shell::sidebar_tone`: the absolute full-height column that paints
@@ -108,10 +164,217 @@ impl Shell {
             })
     }
 
+    /// The section list (zeron `render_settings_nav`): a roving tab list of
+    /// label + icon rows with one group break at the workspace rows. zeron's
+    /// nav also carries the settings search row above it — that lands with
+    /// `settings-surface` T4 (it needs a text-input primitive).
+    fn render_nav(
+        &mut self,
+        theme: &Theme,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let reduced_motion = motion::reduced_motion(cx);
+        let selected = self.section;
+        let mut rows = Vec::with_capacity(SettingsSection::ALL.len());
+        for (index, item) in SettingsSection::ALL.into_iter().enumerate() {
+            let is_selected = item == selected;
+            let key = format!("settings-nav-{}", item.label());
+            let hover_key = format!("{key}-hover");
+            let selection_t = widgets::tab_selection_t(
+                window,
+                format!("{key}-selection"),
+                is_selected,
+                reduced_motion,
+            );
+            let tab_text = motion::hover_blend(
+                &hover_key,
+                motion::mix(theme.text_muted, theme.text, selection_t),
+                theme.text,
+            );
+            let focus = self.nav_focus[index].clone().tab_stop(is_selected);
+            rows.push(
+                widgets::section_tab(theme, is_selected, selection_t, key, hover_key)
+                    .when(item.starts_nav_group(), |el| el.mt(px(Theme::SPACE_LG)))
+                    .role(gpui::Role::Tab)
+                    .aria_label(item.label())
+                    .aria_selected(is_selected)
+                    .track_focus(&focus)
+                    .tab_index(0)
+                    .tab_stop(is_selected)
+                    .on_key_down(cx.listener(
+                        move |this, event: &gpui::KeyDownEvent, window, cx| {
+                            let items = SettingsSection::ALL;
+                            let current = items
+                                .iter()
+                                .position(|section| *section == item)
+                                .unwrap_or(0);
+                            let next = match event.keystroke.key.as_str() {
+                                "up" | "left" => (current + items.len() - 1) % items.len(),
+                                "down" | "right" => (current + 1) % items.len(),
+                                "home" => 0,
+                                "end" => items.len() - 1,
+                                _ => return,
+                            };
+                            this.select_section(items[next], cx);
+                            let focus = this.nav_focus[next].clone();
+                            window.focus(&focus, cx);
+                            cx.stop_propagation();
+                        },
+                    ))
+                    .focus_visible(|style| style.border_2().border_color(theme.accent))
+                    .cursor_pointer()
+                    .on_click(cx.listener(move |this, _, _, cx| this.select_section(item, cx)))
+                    .child(icons::icon(item.icon()).size(px(16.0)).text_color(tab_text))
+                    .child(SharedString::from(item.label())),
+            );
+        }
+        div()
+            .id("settings-sections")
+            .role(gpui::Role::TabList)
+            .aria_label("Settings sections")
+            .flex_1()
+            .min_h_0()
+            .w_full()
+            .flex()
+            .flex_col()
+            .child(
+                div()
+                    .flex_none()
+                    .px(px(Theme::SPACE_SM))
+                    .pt(px(Theme::SPACE_MD))
+                    .pb(px(Theme::SPACE_SM))
+                    .flex()
+                    .flex_col()
+                    .gap(px(2.0))
+                    .children(rows),
+            )
+            .into_any_element()
+    }
+
+    /// The sidebar footer identity row (zeron's user-menu trigger): an initial
+    /// avatar in the inverse text colour, the display name, and the appearance
+    /// toggle as the footer's square action.
+    fn render_footer(&mut self, theme: &Theme, cx: &mut Context<Self>) -> AnyElement {
+        let initial: SharedString = IDENTITY_NAME
+            .chars()
+            .next()
+            .map(|c| c.to_uppercase().to_string())
+            .unwrap_or_else(|| "?".into())
+            .into();
+        let name: SharedString = IDENTITY_NAME.into();
+        div()
+            .p(px(Theme::SPACE_SM))
+            .flex_none()
+            .child(
+                div()
+                    .id("sidebar-footer-row")
+                    .debug_selector(|| "sidebar-footer-row".into())
+                    .w_full()
+                    .flex()
+                    .items_center()
+                    .gap(px(SIDEBAR_FOOTER_ACTION_GAP))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .h(px(SIDEBAR_FOOTER_BUTTON_SIZE))
+                            .rounded(px(8.0))
+                            .px(px(Theme::SPACE_SM))
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap(px(Theme::SPACE_SM))
+                            .text_size(typography::ui_rems(13.0))
+                            .font_weight(gpui::FontWeight::MEDIUM)
+                            .text_color(theme.text.opacity(0.8))
+                            .child(
+                                // Avatar: text-coloured circle, initial in the
+                                // surface colour (zeron user-menu.tsx).
+                                div()
+                                    .size(px(SIDEBAR_FOOTER_AVATAR_SIZE))
+                                    .flex_none()
+                                    .rounded_full()
+                                    .bg(theme.text)
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .font_family(theme.font_mono.clone())
+                                    .text_size(px(10.0))
+                                    .line_height(px(SIDEBAR_FOOTER_AVATAR_SIZE))
+                                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                                    .text_color(theme.bg)
+                                    .child(div().w_full().text_center().child(initial)),
+                            )
+                            .child(
+                                div()
+                                    .min_w_0()
+                                    .overflow_hidden()
+                                    .line_height(px(17.0))
+                                    .child(name),
+                            ),
+                    )
+                    .child(self.render_appearance_toggle(theme, cx)),
+            )
+            .into_any_element()
+    }
+
+    /// The footer's square action: a light/dark toggle. The glyph shows the
+    /// appearance a click switches to (zeron's `appearance_icon` rule).
+    fn render_appearance_toggle(&self, theme: &Theme, cx: &mut Context<Self>) -> AnyElement {
+        let target_light = matches!(theme.appearance, Appearance::Dark);
+        let glyph_color = if target_light {
+            theme.text
+        } else {
+            theme.text_muted
+        };
+        div()
+            .id("appearance-toggle")
+            .debug_selector(|| "appearance-toggle".into())
+            .role(gpui::Role::Button)
+            .aria_label(if target_light {
+                "Switch to light appearance"
+            } else {
+                "Switch to dark appearance"
+            })
+            .tab_index(0)
+            .focus_visible(|style| style.border_2().border_color(theme.accent))
+            .size(px(SIDEBAR_FOOTER_ACTION_SIZE))
+            .flex_none()
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(px(8.0))
+            .text_color(glyph_color)
+            .bg(motion::hover_blend(
+                "appearance-toggle",
+                theme.glass_hover().opacity(0.0),
+                theme.glass_hover(),
+            ))
+            .on_hover(motion::hover_listener("appearance-toggle"))
+            .cursor_pointer()
+            .on_click(cx.listener(|this, _, window, cx| this.toggle_appearance(window, cx)))
+            .child(
+                icons::icon(if target_light {
+                    icons::SUN
+                } else {
+                    icons::MOON
+                })
+                .size(px(16.0))
+                .text_color(glyph_color),
+            )
+            .into_any_element()
+    }
+
     /// The settings sidebar column (zeron `render_settings_page`): full height
-    /// at the fixed width, with its content starting below the titlebar strip.
-    /// T2 fills it with the section list and the footer identity row.
-    fn render_sidebar(&self, theme: &Theme) -> impl IntoElement {
+    /// at the fixed width, content starting below the titlebar strip, the
+    /// section list filling the column and the footer pinned at its bottom.
+    fn render_sidebar(
+        &mut self,
+        theme: &Theme,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         div()
             .w(px(SIDEBAR_WIDTH))
             .h_full()
@@ -119,20 +382,21 @@ impl Shell {
             .flex()
             .flex_col()
             .pt(px(Theme::TITLEBAR_HEIGHT))
-            .px(px(Theme::SPACE_SM))
             .child(
                 div()
-                    .text_xs()
-                    .text_color(theme.text_faint)
-                    .child("Settings sections (chrome T2)"),
+                    .flex_1()
+                    .min_h_0()
+                    .child(self.render_nav(theme, window, cx)),
             )
+            .child(self.render_footer(theme, cx))
+            .into_any_element()
     }
 
     /// The page pane: zeron's page column scrolls to the window's top edge and
     /// carries the titlebar clearance inside the scroll, so a page header can
     /// sit at the very top of the column once it scrolls (`page_column` in
-    /// zeron's `settings/widgets.rs`). T1 paints the placeholder content that
-    /// `settings-surface` replaces with the real pages.
+    /// zeron's `settings/widgets.rs`). `settings-surface` replaces the
+    /// placeholder with the real pages.
     fn render_page(&self, theme: &Theme) -> impl IntoElement {
         div().flex_1().min_w_0().h_full().flex().flex_col().child(
             div()
@@ -144,16 +408,23 @@ impl Shell {
                 .px(px(Theme::SPACE_LG * 2.0))
                 .child(
                     div()
+                        .text_xl()
+                        .font_weight(gpui::FontWeight::SEMIBOLD)
+                        .child(SharedString::from(self.section.label())),
+                )
+                .child(
+                    div()
+                        .mt_2()
                         .text_sm()
                         .text_color(theme.text_muted)
-                        .child("chrome phase · T1 — shell surface"),
+                        .child("chrome phase · T2 — page content lands in `settings-surface`"),
                 ),
         )
     }
 }
 
 impl Render for Shell {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = Theme::of(cx).clone();
         let drag = self.titlebar_drag_region(
             "settings-titlebar",
@@ -165,6 +436,8 @@ impl Render for Shell {
                 .h(px(Theme::TITLEBAR_HEIGHT)),
             cx,
         );
+        let sidebar = self.render_sidebar(&theme, window, cx);
+        let page = self.render_page(&theme);
         // zeron `Shell::render`'s root: `id("shell-root")`, row layout,
         // `bg(theme.glass())`, theme text colour and the 14px rem scale.
         div()
@@ -187,8 +460,8 @@ impl Render for Shell {
                             .size_full()
                             .flex()
                             .flex_row()
-                            .child(self.render_sidebar(&theme))
-                            .child(self.render_page(&theme)),
+                            .child(sidebar)
+                            .child(page),
                     )
                     .child(drag),
             )

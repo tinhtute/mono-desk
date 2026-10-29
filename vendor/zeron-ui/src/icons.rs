@@ -185,6 +185,11 @@ icon_assets![
     // Hand-drawn bell + speaker in the Solar Linear style (like the terminal/
     // plus/return ports) — the embedded set has neither.
     (BELL, "bell"),
+    // Hand-drawn head-and-shoulders glyph in the Solar Linear style: mono-desk's
+    // Profile section row. mono-desk addition — neither the embedded set nor
+    // zeron's own icon file ships a user glyph (zeron draws an initial avatar
+    // instead).
+    (USER, "user"),
     (VOLUME_LOUD, "volume-loud"),
     // Hand-drawn microphone pair in the Solar Linear style — voice controls.
     (MICROPHONE, "microphone"),

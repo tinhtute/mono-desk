@@ -127,6 +127,18 @@ fn selftest_and_quit(cx: &mut App) {
         ),
         zeron_ui::chrome::cluster_clearance(true, false, 0, 16.0),
     );
+    // Settings section list: the nav renders from this list alone.
+    let sections: Vec<_> = zeron_ui::settings::SettingsSection::ALL
+        .iter()
+        .map(|section| section.label())
+        .collect();
+    eprintln!(
+        "selftest nav sections={} labels={} group_break={} selected={}",
+        sections.len(),
+        sections.join("|"),
+        zeron_ui::settings::SettingsSection::FinanceUi.label(),
+        zeron_ui::settings::SettingsSection::default().label(),
+    );
     cx.refresh_windows();
     cx.spawn(async move |cx: &mut gpui::AsyncApp| {
         cx.background_executor()
@@ -177,7 +189,7 @@ fn main() {
                 window.set_rem_size(px(typography::font_size(cx).pixels()));
                 sync_appearance(window, cx);
                 window.observe_window_appearance(sync_appearance).detach();
-                cx.new(|_| Shell::new())
+                cx.new(Shell::new)
             })
             .expect("failed to open window");
 
