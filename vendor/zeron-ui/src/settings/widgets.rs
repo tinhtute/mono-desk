@@ -116,9 +116,37 @@ mod tests {
     use super::*;
 
     #[test]
+    fn tab_selection_reverses_from_its_current_opacity() {
+        use std::time::{Duration, Instant};
+
+        let start = Instant::now();
+        let forward = TabSelectionTravel {
+            from: 0.0,
+            target: 1.0,
+            started: start,
+        };
+        let halfway = start + Duration::from_millis(75);
+        let current = forward.value(halfway);
+        let reverse = TabSelectionTravel {
+            from: current,
+            target: 0.0,
+            started: halfway,
+        };
+        assert_eq!(reverse.value(halfway), current);
+        assert_eq!(
+            reverse.value(
+                halfway
+                    + motion::TAB_SLIDE
+                        .total()
+                        .mul_f32(motion::speed_scale())
+            ),
+            0.0
+        );
+    }
+
+    #[test]
     fn selection_travel_settles_on_its_target() {
-        // A settled travel value is the target itself, in both directions —
-        // first paint never animates in from the other state.
+        // First paint never animates in from the other state.
         let now = std::time::Instant::now();
         for target in [0.0, 1.0] {
             let travel = TabSelectionTravel {

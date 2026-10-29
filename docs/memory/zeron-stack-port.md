@@ -65,7 +65,7 @@ gated behind gpui's `test-support` feature and unimplemented on the macOS
 platform, and macOS Screen Recording is not granted to agent tooling.
 
 Gate wiring: the vendored crates are workspace `default-members` (so `cargo
-test` runs their unit tests: 33 today — 24 `vendor/zeron-theme`, 9
+test` runs their unit tests: 34 today — 24 `vendor/zeron-theme`, 10
 `vendor/zeron-ui`; `vendor/zeron-theme` regains `tempfile` as a
 dev-dependency), while `make lint`/`make fmt` stay scoped to `-p mono-desk` —
 vendored files carry upstream clippy style lints and `cargo fmt` would rewrite
@@ -83,8 +83,8 @@ R2/R3 amendments in the plan.
 
 | Vendored / first-party | Upstream | Adaptation |
 |---|---|---|
-| `vendor/zeron-ui/chrome.rs` | `crates/ui/src/shell.rs` (`titlebar_cluster_start`, `titlebar_spacer_width`, `caption_buttons_width`, `cluster_buttons_start`, `cluster_clearance`, `titlebar_right_padding`, `TITLEBAR_*`/`CLUSTER_BUTTONS_WIDTH`, `window_control_button*`) | Windows/Linux caption buttons dropped (NG3) but their geometry kept so upstream's tests port over; button tooltip deferred to `settings-surface` (`aria_label` kept); the spacer is static (no `WidthTween` fullscreen tween yet) |
-| `vendor/zeron-ui/settings/mod.rs` | `shell.rs` `SettingsSection` | mono-desk's six sections (General, Notifications, Profile, Finance UI, Reset, About) with zeron's label/icon/`starts_nav_group` conventions; the custom Appearance page joins the list with `settings-surface` |
+| `vendor/zeron-ui/chrome.rs` | `crates/ui/src/shell.rs` (`titlebar_cluster_start`, `titlebar_spacer_width`, `caption_buttons_width`, `cluster_buttons_start`, `cluster_clearance`, `titlebar_right_padding`, `TITLEBAR_*`/`CLUSTER_BUTTONS_WIDTH`, `WINDOWS_CAPTION_*`) | geometry + upstream's five tests only: the caption buttons (NG3) and the titlebar *element* helpers (`titlebar_spacer`, `window_control_button`/`_with`) are not ported — R2's settings surface paints no cluster, so they would be dead code; `TITLEBAR_CLUSTER_PAD` stays private like upstream |
+| `vendor/zeron-ui/settings/mod.rs` | `shell.rs` `SettingsSection` | mono-desk's seven sections in zeron's order (General, Appearance, Notifications, Profile, Finance UI, Reset, About) with zeron's label/icon/`starts_nav_group` conventions; the `Appearance` row exists now, its page is `settings-surface` T3 |
 | `vendor/zeron-ui/settings/widgets.rs` | `settings/widgets.rs` (`section_tab`, `tab_selection_t`, `TabSelectionTravel`) | verbatim; `scroll_faded`/edge-fade wrappers not ported yet |
 | `src/shell.rs` (first-party app wiring) | `shell.rs` (`Shell::render` root, `sidebar_tone`, `titlebar_drag_region`, `render_settings_page` skeleton, `render_settings_nav`, `render_sidebar_footer_row` user-menu trigger) | app state reduced to the selected section + roving focus handles + the drag flag; chat chrome not ported (see above); no account popover — the footer pill is identity only, and the footer's square action is the appearance toggle |
 
@@ -108,5 +108,8 @@ previous, down/right → next, home/end, and the workspace group
 initial-avatar pill + name, appearance toggle in the action slot.
 `vendor/zeron-ui/assets/icons/user.svg` is a mono-desk addition (Solar Linear
 style) because neither set ships a user glyph; noted in
-`THIRD_PARTY_NOTICES.md`.
+`THIRD_PARTY_NOTICES.md`. Known gaps in this recipe (gate M6, recorded in the
+plan's `settings-surface` known-gaps list): the nav still has no
+`scroll_faded`/edge-fade wrapper, and the footer pill is identity-only (no
+role/aria/popover, no `sidebar_faded_label`).
 

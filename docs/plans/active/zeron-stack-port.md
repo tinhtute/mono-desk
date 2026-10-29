@@ -22,7 +22,8 @@ lane: high-risk
   title there), the shell root painting `theme.glass()` over the blurred
   window background, a full-height sidebar column at 256px over zeron's
   `wash(0.05)` tone + 1px right hairline, the settings search row, the
-  six-section nav and the footer identity row, and the page column rendered
+  seven-section nav (General, Appearance, Notifications, Profile, Finance UI,
+  Reset, About) and the footer identity row, and the page column rendered
   with zeron's widgets. All six pages render and round-trip through
   `AppSettings` + persistence; light/dark and glass/opaque modes work;
   `cargo test && make check && make lint && make fmt-check` are green on the
@@ -71,17 +72,19 @@ lane: high-risk
   - R3: The left column on the settings screen is zeron's settings section
     list (`SettingsSection`-style nav: label + icon rows, selected state,
     hover/selection motion, keyboard-tabbable) over zeron's search row, with
-    our six pages mapped to sections: General, Notifications, Profile,
-    Finance UI, Reset, About. Selecting a section drives the page pane.
-    zeron's "Back" row is dropped (this app has no chat surface to return to,
-    owner decision 2026-10-29), so the sidebar starts with the search row.
-    The search row's *input* primitive arrives with the `settings-surface`
-    phase (zeron's field is the chat composer input, which is out of scope);
-    until then the column starts with the section list. | acceptance:
-    clicking each row switches the page; selected row state visible; keyboard
-    Tab/Enter works; AX tree exposes rows with role/label. | source: zeron
-    `shell.rs` `render_settings_nav` + `settings.rs` `SettingsSection`,
-    `shell/settings_search.rs` field layout
+    these sections: General, Appearance, Notifications, Profile, Finance UI,
+    Reset, About — the six pre-existing pages plus **Appearance**, zeron's
+    custom appearance page, which the owner asked for verbatim (R8) and which
+    is zeron's own nav row order (General before Appearance). Selecting a
+    section drives the page pane. zeron's "Back" row is dropped (this app has
+    no chat surface to return to, owner decision 2026-10-29), so the sidebar
+    starts with the search row. The search row's *input* primitive arrives
+    with the `settings-surface` phase (zeron's field is the chat composer
+    input, which is out of scope); until then the column starts with the
+    section list. | acceptance: clicking each row switches the page; selected
+    row state visible; keyboard Tab/Enter works; AX tree exposes rows with
+    role/label. | source: zeron `shell.rs` `render_settings_nav` +
+    `settings.rs` `SettingsSection`, `shell/settings_search.rs` field layout
   - R4: Page content is rendered with zeron's settings widgets (`page_column`,
     `page_header`, `section`, `section_card`, `card_row`, `toggle_switch`,
     `select_trigger`, `dropdown`, `block_fill`, `row_divider`,
@@ -242,9 +245,10 @@ lane: high-risk
   status: in-progress
   - goal: R2, R3, R5 (translucent parity) | depends_on: `theme-foundation`
   - surfaces: `vendor/zeron-ui/chrome.rs` (ported titlebar geometry +
-    drag-strip/sidebar-tone helpers), `vendor/zeron-ui/settings/` (nav row +
-    footer identity), `src/shell.rs` (app wiring + section state),
-    `src/main.rs` | avoided: settings page content
+    upstream's tests), `vendor/zeron-ui/settings/` (section model + nav row
+    widget), `src/shell.rs` (app wiring: root surface, drag strip,
+    sidebar tone/column, nav assembly, footer identity row), `src/main.rs`
+    | avoided: settings page content
   - escalate_when: ported chrome needs state/geometry data only the zeron
     app has (sessions/routes/spaces); or zeron's settings route turns out to
     include chrome we cannot stand up without the chat surface.
@@ -262,8 +266,9 @@ lane: high-risk
       `MONO_DESK_SELFTEST` (glass alpha, tone alpha, drag strip height) +
       run/CGWindow probe. — stop_if: the drag strip or glass root needs
       window APIs the fork lacks.
-    - T2 — port the settings section list: six rows from our `Section` enum
-      using zeron's `widgets::section_tab` + `tab_selection_t` (icon + label,
+    - T2 — port the settings section list: rows from `SettingsSection`
+      (the seven-section list, `Appearance` included) using zeron's
+      `widgets::section_tab` + `tab_selection_t` (icon + label,
       selected wash, hover/selection motion, `Role::Tab`/`aria_selected`,
       keyboard up/down/home/end) over the footer identity row
       (`render_sidebar_footer_row`: avatar initial + display name), and drive
@@ -286,17 +291,31 @@ lane: high-risk
   - escalate_when: a ported widget requires popover/search infrastructure
     whose port would exceed the phase, or a control has no zeron widget
     equivalent.
+  - known gaps to close in this phase (from the `chrome` gate):
+    `AppSettings`/persistence do not exist on this branch (they live on
+    `wip/gpui-kit-shell`) and must be recreated with unchanged keys (NG4) with
+    pure round-trip tests (there is no windowed test harness); the footer's
+    identity row is hardcoded/static (`IDENTITY_NAME` in `src/shell.rs`) and
+    must read the Profile display name; the nav still lacks zeron's
+    `scroll_faded`/edge-fade wrapper; `page_column` must be ported verbatim
+    (760 max width, 40px padding, `TITLEBAR_HEIGHT + 16` top, 48 bottom,
+    `mx_auto`) rather than the placeholder's approximations; `text_tooltip`
+    and the popover/dropdown stack are unported and stand between the current
+    chrome and zeron's real controls.
   - wave 1:
     - T1 — port the settings page scaffolding (`page_column`, `page_header`,
-      `section`, `section_card`, `card_row`, labels/dividers) and rebuild
+      `page_subtitle`, `section`, `section_card`, `card_row`, `row_title`,
+      `meta_line`, `block_fill`, `row_divider`, `field_label`) and rebuild
       General + Notifications pages on it with our settings state and
       persistence. — output: two pages render and controls write settings.
       — check: `cargo build` + run + settings file round-trip. — stop_if:
       the page layout needs zeron's search/route infrastructure.
     - T2 — port toggle/select/dropdown/slider widgets and rebuild the
       remaining pages (Profile, Finance UI, Reset, About), including the
-      glass controls and test notification. — output: all six pages
-      functional. — check: run + settings round-trip + i18n strings.
+      glass controls and test notification; where a select needs zeron's
+      dropdown (`pane_bounds`/`dropdown_limits` + the deferred overlay), port
+      that primitive rather than a local approximation (R8). — output: all
+      seven section pages functional. — check: run + settings round-trip + i18n strings.
       — stop_if: a needed control has no ported primitive.
     - T3 — rebuild Appearance as zeron's custom page: port
       `settings/appearance.rs`'s structure (`option_card` mode cards with
@@ -309,13 +328,16 @@ lane: high-risk
       run + settings round-trip + `MONO_DESK_SELFTEST` on both surface
       preferences + owner visual. — stop_if: the page needs zeron
       wallpaper/theme-library infrastructure beyond the vendored theme
-      registry.
+      registry. The `Appearance` row already exists in the nav (added by the
+      `chrome` gate fix) — T3 fills its page.
     - T4 — port zeron's settings search row into the sidebar
       (`shell/settings_search.rs` layout: 32px field, rounded 8, magnifier,
       "Search settings" placeholder, shortcut hint) on a text-input
-      primitive adapted from the zui fork's `examples/input.rs`
-      (Apache-2.0), filtering the six section rows; it replaces the Back row
-      the owner dropped, so the sidebar starts with it. — output: search
+      primitive adapted from the zui fork's `crates/gpui/examples/input.rs`
+      (the crate is licensed Apache-2.0 per its `Cargo.toml`; the checkout's
+      GPL file covers other zed crates — record the attribution when the
+      file is copied), filtering the seven section rows; it replaces the Back
+      row the owner dropped, so the sidebar starts with it. — output: search
       filters the section list; typing/escape/clear work. — check: run +
       keyboard round-trip + AX probe. — stop_if: the fork's input handler
       cannot be adapted without porting the chat composer.
@@ -547,6 +569,45 @@ lane: high-risk
   content tree exposes no GPUI nodes and agent tooling has no synthetic-input
   grant, so those are not claimed here.
 
+- 2026-10-29T12:55Z — chrome — gate — verdict APPROVED for the machine-verifiable
+  scope by a fresh independent judge (tree clean at `b8ad958`, parents
+  `e287006`/`c5c1b6d`; upstream at `/tmp/zeron-src` 8b7afb3). It re-ran every
+  gate (33 tests, check/lint/fmt/build/`--locked` rc 0), both selftests, three
+  runtime probes, built the parent commit from a `git archive` copy and
+  confirmed it also runs; verified all four claims by reading the code, the
+  icon diff (only `user.svg` added), the notices, and that the Log stayed
+  append-only since `c5c1b6d`. No blocking findings; it explicitly refused to
+  count pixels/synthetic input/AX exposure as verified and said `chrome` must
+  not flip to `checked` before the owner visual checkpoint. Seven minors, all
+  addressed in the fix commit below except the two documented fidelity gaps.
+- 2026-10-29T12:55Z — chrome — gate fixes — M1 (contradiction: six vs seven
+  sections) resolved by taking the owner's R8 directive literally and adding
+  **Appearance** as zeron's own nav row: `SettingsSection` is now seven
+  sections in zeron's order (General, Appearance, Notifications, Profile,
+  Finance UI, Reset, About), the row exists from this commit and its *page*
+  is `settings-surface` T3; R3, the success signal, the T2/T3 task text and
+  the Current State all say seven now. M2 fixed the stale `src/main.rs` doc
+  header. M3 un-widened `TITLEBAR_CLUSTER_PAD` (private again, upstream's
+  visibility) and dropped it from the selftest print. M4 removed the
+  unexercised titlebar *element* helpers (`titlebar_spacer`,
+  `window_control_button`/`_with`) that R2 says are not part of this app's
+  surface — `chrome.rs` is now the ported geometry + upstream's five tests
+  only, no dead UI code. M5 ported upstream's
+  `tab_selection_reverses_from_its_current_opacity` test, so the retarget
+  branch of `TabSelectionTravel` is covered (34 tests now). M7 corrected the
+  `chrome` surfaces text (geometry in `chrome.rs`, the nav assembly and footer
+  row live in `src/shell.rs`) and the `Section` → `SettingsSection` typo, and
+  this entry records the files the judge flagged as unrecorded in the phase
+  surfaces: `AGENTS.md` (shell conventions), `vendor/zeron-ui/src/icons.rs`
+  and `vendor/zeron-ui/src/lib.rs` (the `user` glyph + the `settings`/
+  `chrome` modules). M6 stays as recorded gaps: the nav has no
+  `scroll_faded`/edge-fade wrapper yet and the footer pill is identity-only —
+  both named in `settings-surface`'s known-gaps list. Check: `cargo test` 34
+  tests pass; `make check`/`lint`/`fmt-check` rc 0; selftest now reports
+  `nav sections=7 labels=General|Appearance|Notifications|Profile|Finance
+  UI|Reset|About` and the same `chrome titlebar=38 ... spacer=78
+  clearance=162` line without `cluster_pad`.
+
 ## Validation
 
 - 2026-10-28T15:04Z — phase `stack-bringup` — verdict: APPROVED — mode: gate, independent judge (high-risk lane)
@@ -614,30 +675,45 @@ lane: high-risk
     before the gate fixes); previous approach on `wip/gpui-kit-shell`
     (`50823e3`).
 
+- 2026-10-29T12:55Z — phase `chrome` — verdict: APPROVED (machine-verifiable scope) — mode: gate, independent judge + owner visual pending
+  - judge: fresh independent subagent (separate context, read-only); judge_model: deepseek-v4.1-flash; graded commit `b8ad958`.
+  - `cargo test` rc 0 — 33 tests (24 `zeron-theme`, 9 `zeron-ui`), 0 failed — pass
+  - `make check` / `make lint` / `make fmt-check` / `cargo build` / `cargo build --locked` — rc 0 — pass
+  - selftest light: `window_background=Blurred frost=true`; `shell glass a=0.8 is_glass=true tone a=0.05 border a=0.1 sidebar=256`; `chrome titlebar=38 top_pad=4 cluster_start=88 cluster_pad=10 spacer=78 clearance=162`; `nav sections=6 ...` — pass; dark the same with dark tokens — pass (these lines are as they were at the gated commit `b8ad958`; the gate-fix commit drops `cluster_pad` from the print and moves the nav to seven sections)
+  - runtime probes (default/light/dark): window layer 0 alpha 1 onscreen 1, 1320×880 at (120,120), empty stderr, killed, no process left — pass
+  - parent commit `e287006` rebuilt from `git archive` — `cargo build --locked` rc 0, selftest and window probe pass — pass
+  - `diff -rq` icons — only `user.svg` added (129 vs 128); `user.svg` + notices + icons.rs doc verified; no coloring literals in `src/`; no gpui-kit references — pass
+  - structure read against upstream: root/glass/tone/drag strip verbatim; `chrome.rs` constants and its five tests identical to upstream; `section_tab`/`tab_selection_t` semantically identical; nav/footer metrics and listeners match — pass
+  - plan discipline: Log append-only since `c5c1b6d`, lifecycle statuses consistent, no unrecorded behavioural drift — pass
+  - findings: no blocking. Minors M1–M7 recorded in the Log, M1–M5 and M7 fixed in the gate-fix commit, M6 documented gaps.
+  - **unverified, not passed**: rendered pixels, synthetic click/keyboard/drag, hover/selection motion, AX exposure of the nav rows; and the **owner visual checkpoint has not happened**, so this phase stays `in-progress` until it does (R7).
+  - rollback_point: `feat/zeron-stack` commit `e287006` (T1 only) / `b8ad958` (gated).
 
 ## Current State and Next Action
 - active_phase: chrome
 - lifecycle_status: in-progress
-- blockers: none
-- open_items: `chrome` T1+T2 are implemented and machine-checked; the phase
-  gate (independent judge) and the owner's visual checkpoint are still owed,
-  and pixels/synthetic input remain unverifiable by agent tooling (no Screen
+- blockers: the owner's visual checkpoint for `chrome` — R7 puts one after this
+  phase, and the gate judge explicitly refused to let the phase flip to
+  `checked` without it. Pixels, synthetic click/keyboard/drag, hover/selection
+  motion and AX exposure are unverifiable by agent tooling (no Screen
   Recording, no AX nodes for GPUI controls, no in-process capture on macOS).
+- open_items: `chrome` T1+T2 are implemented, machine-checked and gated
+  APPROVED for that scope (see Validation); the seven gate minors are fixed
+  except the two documented fidelity gaps (M6: the nav has no
+  `scroll_faded`/edge-fade wrapper yet; the footer pill is identity-only).
   Deliberately not ported from zeron's chat chrome: titlebar cluster/toggle,
-  centered title, sidebar resize and collapsed sliver (R2, owner decision —
-  zeron's settings route has none). Still to come in `chrome`'s successor
-  phases: zeron's settings search row (needs the text-input primitive, T4 of
-  `settings-surface`) and an Appearance section row for the custom Appearance
-  page (T3 adds it). `vendor/zeron-ui/` chrome/settings code is compiled and
-  tested but not clippy-linted (`make lint` is `-p mono-desk`), so new
-  non-verbatim code is reviewed by hand; `ReduceMotion::System` stays a no-op
-  with chrome animations; `font_sans_fixed` resolves to the bundled Google
-  Sans Code.
-- exact_next_action: independent phase gate for `chrome` (T1+T2) against the
-  current tree, then mark the phase `checked` and start `settings-surface`:
-  T1 port `settings/widgets.rs` page scaffolding (`page_column`,
-  `page_header`, `section`, `section_card`, `card_row`, labels/dividers) and
-  rebuild General + Notifications on `AppSettings`/persistence; T2 the
-  remaining pages; T3 the custom Appearance page + its nav row; T4 the search
-  row on a text-input primitive. Ask the owner for the visual checkpoint after
-  the phase gate.
+  centered title, sidebar resize and collapsed sliver (R2, owner decision).
+  The nav is now seven sections; the `Appearance` row exists and its page is
+  `settings-surface` T3. `vendor/zeron-ui/` code is compiled and tested but
+  not clippy-linted (`make lint` is `-p mono-desk`), so new non-verbatim code
+  is reviewed by hand; `ReduceMotion::System` stays a no-op; `font_sans_fixed`
+  resolves to the bundled Google Sans Code.
+- exact_next_action: owner runs `make run` and checks the four visual points
+  (translucent window background over the desktop blur; sidebar 5% tone +
+  1px hairline; titlebar drag + double-click zoom; nav hover/selection/
+  keyboard and the footer sun-moon toggle) — after that, append the owner's
+  verdict to Validation, mark `chrome` `checked`, and start `settings-surface`
+  T1 (port `page_column`/`page_header`/`section`/`section_card`/`card_row`
+  verbatim, recreate `AppSettings` + persistence with unchanged keys, rebuild
+  General + Notifications). If the owner reports a visual defect, fix it inside
+  `chrome` first.

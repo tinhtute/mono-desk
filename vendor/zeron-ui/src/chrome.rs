@@ -1,39 +1,30 @@
-//! Window chrome geometry and titlebar controls, ported from zeron's
-//! `crates/ui/src/shell.rs` (MIT, Copyright 2026 Wing).
+//! Window chrome geometry, ported from zeron's `crates/ui/src/shell.rs` (MIT,
+//! Copyright 2026 Wing).
 //!
-//! These are the parts of zeron's shell that are pure presentation — theme and
-//! numbers in, element out — so they can live in the vendored crate and be
-//! unit-tested next to their upstream tests. Anything that needs app state
-//! (the drag strip's "button is down" flag) is composed by the app shell in
-//! `src/shell.rs` on top of these helpers.
+//! The values and pure functions of zeron's titlebar: where a control cluster
+//! starts, the spacer/clearance math for the native traffic lights, the
+//! caption-button widths and the bar's rhythm constants. They are vendored so
+//! the app shell and its tests share one source of truth, and so upstream's own
+//! unit tests port over unchanged.
 //!
 //! Ported verbatim: `TITLEBAR_CONTROL_GAP`, `TITLEBAR_GROUP_GAP`,
 //! `TITLEBAR_IDENTITY_GAP`, `TITLEBAR_ACTION_EDGE_INSET`, `CLUSTER_BUTTONS_WIDTH`,
 //! `TITLEBAR_ACTION_SLOT_WIDTH`, `TITLEBAR_CLUSTER_PAD`,
+//! `WINDOWS_CAPTION_BUTTON_WIDTH`/`WINDOWS_CAPTION_WIDTH`,
 //! `titlebar_cluster_start`, `titlebar_spacer_width`, `caption_buttons_width`,
-//! `cluster_buttons_start`, `cluster_clearance`, `titlebar_right_padding`,
-//! `window_control_button`, `window_control_button_with` and their tests.
+//! `cluster_buttons_start`, `cluster_clearance`, `titlebar_right_padding` and
+//! upstream's five tests.
 //!
 //! Adaptations from upstream:
-//! - the buttons' tooltip is dropped until zeron's
-//!   `settings::widgets::text_tooltip` lands (`settings-surface`); the button
-//!   keeps its accessibility label through [`gpui::InteractiveElement::aria_label`];
 //! - the Windows/Linux caption buttons themselves are not ported (NG3, macOS
 //!   first) while the geometry that reserves their space is, so the numbers
 //!   stay comparable to upstream;
-//! - [`titlebar_spacer`] is static: upstream tweens the fullscreen inset with
-//!   its `WidthTween` clock, which is not part of this port yet.
+//! - the titlebar *element* helpers (`Shell::titlebar_spacer` and
+//!   `window_control_button`/`_with`) are not ported: this app's only surface is
+//!   zeron's Settings route, which paints no control cluster (plan R2), so those
+//!   elements would be dead code. The numbers they consumed live here; the drag
+//!   strip itself (which needs app state) is in `src/shell.rs`.
 //!
-//! This app's only surface is zeron's *Settings* route, which paints no
-//! control cluster (see the port plan, R2), so nothing here renders a
-//! `titlebar_spacer`/button by default; the helpers exist because the page
-//! header clearance and any future cluster need the same documented numbers.
-
-use gpui::prelude::*;
-use gpui::{App, ClickEvent, Div, IntoElement, MouseButton, Window, div, px};
-
-use crate::icons;
-use crate::motion;
 use crate::theme::Theme;
 
 /// Where a titlebar control cluster starts, from the window's left edge.
@@ -70,21 +61,13 @@ pub const CLUSTER_BUTTONS_WIDTH: f32 = 24.0 * 3.0 + TITLEBAR_GROUP_GAP + TITLEBA
 /// Extra width consumed when a second action group joins the left controls.
 pub const TITLEBAR_ACTION_SLOT_WIDTH: f32 = TITLEBAR_GROUP_GAP + 24.0;
 /// Horizontal inset owned by the titlebar control row itself. Keep this value
-/// paired with [`titlebar_spacer`]: using a different number for the spacer
-/// shifts every control while leaving the declared cluster geometry unchanged.
-pub const TITLEBAR_CLUSTER_PAD: f32 = 10.0;
+/// paired with [`titlebar_spacer_width`]: using a different number for the
+/// spacer shifts every control while leaving the declared cluster geometry
+/// unchanged. (Private upstream too — call sites pass their own padding.)
+const TITLEBAR_CLUSTER_PAD: f32 = 10.0;
 
 const WINDOWS_CAPTION_BUTTON_WIDTH: f32 = 36.0;
 const WINDOWS_CAPTION_WIDTH: f32 = WINDOWS_CAPTION_BUTTON_WIDTH * 3.0;
-
-/// The animated spacer clearing the macOS traffic lights ahead of a titlebar
-/// control cluster (zeron `Shell::titlebar_spacer`). `None` off macOS — no
-/// phantom flex child — and `None` when the strip's own padding already clears
-/// the cluster start.
-pub fn titlebar_spacer(is_macos: bool, fullscreen: bool, container_pad: f32) -> Option<Div> {
-    let width = titlebar_spacer_width(is_macos, fullscreen, container_pad);
-    (width > 0.0).then(|| div().flex_none().h_full().w(px(width)))
-}
 
 /// Width of a row of `count` caption buttons, drawn at the cluster's own
 /// 24px-button / 2px-gap rhythm.
@@ -133,64 +116,6 @@ pub fn titlebar_right_padding(is_windows: bool, linux_right_captions: usize, bas
     } else {
         0.0
     }
-}
-
-/// A size-6 icon button for the titlebar strip (zeron `window-controls.tsx`:
-/// `grid size-6 place-items-center rounded-md text-muted-foreground`).
-pub fn window_control_button(
-    id: &'static str,
-    icon_path: &'static str,
-    label: &'static str,
-    theme: &Theme,
-    on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-) -> impl IntoElement {
-    let glyph = icons::icon(icon_path)
-        .size(px(16.0))
-        .text_color(theme.text_muted);
-    window_control_button_with(id, glyph, label, theme, on_click)
-}
-
-/// [`window_control_button`] around a caller-drawn glyph (zeron's morphing
-/// sidebar glyph).
-pub fn window_control_button_with(
-    id: &'static str,
-    glyph: impl IntoElement,
-    label: &'static str,
-    theme: &Theme,
-    on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-) -> impl IntoElement {
-    let fade_key = format!("window-control-{id}");
-    div()
-        .id(id)
-        .debug_selector(move || id.to_owned())
-        .role(gpui::Role::Button)
-        .aria_label(label)
-        .size(px(24.0))
-        .flex_none()
-        .flex()
-        .items_center()
-        .justify_center()
-        .rounded(px(6.0))
-        .cursor_pointer()
-        // zeron window-controls.tsx: `transition-colors` — the wash fades.
-        .bg(motion::hover_blend(
-            &fade_key,
-            theme.glass_hover().opacity(0.0),
-            theme.glass_hover(),
-        ))
-        .on_hover(motion::hover_listener(fade_key))
-        // Buttons in/over a titlebar drag strip must be EXCLUDED from the
-        // strip's event surface entirely: `occlude()` makes the window
-        // hit-test stop at the button, so the strip's drag listeners never
-        // fire with the pointer over a button (and the native Drag control
-        // area loses the button's rect).
-        .occlude()
-        .on_mouse_down(MouseButton::Left, |_, window, _| window.prevent_default())
-        .on_click(move |event, window, cx| {
-            cx.stop_propagation();
-            on_click(event, window, cx)
-        })
-        .child(glyph)
 }
 
 #[cfg(test)]
