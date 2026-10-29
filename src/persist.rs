@@ -22,7 +22,6 @@ use crate::app_settings::{
 
 /// First line of every settings file written by [`save`]; also the
 /// ownership check used by [`parse`] and the foreign-file guard.
-#[allow(dead_code)] // wired by settings-surface T2
 const SETTINGS_MARKER: &str = "# managed-by: mono-desk";
 
 /// Ownership marker embedded in the Linux `.desktop` autostart entry.
@@ -31,7 +30,6 @@ const AUTOSTART_MARKER: &str = "X-Mono-Desk-Managed=true";
 
 /// Ownership marker embedded in the macOS LaunchAgent plist.
 #[cfg(target_os = "macos")]
-#[allow(dead_code)] // wired by settings-surface T2
 const AUTOSTART_MARKER: &str = "<key>MonoDeskManaged</key>";
 
 /// Persisted settings mirror of the app's `AppSettings`.
@@ -40,7 +38,6 @@ const AUTOSTART_MARKER: &str = "<key>MonoDeskManaged</key>";
 /// foreign settings file must yield usable values (notably `font_size`
 /// 14.0, never 0.0 which would collapse `set_rem_size` to zero).
 #[derive(Clone, Debug, PartialEq)]
-#[allow(dead_code)] // wired by settings-surface T2
 pub struct StoredSettings {
     /// Accent color as `#RRGGBB`, or empty for the theme's own brand color.
     pub accent: String,
@@ -112,7 +109,6 @@ impl Default for StoredSettings {
 }
 
 /// `$HOME`, or `None` when unset or empty.
-#[allow(dead_code)] // wired by settings-surface T2
 fn home_dir() -> Option<PathBuf> {
     std::env::var_os("HOME")
         .filter(|h| !h.is_empty())
@@ -122,7 +118,6 @@ fn home_dir() -> Option<PathBuf> {
 /// Platform config dir: `$XDG_CONFIG_HOME/mono-desk`, else
 /// `$HOME/.config/mono-desk` (macOS: `$HOME/Library/Application
 /// Support/mono-desk`). `None` if no home.
-#[allow(dead_code)] // wired by settings-surface T2
 pub fn config_dir() -> Option<PathBuf> {
     #[cfg(target_os = "macos")]
     {
@@ -142,14 +137,12 @@ pub fn config_dir() -> Option<PathBuf> {
 }
 
 /// Path of the settings file: `config_dir()/settings.conf`.
-#[allow(dead_code)] // wired by settings-surface T2
 pub fn settings_path() -> Option<PathBuf> {
     config_dir().map(|d| d.join("settings.conf"))
 }
 
 /// Escape a value for one `key=value` line: `\`, newline, and carriage
 /// return cannot appear literally.
-#[allow(dead_code)] // wired by settings-surface T2
 fn escape(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for c in s.chars() {
@@ -165,7 +158,6 @@ fn escape(s: &str) -> String {
 
 /// Inverse of [`escape`]. Unknown escape sequences are kept verbatim so
 /// foreign input loses nothing.
-#[allow(dead_code)] // wired by settings-surface T2
 fn unescape(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut chars = s.chars();
@@ -190,7 +182,6 @@ fn unescape(s: &str) -> String {
 
 /// Serialize with first line `# managed-by: mono-desk`, then `key=value`
 /// lines; `\` and newline are escaped in values.
-#[allow(dead_code)] // wired by settings-surface T2
 pub fn serialize(s: &StoredSettings) -> String {
     let mut out = String::new();
     out.push_str(SETTINGS_MARKER);
@@ -223,7 +214,6 @@ pub fn serialize(s: &StoredSettings) -> String {
 }
 
 /// `"true"`/`"false"` only; anything else is malformed.
-#[allow(dead_code)] // wired by settings-surface T2
 fn parse_bool(value: &str) -> Option<bool> {
     match value.trim() {
         "true" => Some(true),
@@ -235,7 +225,6 @@ fn parse_bool(value: &str) -> Option<bool> {
 /// Parse a settings file. `None` when the ownership marker is missing
 /// (foreign file). Unknown keys are ignored, missing keys take defaults,
 /// malformed lines are skipped; never panics.
-#[allow(dead_code)] // wired by settings-surface T2
 pub fn parse(text: &str) -> Option<StoredSettings> {
     let mut lines = text.lines();
     if lines.next().map(str::trim_end) != Some(SETTINGS_MARKER) {
@@ -369,7 +358,6 @@ pub fn parse(text: &str) -> Option<StoredSettings> {
 
 /// Load the settings file; defaults when absent, corrupt, or foreign
 /// (logs on corrupt or foreign). Never panics.
-#[allow(dead_code)] // wired by settings-surface T2
 pub fn load() -> StoredSettings {
     match settings_path() {
         Some(path) => load_from(&path),
@@ -378,7 +366,6 @@ pub fn load() -> StoredSettings {
 }
 
 /// [`load`] against an explicit path, for tests.
-#[allow(dead_code)] // wired by settings-surface T2
 fn load_from(path: &Path) -> StoredSettings {
     match fs::read_to_string(path) {
         Ok(text) => match parse(&text) {
@@ -405,7 +392,6 @@ fn load_from(path: &Path) -> StoredSettings {
 /// Save atomically (temp file + rename in the same directory). Refuses to
 /// overwrite a foreign file (exists but no marker): logs and returns
 /// `false`. Other errors log and return `false`.
-#[allow(dead_code)] // wired by settings-surface T2
 pub fn save(s: &StoredSettings) -> bool {
     match settings_path() {
         Some(path) => save_to(&path, s),
@@ -417,7 +403,6 @@ pub fn save(s: &StoredSettings) -> bool {
 }
 
 /// [`save`] against an explicit path, for tests.
-#[allow(dead_code)] // wired by settings-surface T2
 fn save_to(path: &Path, s: &StoredSettings) -> bool {
     if path.exists() {
         match fs::read_to_string(path) {
@@ -460,7 +445,6 @@ fn save_to(path: &Path, s: &StoredSettings) -> bool {
 /// redirect the write, and the directory is fsynced after the rename so the
 /// new name survives a power loss — renaming alone orders the data but not
 /// the directory entry.
-#[allow(dead_code)] // wired by settings-surface T2
 fn atomic_write(dir: &Path, name: &str, contents: &str) -> bool {
     if let Err(e) = fs::create_dir_all(dir) {
         eprintln!("persist: cannot create {}: {e}", dir.display());
@@ -516,7 +500,6 @@ fn atomic_write(dir: &Path, name: &str, contents: &str) -> bool {
 /// plist, column-zero in the `.desktop` file), so comparing trimmed lines
 /// accepts every file we really wrote and rejects one that only quotes the
 /// marker.
-#[allow(dead_code)] // wired by settings-surface T2
 fn is_managed(path: &Path, marker: &str) -> bool {
     fs::read_to_string(path)
         .map(|text| text.lines().any(|line| line.trim() == marker))
@@ -525,7 +508,6 @@ fn is_managed(path: &Path, marker: &str) -> bool {
 
 /// Atomically write `contents` to `path`, refusing when a foreign file
 /// (exists, no marker) occupies it.
-#[allow(dead_code)] // wired by settings-surface T2
 fn write_guarded(path: &Path, contents: &str, marker: &str) -> bool {
     if path.exists() && !is_managed(path, marker) {
         eprintln!(
@@ -547,7 +529,6 @@ fn write_guarded(path: &Path, contents: &str, marker: &str) -> bool {
 
 /// Remove `path` only when it carries `marker`. Absent is already
 /// converged (`true`); foreign is refused (`false`).
-#[allow(dead_code)] // wired by settings-surface T2
 fn remove_guarded(path: &Path, marker: &str) -> bool {
     if !path.exists() {
         return true;
@@ -572,7 +553,6 @@ fn remove_guarded(path: &Path, marker: &str) -> bool {
 /// mono-desk.desktop` (or `~/.config/autostart/…`), macOS
 /// `~/Library/LaunchAgents/com.mono-desk.plist`. `None` on other
 /// platforms or when there is no home.
-#[allow(dead_code)] // wired by settings-surface T2
 pub fn autostart_path() -> Option<PathBuf> {
     #[cfg(target_os = "linux")]
     {
@@ -638,7 +618,6 @@ pub fn desktop_entry(exe: &str) -> String {
 
 /// Minimal XML escaping for plist string values.
 #[cfg(target_os = "macos")]
-#[allow(dead_code)] // wired by settings-surface T2
 fn xml_escape(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")
@@ -649,7 +628,6 @@ fn xml_escape(s: &str) -> String {
 /// `<key>MonoDeskManaged</key><true/>` ownership marker. `exe` is the
 /// `std::env::current_exe()` display path.
 #[cfg(target_os = "macos")]
-#[allow(dead_code)] // wired by settings-surface T2
 pub fn plist(exe: &str) -> String {
     let exe = xml_escape(exe);
     format!(
@@ -681,14 +659,12 @@ fn autostart_contents(exe: &str) -> String {
 
 /// Entry body for the current platform's autostart format.
 #[cfg(target_os = "macos")]
-#[allow(dead_code)] // wired by settings-surface T2
 fn autostart_contents(exe: &str) -> String {
     plist(exe)
 }
 
 /// Install the autostart entry at an explicit path, for tests.
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-#[allow(dead_code)] // wired by settings-surface T2
 fn install_at(path: &Path) -> bool {
     match std::env::current_exe() {
         Ok(exe) => write_guarded(
@@ -705,7 +681,6 @@ fn install_at(path: &Path) -> bool {
 
 /// Remove the autostart entry at an explicit path, for tests.
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-#[allow(dead_code)] // wired by settings-surface T2
 fn remove_at(path: &Path) -> bool {
     remove_guarded(path, AUTOSTART_MARKER)
 }
@@ -714,7 +689,6 @@ fn remove_at(path: &Path) -> bool {
 /// file at the target path is logged and left (`false`). Errors log and
 /// return `false`. No-op (`true`) on unsupported platforms.
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-#[allow(dead_code)] // wired by settings-surface T2
 pub fn autostart_install() -> bool {
     match autostart_path() {
         Some(path) => install_at(&path),
@@ -735,7 +709,6 @@ pub fn autostart_install() -> bool {
 /// foreign file → log + `false`; absent → `true` (already converged).
 /// No-op (`true`) on unsupported platforms.
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-#[allow(dead_code)] // wired by settings-surface T2
 pub fn autostart_remove() -> bool {
     match autostart_path() {
         Some(path) => remove_at(&path),
@@ -753,7 +726,6 @@ pub fn autostart_remove() -> bool {
 /// Converge the autostart entry to `enabled`: install when `true`,
 /// remove when `false`.
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-#[allow(dead_code)] // wired by settings-surface T2
 pub fn autostart_converge(enabled: bool) -> bool {
     if enabled {
         autostart_install()

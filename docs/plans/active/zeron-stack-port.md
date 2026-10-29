@@ -283,7 +283,7 @@ lane: high-risk
     `theme.glass()`, sidebar tone from `wash(0.05)`), then owner visual
     checkpoint.
 - phase_slug: `settings-surface`
-  status: in-progress
+  status: checked
   - goal: R4 | depends_on: `chrome`
   - surfaces: `vendor/zeron-ui/settings/{widgets,select,menu}.rs`,
     `vendor/zeron-ui/{popover.rs,popover/,edge_fade.rs}` (the select stack's
@@ -345,7 +345,7 @@ lane: high-risk
   - phase check: `cargo build` + run + settings file round-trip; owner
   visual checkpoint.
 - phase_slug: `fidelity-close`
-  status: planned
+  status: in-progress
   - goal: R6, R7 | depends_on: `settings-surface`
   - surfaces: `vendor/zeron-ui/` (cleanup), `Cargo.toml`, `Cargo.lock`,
     `Makefile`, `AGENTS.md`, `README.md`, `docs/memory/`, `THIRD_PARTY_NOTICES.md`,
@@ -756,6 +756,60 @@ lane: high-risk
   resolve through the built-in variants only.
   Rollback point: `feat/zeron-stack` at the wave-1 commit `5d57be6`.
 
+- 2026-10-29T16:00Z — settings-surface — verdict: APPROVED — owner directive
+  (2026-10-29T23:00+07:00: "không cần check tiếp nữa đâu … làm tiếp luôn là
+  được rồi") closed the phase without a separate visual report, the same
+  precedent as the `chrome` gate: the owner accepted the machine evidence
+  (115 tests, check/lint/fmt-check, all seven sections rendered headlessly,
+  Appearance under both pinned appearances, the search-filter probe, a window
+  probe at 1320×880) and told the session to continue instead of waiting on
+  `make run`. Not claimed: rendered pixels, hover/selection motion,
+  click/keyboard behaviour, AX exposure — a defect the owner reports later is
+  fixed inside the phase that owns it (settings surface defects inside
+  `settings-surface`, which can be reopened; anything else inside
+  `fidelity-close`). Rollback point: `feat/zeron-stack` commit `85a1fdd`.
+
+- 2026-10-29T16:35Z — fidelity-close — T1/T2 landed — (T1) the pre-port
+  view-test suite is **replaced, not ported**: `wip/gpui-kit-shell`'s
+  `src/view_tests.rs` (1477 lines) mounts `gpui-component`'s `Root` overlay
+  layers and drives `Settings`/`SettingPage`/`SettingField`/`Combobox`/
+  listbox/menu widgets that no longer exist, and the zui fork's
+  `test-support` feature is not enabled for mono-desk (enabling it would pull
+  the whole test backend into the app dependency for one harness), so the
+  equivalent coverage is the current pure suite plus headless render probes.
+  Coverage mapping, old → new: switch/checkbox rows → `toggle_switch`
+  behaviour lives in the General/Notifications pages and `app_settings`
+  round-trip tests; language listbox / timezone combobox → the two `select`
+  pages plus `i18n` table-completeness tests; digest radio group → the digest
+  `select` + `DigestCadence` parse/label tests; About tabs → the About page's
+  three sections (render probe); notification overlay → the Notifications
+  test-action badge (render probe + `notifications.test_sent` key);
+  collapsed-rail tooltips / brand context menu / beUI composed surfaces →
+  surfaces deliberately not ported (NG2/no chat chrome); persistence and
+  foreign-file guards keep all 21 `persist` tests. Added during the port:
+  shell search-filter tests (2), appearance page tests (4), reset tests (4),
+  finance tests (5). Totals: `cargo test` 115 (mono-desk 54, zeron-theme 24,
+  zeron-ui 37). Also removed the 30 temporary
+  `#[allow(dead_code)] // wired by settings-surface T2` markers in
+  `src/persist.rs`/`src/i18n.rs`: with every phase landed, `cargo check`
+  proves all of them are wired (no dead-code warnings remain). (T2) hygiene:
+  `README.md` rewritten for the zeron stack (features, requirements, make
+  targets, headless review hooks, notices link), `docs/PROJECT.md` rewritten
+  (identity, gate commands, architecture, current plan), the gpui-kit-era
+  `docs/design/{mono-port-spec,zdesk-port-spec,shell-layout-target}.md` moved
+  to `docs/design/archive/` with a historical banner and `docs/design/README.md`
+  pointing at the current sources, and the four pre-port `docs/memory` notes
+  got the same historical banner; `docs/memory/zeron-stack-port.md`,
+  `AGENTS.md` and `THIRD_PARTY_NOTICES.md` already describe the new stack
+  (updated in the wave commits). R6 sweep:
+  `grep -rn "gpui-component\|vendor/patches\|gpui_kit" Cargo.toml src
+  vendor/zeron-ui` now hits only provenance comments that explain *why* a
+  codec is lossy or what an upstream file referenced (no dependency, path or
+  import survives), and `grep -rn "gpui_kit\|gpui-kit" Cargo.toml` is empty.
+  Check: `cargo test` 115 pass; `make check`/`lint`/`fmt-check` rc 0. Next:
+  the independent `check full` for R7, then the handoff and the plan moves to
+  `docs/plans/completed/`.
+
 ## Validation
 
 - 2026-10-28T15:04Z — phase `stack-bringup` — verdict: APPROVED — mode: gate, independent judge (high-risk lane)
@@ -844,39 +898,26 @@ lane: high-risk
   - rollback_point: `feat/zeron-stack` commit `5c1e92b`.
 
 ## Current State and Next Action
-- active_phase: settings-surface
-- lifecycle_status: in-progress (waves 1–4 landed; phase gate + owner visual
-  pass pending)
+- active_phase: fidelity-close
+- lifecycle_status: in-progress (R6/R7 close-out; settings-surface is
+  `checked` by owner directive)
 - blockers: none.
-- open_items: waves 2–4 landed — see the Log entry at 2026-10-29T15:40Z: the
-  remaining zeron widgets are vendored, all seven pages render on zeron's kit
-  (Profile, About, Reset, Notifications' test action, Finance UI, zeron's
-  Appearance page, General), zeron's Appearance structure is ported (mode
-  cards + previews, variant rows, accent swatches, Glass select, motion and
-  font-size rows), and the sidebar search row filters the section list
-  (⌘F focus, Escape/clear). `settings::apply_appearance` is the single theme
-  funnel for mode/accent/surface/font size and the native window background;
-  the OS autostart entry converges at boot and on every launch-at-login write.
-  Machine gates are green (`cargo test` 115, check/lint/fmt-check rc 0, all
-  seven sections render headlessly, Appearance in both pinned appearances,
-  `MONO_DESK_SEARCH` proves the filter). Outstanding: the owner's visual pass
-  on the seven pages (light + dark), especially the Appearance page against
-  zeron's, the Finance UI art board, and the text fields' typing/caret
-  behaviour. Known gaps carried to `fidelity-close`: no nav edge-fade; Finance
-  art board fixed-px (does not scale with font size); About has no
-  Links/dialog group; the appearance-variant selects show only the built-in
-  variant per appearance; motion preference and variant choice are live-only
-  (no persisted keys); accent values from the pre-port palette that match no
-  zeron preset read as "Theme default"; the accent codec keeps its pre-port
-  lossy HSL round-trip (NG4).
-- exact_next_action: owner runs `make run` and checks, in light and dark
-  (`MONO_DESK_APPEARANCE=dark` for a pinned pass): Appearance (mode cards
-  select sweep mode live; accent swatches repaint; Glass select flips the
-  window background Opaque↔Blurred; font size rescales the UI), General +
-  Notifications (unchanged from wave 1, plus the test-notification action),
-  Profile (typing, caret, validation, preview, footer identity), Reset (row
-  resets, two-press Reset-all), About, Finance UI (eight cards, tabs/switches/
-  charts), and the sidebar search (type to filter, ⌘F, Escape, clear). The
-  phase closes on that verdict; then `fidelity-close` (test-suite/docs/notices
-  cleanup, independent `check full`, handoff). A defect found now is fixed
-  inside `settings-surface` before the phase is marked done.
+- open_items: `settings-surface` closed on the owner's "no more checks, keep
+  going" directive (Log 2026-10-29T16:00Z) with waves 1–4 landed in commits
+  `5d57be6`/`85a1fdd`; machine evidence green (`cargo test` 115,
+  check/lint/fmt-check, seven headless page renders, search probe, window
+  probe). `fidelity-close` is closing the remaining R6/R7 items:
+  (T1) the pre-port view-test suite (1477 lines of gpui-component behaviour
+  tests on `wip/gpui-kit-shell`) is replaced rather than ported — the widgets
+  and overlay layers it drove no longer exist and the fork's `test-support`
+  feature is not enabled for mono-desk, so equivalence is the current pure
+  suite plus headless render probes, recorded as a coverage mapping; (T2)
+  hygiene: README/PROJECT.md rewritten for the zeron stack, the gpui-kit-era
+  `docs/design/*` specs archived as historical, the temporary
+  `#[allow(dead_code)]` markers removed, R6's grep sweep clean outside the
+  notices. Remaining after hygiene: independent `check full`, final gates,
+  `handoff`, plan moves to `docs/plans/completed/`.
+- exact_next_action: run the R6 grep sweep, the full gate set
+  (`cargo test && make check && make lint && make fmt-check`), the
+  independent `check full` judge, then commit the close-out and move the plan
+  to `completed/` with the handoff entry.

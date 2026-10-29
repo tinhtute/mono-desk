@@ -2,6 +2,11 @@
 id: mem-gpui-setting-field-pitfalls-20260923
 created: 2026-09-23
 ---
+
+> **Historical (pre-port gpui-kit stack), kept for context** — the code it
+> describes is on branch `wip/gpui-kit-shell`; the app now runs on zeron's
+> GPUI stack (see `docs/memory/zeron-stack-port.md`).
+
 # gpui-component SettingField pitfalls (mono-desk)
 
 Two traps hit while wiring real effects into `SettingField` setters

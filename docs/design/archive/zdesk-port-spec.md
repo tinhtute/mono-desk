@@ -1,5 +1,11 @@
 # zdesk Port Spec
 
+> **Historical (pre-port gpui-kit stack).** This document records the
+> approach that was dropped on 2026-10-28; the app now runs on zeron's
+> GPUI stack. Current architecture: `docs/PROJECT.md`, module map:
+> `docs/memory/zeron-stack-port.md`, plan:
+> `docs/plans/active/zeron-stack-port.md`.
+
 Records the applied state of the zdesk → mono-desk (gpui-kit) UI port:
 token derivation, shell metrics, font roles, interactions, deviations,
 and vendored-patch state. Source of truth for source values is zdesk

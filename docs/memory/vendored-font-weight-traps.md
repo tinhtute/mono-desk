@@ -2,6 +2,11 @@
 id: mem-vendored-font-weight-traps-20261026
 created: 2026-10-26
 ---
+
+> **Historical (pre-port gpui-kit stack), kept for context** — the code it
+> describes is on branch `wip/gpui-kit-shell`; the app now runs on zeron's
+> GPUI stack (see `docs/memory/zeron-stack-port.md`).
+
 # Swapping the UI sans: three traps that all fail silently
 
 Done when replacing Inclusive Sans with Momo Trust Sans
