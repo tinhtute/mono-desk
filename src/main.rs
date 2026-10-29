@@ -32,7 +32,12 @@ struct SettingsApp;
 
 impl SettingsApp {
     /// One labelled colour chip.
-    fn swatch(label: &'static str, color: gpui::Hsla, border: gpui::Hsla) -> Div {
+    fn swatch(
+        label: &'static str,
+        color: gpui::Hsla,
+        border: gpui::Hsla,
+        caption: gpui::Hsla,
+    ) -> Div {
         div()
             .flex()
             .flex_col()
@@ -46,12 +51,7 @@ impl SettingsApp {
                     .border_1()
                     .border_color(border),
             )
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(gpui::hsla(0.0, 0.0, 0.45, 1.0))
-                    .child(label),
-            )
+            .child(div().text_xs().text_color(caption).child(label))
     }
 }
 
@@ -121,12 +121,17 @@ impl Render for SettingsApp {
                                     .text_color(faint)
                                     .child("SURFACES"),
                             )
-                            .child(Self::swatch("bg", bg, border))
-                            .child(Self::swatch("surface", surface, border))
-                            .child(Self::swatch("surface_card", card, border))
-                            .child(Self::swatch("element_hover", theme.element_hover, border))
-                            .child(Self::swatch("accent", accent, border))
-                            .child(Self::swatch("accent_strong", accent_strong, border)),
+                            .child(Self::swatch("bg", bg, border, faint))
+                            .child(Self::swatch("surface", surface, border, faint))
+                            .child(Self::swatch("surface_card", card, border, faint))
+                            .child(Self::swatch(
+                                "element_hover",
+                                theme.element_hover,
+                                border,
+                                faint,
+                            ))
+                            .child(Self::swatch("accent", accent, border, faint))
+                            .child(Self::swatch("accent_strong", accent_strong, border, faint)),
                     )
                     .child(
                         div()
@@ -270,9 +275,10 @@ fn window_options(window_background: WindowBackgroundAppearance) -> WindowOption
 }
 
 /// Dev-only review hook: `MONO_DESK_APPEARANCE=dark|light` pins the palette so
-/// both appearances can be captured without touching the machine's OS setting.
-/// The agent has no Screen Recording grant, so review evidence comes from
-/// in-process renders (`MONO_DESK_CAPTURE`), not `screencapture`.
+/// both appearances can be checked without touching the machine's OS setting.
+/// The agent has no Screen Recording grant and the fork's in-process capture is
+/// not available on macOS, so evidence is the `MONO_DESK_SELFTEST` report plus
+/// the owner's visual check — never a claim of pixels.
 fn forced_appearance() -> Option<Appearance> {
     match std::env::var("MONO_DESK_APPEARANCE").ok()?.as_str() {
         "dark" => Some(Appearance::Dark),
@@ -306,12 +312,13 @@ fn selftest_and_quit(cx: &mut App) {
         theme.bg, theme.surface, theme.text, theme.accent
     );
     eprintln!(
-        "selftest fonts momo={} hanken={} google_sans_code={} xanh_mono={} effective={}",
+        "selftest fonts momo={} hanken={} google_sans_code={} xanh_mono={} effective={} fixed={}",
         has("Momo Trust Sans"),
         has("Hanken Grotesk"),
         has("Google Sans Code"),
         has("Xanh Mono"),
         theme.font_sans,
+        theme.font_sans_fixed,
     );
     eprintln!("selftest icon_sun_svg={icon:?}");
     eprintln!(

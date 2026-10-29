@@ -1,6 +1,7 @@
 [workspace]
-# Vendored zeron crates are workspace members so `cargo test`/`make lint` cover
-# them like first-party code (their own unit tests run with the gates).
+# Vendored zeron crates are workspace members so `cargo test` runs their unit
+# tests with the gates. `make lint`/`make fmt` stay scoped to `-p mono-desk`:
+# the vendored files keep upstream formatting and carry `#![allow(clippy::all)]`.
 members = ["vendor/zeron-theme", "vendor/zeron-ui"]
 # Plain `cargo test`/`clippy`/`check` cover the vendored crates too.
 default-members = [".", "vendor/zeron-theme", "vendor/zeron-ui"]
