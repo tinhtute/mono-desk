@@ -65,7 +65,34 @@ gated behind gpui's `test-support` feature and unimplemented on the macOS
 platform, and macOS Screen Recording is not granted to agent tooling.
 
 Gate wiring: the vendored crates are workspace `default-members` (so `cargo
-test` runs their 26 unit tests; `vendor/zeron-theme` regains `tempfile` as a
+test` runs their unit tests: 31 today — 24 `vendor/zeron-theme`, 7
+`vendor/zeron-ui`; `vendor/zeron-theme` regains `tempfile` as a
 dev-dependency), while `make lint`/`make fmt` stay scoped to `-p mono-desk` —
 vendored files carry upstream clippy style lints and `cargo fmt` would rewrite
 them away from the pinned rev.
+
+## Ported chrome (phase `chrome`, 2026-10-29)
+
+Owner decision of 2026-10-29: the app has exactly one surface, so its chrome
+is zeron's **Settings route**, literally — not the chat route. zeron's
+settings route paints no titlebar control cluster, no centered title and no
+sidebar resize/collapse (those belong to the chat shell), and its `Back` row
+only exists to return to the chat. The owner chose "copy y màn Settings của
+zeron" and "bỏ nút Back, sidebar bắt đầu bằng ô search"; both are recorded as
+R2/R3 amendments in the plan.
+
+| Vendored / first-party | Upstream | Adaptation |
+|---|---|---|
+| `vendor/zeron-ui/chrome.rs` | `crates/ui/src/shell.rs` (`titlebar_cluster_start`, `titlebar_spacer_width`, `caption_buttons_width`, `cluster_buttons_start`, `cluster_clearance`, `titlebar_right_padding`, `TITLEBAR_*`/`CLUSTER_BUTTONS_WIDTH`, `window_control_button*`) | Windows/Linux caption buttons dropped (NG3) but their geometry kept so upstream's tests port over; button tooltip deferred to `settings-surface` (`aria_label` kept); the spacer is static (no `WidthTween` fullscreen tween yet) |
+| `src/shell.rs` (first-party app wiring) | `shell.rs` (`Shell::render` root, `sidebar_tone`, `titlebar_drag_region`, `render_settings_page` skeleton) | app state reduced to the selected section + the drag flag; chat chrome not ported (see above) |
+
+Settings-route layout recipe as ported: root `id("shell-root")` +
+`.relative().flex().flex_row().size_full().bg(theme.glass())` +
+`text_color(theme.text)` + `font_family(theme.font_sans)` +
+`text_size(ui_rems(14))`; absolute `sidebar_tone` (`wash(0.05)` + `border_r_1`
+with `theme.border`) at 256px; sidebar column `pt(TITLEBAR_HEIGHT)` (no Back
+row); page pane `flex_1` whose scroll carries `TITLEBAR_HEIGHT + SPACE_LG` top
+clearance; a full-width 38px `WindowControlArea::Drag` strip above the page
+(`start_window_move` guarded by `pressed_button`, double-click
+`titlebar_double_click`).
+

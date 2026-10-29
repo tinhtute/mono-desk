@@ -16,15 +16,18 @@ lane: high-risk
   tone / background blur), language, time zone, notifications, profile,
   About, page reset, and persistence.
 - success_signal: `make run` opens a client-side-decorated window matching
-  zeron's settings screen structure — traffic lights at (14,14), 38px
-  titlebar with the control cluster at 88px and a centered title, a
-  full-height sidebar column carrying the 5% ink tone + 1px hairline with
-  resize (242–400) and a 1px collapsed sliver, a section list nav, a footer
-  identity row, and the page column rendered with zeron's widgets. All six
-  pages render and round-trip through `AppSettings` + persistence; light/dark
-  and glass/opaque modes work; `cargo test && make check && make lint &&
-  make fmt-check` are green on the new stack; no `gpui_kit`/`gpui-component`
-  reference remains in `Cargo.toml`, `Cargo.lock` or `src/`.
+  zeron's *Settings* screen structure (the app's only surface, owner decision
+  2026-10-29): traffic lights at (14,14), a 38px overlay strip that drags the
+  window (zeron's settings route paints no control cluster and no centered
+  title there), the shell root painting `theme.glass()` over the blurred
+  window background, a full-height sidebar column at 256px over zeron's
+  `wash(0.05)` tone + 1px right hairline, the settings search row, the
+  six-section nav and the footer identity row, and the page column rendered
+  with zeron's widgets. All six pages render and round-trip through
+  `AppSettings` + persistence; light/dark and glass/opaque modes work;
+  `cargo test && make check && make lint && make fmt-check` are green on the
+  new stack; no `gpui_kit`/`gpui-component` reference remains in
+  `Cargo.toml`, `Cargo.lock` or `src/`.
 - actors: the owner (visual authority for this demo), developers reading the
   repo for GPUI shell/settings patterns.
 - authority: owner decisions in this session (2026-10-28): "Port nguyên code
@@ -48,28 +51,37 @@ lane: high-risk
     1320×880 (min enforced); `Cargo.lock` pins the git rev; `grep -r
     gpui_kit src Cargo.toml` empty. | source: owner decision + zeron
     `crates/ui/src/lib.rs` `open_main_window`
-  - R2: Window chrome is ported from zeron source, not approximated: 38px
-    titlebar strip as an overlay (`Theme::TITLEBAR_HEIGHT`), left control
-    cluster starting at 88px with 24px buttons on the traffic-light axis
-    (`TITLEBAR_CLUSTER_PAD`/`TITLEBAR_TOP_PAD`), drag region + double-click
-    zoom, a centered page title; sidebar column spans the full window height
-    with zeron's `wash(0.05)` tone + 1px right hairline, resize clamp
-    242–400, collapsed 1px grab sliver (corner-trimmed), ~200ms spring, and
-    a footer identity row (avatar initial + display name + theme toggle).
-    | acceptance: probe bounds (sidebar column/tone width, toggle at 88px,
-    titlebar height 38) match; resize and collapse work; owner visual check.
-    | source: zeron `shell.rs` (`render_sidebar`, `sidebar_tone`,
-    `render_settings_page`, `render_sidebar_footer_row`, titlebar cluster
-    constants)
+  - R2: Window chrome is ported from zeron source, not approximated. The app
+    has a single surface — zeron's Settings route — so the chrome is that
+    route's chrome, literally (owner decision 2026-10-29, see Log): the shell
+    root paints `theme.glass()` with the theme text/font and the 14px rem
+    scale, a full-width 38px overlay strip drags the window
+    (`WindowControlArea::Drag` + `start_window_move`, double-click zoom) and
+    clears the native traffic lights, and the sidebar column spans the window
+    height at 256px over zeron's `sidebar_tone` (`wash(0.05)` + 1px right
+    hairline). zeron's chat-only chrome is *not* ported: there is no titlebar
+    control cluster/toggle, no centered title, and no sidebar resize
+    (242–400) or collapsed 1px sliver, because zeron's settings route paints
+    none of them. | acceptance: `MONO_DESK_SELFTEST` reports glass alpha < 1
+    with the `Blurred` window background plus the sidebar tone/hairline and
+    the ported titlebar-clearance numbers; owner visual check. | source:
+    zeron `shell.rs` (`Theme::glass` root surface, `sidebar_tone`,
+    `titlebar_drag_region`, `titlebar_cluster_start`/`cluster_clearance`,
+    `render_settings_page`)
   - R3: The left column on the settings screen is zeron's settings section
     list (`SettingsSection`-style nav: label + icon rows, selected state,
-    hover/selection motion, keyboard-tabbable, "All settings"-equivalent
-    header where zeron has one), with our six pages mapped to sections:
-    General, Notifications, Profile, Finance UI, Reset, About. Selecting a
-    section drives the page pane and the centered title. | acceptance:
+    hover/selection motion, keyboard-tabbable) over zeron's search row, with
+    our six pages mapped to sections: General, Notifications, Profile,
+    Finance UI, Reset, About. Selecting a section drives the page pane.
+    zeron's "Back" row is dropped (this app has no chat surface to return to,
+    owner decision 2026-10-29), so the sidebar starts with the search row.
+    The search row's *input* primitive arrives with the `settings-surface`
+    phase (zeron's field is the chat composer input, which is out of scope);
+    until then the column starts with the section list. | acceptance:
     clicking each row switches the page; selected row state visible; keyboard
-    Tab/Enter works; AX tree exposes buttons with labels. | source: zeron
-    `shell.rs` `render_settings_nav` + `settings.rs` `SettingsSection`
+    Tab/Enter works; AX tree exposes rows with role/label. | source: zeron
+    `shell.rs` `render_settings_nav` + `settings.rs` `SettingsSection`,
+    `shell/settings_search.rs` field layout
   - R4: Page content is rendered with zeron's settings widgets (`page_column`,
     `page_header`, `section`, `section_card`, `card_row`, `toggle_switch`,
     `select_trigger`, `dropdown`, `block_fill`, `row_divider`,
@@ -228,29 +240,43 @@ lane: high-risk
     theme base is painted in both appearances.
 - phase_slug: `chrome`
   status: in-progress
-  - goal: R2, R3 | depends_on: `theme-foundation`
-  - surfaces: `vendor/zeron-ui/` (titlebar cluster, sidebar column/tone/
-    resize/collapse, settings nav, footer identity), `src/shell.rs` (app
-    wiring + minimal settings state), `src/main.rs` | avoided: settings
-    page content
+  - goal: R2, R3, R5 (translucent parity) | depends_on: `theme-foundation`
+  - surfaces: `vendor/zeron-ui/chrome.rs` (ported titlebar geometry +
+    drag-strip/sidebar-tone helpers), `vendor/zeron-ui/settings/` (nav row +
+    footer identity), `src/shell.rs` (app wiring + section state),
+    `src/main.rs` | avoided: settings page content
   - escalate_when: ported chrome needs state/geometry data only the zeron
-    app has (sessions/routes/spaces); or the resize/collapse animation cannot
-    be reproduced with the fork's animation APIs.
+    app has (sessions/routes/spaces); or zeron's settings route turns out to
+    include chrome we cannot stand up without the chat surface.
   - wave 1:
-    - T1 — port the titlebar cluster (88px start, 24px toggle, drag region,
-      centered title) and wire the sidebar collapse toggle. — output:
-      titlebar matches zeron geometry; toggle collapses the rail. — check:
-      AX probe (toggle x=88, titlebar 38) + run. — stop_if: drag region or
-      title layout needs window APIs the fork lacks.
-    - T2 — port the sidebar column/tone/hairline, 242–400 resize, 1px
-      collapsed sliver and footer identity row; add the section-list nav
-      (our six pages) with selection/hover motion. — output: sidebar chrome
-      and nav work; selecting a row switches the page title. — check: AX
-      probe (column width, tone edge, section buttons) + run. — stop_if: the
-      nav cannot be driven from app state.
-  - phase check: `cargo build` + run + AX probe for titlebar/sidebar/nav;
-  translucent parity probe (window background `Blurred` + the shell paints
-  zeron's frost layer, not an opaque fill), then owner visual checkpoint.
+    - T1 — port the shell surface and window chrome: root
+      (`id("shell-root")`, `.relative().flex().flex_row().size_full()`,
+      `.bg(theme.glass())`, theme text/font, 14px rem scale), the 38px
+      full-width drag strip (`WindowControlArea::Drag` + `start_window_move`,
+      double-click zoom, `Theme::TITLEBAR_HEIGHT`), zeron's `sidebar_tone`
+      layer (`wash(0.05)` + 1px right hairline, 256px), the sidebar column and
+      the page pane with the titlebar clearance — with the ported geometry
+      helpers/tests in `vendor/zeron-ui/chrome.rs`. — output: window chrome
+      matches zeron's settings route; no opaque fill over the `Blurred`
+      window background. — check: `cargo test` (ported geometry tests) +
+      `MONO_DESK_SELFTEST` (glass alpha, tone alpha, drag strip height) +
+      run/CGWindow probe. — stop_if: the drag strip or glass root needs
+      window APIs the fork lacks.
+    - T2 — port the settings section list: six rows from our `Section` enum
+      using zeron's `widgets::section_tab` + `tab_selection_t` (icon + label,
+      selected wash, hover/selection motion, `Role::Tab`/`aria_selected`,
+      keyboard up/down/home/end) over the footer identity row
+      (`render_sidebar_footer_row`: avatar initial + display name), and drive
+      the page pane from the selection. zeron's search row (sidebar top) lands
+      in `settings-surface` with the text-input primitive; the Back row is
+      dropped (owner decision). — output: nav works and switches the pane;
+      sidebar matches zeron's settings column. — check: run + keyboard
+      selection + AX role/probe. — stop_if: the nav cannot be driven from app
+      state.
+  - phase check: `cargo build` + run + `MONO_DESK_SELFTEST` translucent
+    parity probe (window background `Blurred` + shell root painting
+    `theme.glass()`, sidebar tone from `wash(0.05)`), then owner visual
+    checkpoint.
 - phase_slug: `settings-surface`
   status: planned
   - goal: R4 | depends_on: `chrome`
@@ -284,6 +310,15 @@ lane: high-risk
       preferences + owner visual. — stop_if: the page needs zeron
       wallpaper/theme-library infrastructure beyond the vendored theme
       registry.
+    - T4 — port zeron's settings search row into the sidebar
+      (`shell/settings_search.rs` layout: 32px field, rounded 8, magnifier,
+      "Search settings" placeholder, shortcut hint) on a text-input
+      primitive adapted from the zui fork's `examples/input.rs`
+      (Apache-2.0), filtering the six section rows; it replaces the Back row
+      the owner dropped, so the sidebar starts with it. — output: search
+      filters the section list; typing/escape/clear work. — check: run +
+      keyboard round-trip + AX probe. — stop_if: the fork's input handler
+      cannot be adapted without porting the chat composer.
   - phase check: `cargo build` + run + settings file round-trip; owner
   visual checkpoint.
 - phase_slug: `fidelity-close`
@@ -453,6 +488,39 @@ lane: high-risk
   phase are unverifiable by agent tooling and were not claimed by the judge;
   the phase check rests on the selftest tokens, asset/background probes and
   the owner's eye.
+
+- 2026-10-29T12:36Z — chrome — decision (owner choice) — the app has exactly
+  one surface, and zeron's *Settings* route paints none of the chrome R2/R3
+  described (the 88px control cluster, the sidebar collapse, the 242–400
+  resize, the collapsed sliver and the centered title are all chat-route
+  chrome). Asked the owner; they chose "copy y màn Settings của zeron" and,
+  for zeron's `Back` row (which returns to the chat this app does not have),
+  "bỏ nút Back, sidebar bắt đầu bằng ô search". Recorded as R2/R3 amendments
+  and as a rewrite of the phase tasks: T1 = shell surface + drag strip +
+  sidebar tone/column + page clearance; T2 = section list + footer identity
+  row; the search row moves to `settings-surface` T4, because zeron's field is
+  the chat composer input and the port needs a text-input primitive first.
+  Dropped from the phase: titlebar cluster/toggle, collapse, resize, centered
+  title (they never appear on the settings screen the owner asked to match).
+- 2026-10-29T12:36Z — chrome/T1 — done — vendored `chrome.rs` (ported titlebar
+  geometry, `window_control_button`/`_with`, and five upstream tests) and
+  added `src/shell.rs`, the first-party shell: root `id("shell-root")` row
+  layout with `bg(theme.glass())`, theme text/font and `ui_rems(14)`;
+  `sidebar_tone` layer at 256px (`wash(0.05)` + 1px `theme.border` right
+  hairline); the settings sidebar column and page pane with the in-scroll
+  `TITLEBAR_HEIGHT + SPACE_LG` clearance; zeron's `titlebar_drag_region`
+  (`WindowControlArea::Drag`, `start_window_move` behind the `pressed_button`
+  guard, double-click `titlebar_double_click`). `src/main.rs` now opens `Shell`
+  instead of the phase-2 probe view and the selftest reports the shell
+  surface. Check: `cargo test` 31 tests pass (24 `zeron-theme`, 7
+  `zeron-ui`, including the ported geometry tests); `make check` /
+  `make lint` / `make fmt-check` rc 0; selftest light
+  `glass a=0.80 is_glass=true tone l=0.10 a=0.05 border a=0.10 sidebar=256`,
+  dark `glass a=0.80 tone l=0.92 a=0.05`, both with
+  `window_background=Blurred frost=true` and
+  `chrome titlebar=38 top_pad=4 cluster_start=88 spacer=78 clearance=162`;
+  runtime probes (light and dark) show the window at 1320×880 at (120,120),
+  no panic, process exits cleanly. Pixels are the owner's check.
 
 ## Validation
 

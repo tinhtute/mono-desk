@@ -26,6 +26,7 @@
 #![allow(clippy::all)]
 
 
+pub mod chrome;
 pub mod frost;
 pub(crate) mod glass;
 pub mod highlight;

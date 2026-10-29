@@ -72,9 +72,14 @@ Use the Makefile — it auto-injects the linker shim flag (see caveats):
   (`Theme::window_background_appearance()`) — install the theme before
   `open_window`, then re-sync it from the window's own appearance once the
   window is attached.
-- Layout constants live as numbers (zeron's titlebar 38, control cluster 88,
-  sidebar 242–400, collapsed sliver 1px); colors come from the ported zeron
-  theme (`Theme::of(cx)`), never hardcoded once the theme lands.
+- Layout constants live as numbers (zeron's titlebar 38, top pad 4, cluster
+  start 88, sidebar default 256); colors come from the ported zeron theme
+  (`Theme::of(cx)`), never hardcoded once the theme lands. The shell is
+  zeron's *Settings* route (`vendor/zeron-ui/src/chrome.rs`, `src/shell.rs`):
+  glass root, sidebar `wash(0.05)` tone and the 38px drag strip, deliberately
+  without a titlebar control cluster, centered title or resizable/collapsible
+  sidebar — those are zeron's chat-route chrome (plan R2, owner decision
+  2026-10-29).
 - App state lives in a gpui `Global` (`AppSettings`); settings writes go
   through the app's save path and `cx.notify()`.
 - Accessibility: GPUI-painted controls do not appear in the macOS AX tree
