@@ -158,3 +158,51 @@ Gates today: `cargo test` = 94 tests (mono-desk 33 = 9 `app_settings` +
 `MONO_DESK_SECTION=<general|appearance|notifications|profile|finance-ui|reset|about>`
 opens the shell on that section, so a headless selftest renders that page
 (`MONO_DESK_SELFTEST=1` prints `selftest settings language=… timezone=…`).
+
+## Settings surface (phase `settings-surface`, waves 2–4, 2026-10-29)
+
+Waves 2–4 finished the phase: every page renders on zeron's kit, and the
+theme/accent/surface/font-size state has a single apply path.
+
+Vendored additions (same file ownership as wave 1):
+
+| Vendored file | Upstream | Adaptation |
+|---|---|---|
+| `settings/widgets.rs` +T2 | `action_button`/`text_action`/`ghost_action` + `ActionTone` (1553-1598), `error_strip` (1600-1628), `warning_strip` (1630-1657), `scroll_faded` + `SettingsScroll` (1659-1732), `TextTooltip`/`text_tooltip`/`text_tooltip_above` (1734-1786) | verbatim; `select_fill` reached through `crate::settings::select::select_fill` (it lives in the split-out select module) |
+| `settings/widgets.rs` +T3 | `accent_swatch` (`settings/appearance.rs` 1883-1960) | verbatim minus the `widgets::` path; made `pub` and typed on `zeron_theme::AccentSelection`, because the Appearance page is a first-party crate |
+| `theme.rs` +T3 | `model_color` | made `pub` so the first-party page can compare an accent preset's authored color with the persisted `#RRGGBB` |
+| `fidelity-close` follow-up note | `PageScroll`/`rail` remain unported: this app's shell paints its own nav and uses gpui's default scrollbars |
+
+First-party additions:
+
+| File | Role |
+|---|---|
+| `src/settings/text_field.rs` | single-line text input adapted from the zui fork's `crates/gpui/examples/input.rs` (Apache-2.0, attributed in `THIRD_PARTY_NOTICES.md`): caret/selection/clipboard/IME preserved, colors from `Theme`, `TextField::new(id, placeholder, cx)`, `.with_value()`, `.on_change()`, `value`/`set_value`; `TextField::key_bindings()` registers the editing actions for the `TextField` key context (bound in `main.rs`; Escape = `Clear`) |
+| `src/settings/{profile,about,reset,appearance,finance}.rs` | the remaining pages; each is a view owning its `SelectState`s/`ScrollHandle`; the shell keeps all seven entities and its placeholder renderer is gone |
+| `src/finance/` | the pre-port `src/cadence/` showcase rebuilt on zeron widgets/tokens: `mod` (DemoState + data + accent ramp), `blocks`, `charts`, `controls`, `showcase`; 3059 lines vs 3180 old |
+| `src/shell.rs` +T4 | search row (zeron `shell/settings_search.rs` layout): 32px field, magnifier in a nav glyph's slot, ⌘F hint/`shell_actions::FocusSearch`, clear button, Escape clears via the field action; `sections_for_query`/`section_matches` filter the seven rows; `MONO_DESK_SEARCH=<text>` seeds the query so a headless run can prove the filter |
+| `src/main.rs` +T2/T3 | `motion::init` before the first window; startup `persist::autostart_converge`; `sync_appearance` and the footer toggle now call `settings::apply_appearance` |
+
+Theme apply funnel (`src/settings/mod.rs`), the recipe every appearance
+control uses:
+- `apply_appearance(window, cx)`: resolve the appearance (honoring the
+  `MONO_DESK_APPEARANCE` pin), map `AppSettings.accent` → `AccentSelection`
+  (preset authored colors only; anything else = ThemeDefault), map
+  `background_translucent` → `SurfacePreference::{Frosted,Opaque}`, call
+  `Theme::install_selection(appearance, builtin_variant_id, accent, surface,
+  cx)` (handles the cached-style generation bump and the typography font
+  fields), then `typography::set_font_size(ui_size(font_size), window, cx)`
+  and `window.set_background_appearance(...)`.
+- `persist_now(cx)` after every write; `apply_launch_at_login(cx)` wherever
+  `launch_at_login` can change (autostart entry converges, marker-guarded).
+- Persisted 8–32 px font sizes snap into zeron's 12–20 catalog; the accent
+  hex codec and all 18 keys/order are unchanged (NG4).
+- Live-only (no persisted key, by design): the reduce-motion preference and
+  the per-appearance theme-variant selects (built-in variant only).
+
+Gates today: `cargo test` = 115 (mono-desk 54 = 9 `app_settings` + 3 `i18n` +
+21 `persist` + 2 search + 4 appearance + 4 reset + 5 finance + 6 other;
+`zeron-theme` 24; `zeron-ui` 37). Dev hooks: `MONO_DESK_SECTION=<slug>` (seven
+pages), `MONO_DESK_APPEARANCE=light|dark` now also analyzed through
+`apply_appearance` (the pin wins over the persisted choice),
+`MONO_DESK_SEARCH=<text>` prints `selftest search query=… visible=…`.

@@ -682,6 +682,80 @@ lane: high-risk
   `make run` is the visual half of this wave. Next: wave 2 (remaining widget
   set + Profile/Finance UI/Reset/About + test notification + glass controls).
 
+- 2026-10-29T15:40Z — settings-surface — waves 2–4 landed — the phase's
+  remaining three slices are in: **T2** the remaining widget set plus the four
+  pages, **T3** zeron's own Appearance page, **T4** the sidebar search. Vendored
+  (`vendor/zeron-ui/src/settings/widgets.rs`): `ActionTone` +
+  `action_button`/`text_action`/`ghost_action` (upstream 1553-1598),
+  `error_strip`/`warning_strip` (1600-1657), `scroll_faded` +
+  `SettingsScroll` (1659-1732) and `TextTooltip`/`text_tooltip(_above)`
+  (1734-1786), plus `accent_swatch` (upstream `settings/appearance.rs`
+  1883-1960, made `pub` and taking the model `AccentSelection`; `theme.rs`'s
+  `model_color` made `pub` for the same reason — a separate-crate caller cannot
+  reach a same-crate-private helper). First-party pages
+  `src/settings/{profile,about,reset,appearance,finance}.rs` replace the
+  placeholder renderer, which is deleted; the shell now keeps one page entity
+  per section (all seven arms). **T3** ports zeron's custom Appearance page
+  structure (upstream render 4238-4273): the three `option_card` mode cards
+  with miniature previews (helpers ported from upstream 1526-1700, previews
+  resolved through the built-in registry), the Light/Dark theme-variant rows,
+  the `accent_swatch` grid (ThemeDefault + 7 presets, upstream 3925-3956), the
+  "Glass" select over `SurfacePreference::ALL`, a reduce-motion select and the
+  interface-font-size select. **T4** ports zeron's search-field layout
+  (`shell/settings_search.rs` `render_settings_search_field`, 150-236) as a
+  32px field with the magnifier in a nav glyph's slot, ⌘F focus, Escape/clear,
+  filtering the seven section rows (zeron indexes individual settings; a
+  seven-page window does not need the index). The text input is
+  `src/settings/text_field.rs`, a single-line adaptation of the zui fork's
+  `crates/gpui/examples/input.rs` (Apache-2.0; attribution added to
+  `THIRD_PARTY_NOTICES.md`) with Theme-driven colors and a value/`on_change`
+  API; its editing bindings are registered for the `TextField` key context so
+  they cannot shadow the selects' arrow keys. **Decisions recorded here**
+  (owner authority: the 2026-10-29 fidelity directive "custom UI Appearance y
+  hệt" — R8): (a) the Appearance page is zeron's page, so the old General-page
+  glass switches and the opacity/sidebar-tone sliders are **not exposed**
+  anymore; their persisted keys are retained and round-trip, and the Glass
+  select is the live control (`background_translucent`/`background_blur` ↔
+  `SurfacePreference::{Frosted,Opaque}`). This supersedes the glass-slider half
+  of R4; R4's "persistence keys unchanged" still holds (18 keys, same order).
+  (b) Accent: `AppSettings.accent` keeps its `#RRGGBB` codec and is mapped to
+  zeron's `AccentSelection` presets; a stored pre-port color that is not one of
+  the presets' authored colors displays as "Theme default" until picked
+  (lossy, same class of loss as the accent codec's HSL round-trip). (c) The
+  reduce-motion preference and the theme-variant selects are live-only (no
+  `AppSettings` key exists and NG4 forbids adding persisted keys); the
+  variant selects show the built-in registry's single variant per appearance
+  because the theme library is out of scope (NG2). (d) The persisted 8–32 font
+  size snaps into zeron's 12–20 size catalog when applied. (e) The startup and
+  every-write autostart convergence is wired now (`persist::autostart_converge`
+  at boot; the General switch, per-row reset and Reset-all converge too), so
+  launch-at-login behaves like the pre-port app again. **Finance UI**: the
+  pre-port `src/cadence/` showcase (3180 lines on `wip/gpui-kit-shell`) is
+  rebuilt as `src/finance/` (3059 lines) with all eight cards, the sample data
+  and every `DemoState` interaction, on zeron widgets/tokens/icons — card
+  columns scale 500/330 → 400/252 because the ported `page_column` measures
+  680px, and checkboxes/segments/tabs become zeron switches/`section_tab`
+  strips (documented in the module docs). **T2 pages**: Profile
+  (username/display-name `TextField` rows + validation + preview, ported rules),
+  About (info/licenses/changelog sections), Reset (15 changed-setting rows,
+  per-row reset, two-press Reset-all), Notifications now carries the
+  test-notification action (disabled + inert while delivery is off, transient
+  success badge). Check: `cargo test` 115 pass (mono-desk 54 = 9 app_settings +
+  3 i18n + 21 persist + 2 search + 4 appearance + 4 reset + 5 finance + 6
+  other, zeron-theme 24, zeron-ui 37); `make check`/`lint`/`fmt-check` rc 0;
+  all seven sections render headlessly (`MONO_DESK_SECTION=<slug>`), the
+  Appearance page renders under `MONO_DESK_APPEARANCE=light|dark`, the
+  Finance UI page renders under both, and `MONO_DESK_SEARCH=<text>` prints the
+  filtered section list (`=pro` → `visible=Profile`). Not claimed: painted
+  pixels, hover/selection motion, typing/click/keyboard behaviour and AX
+  exposure — the owner's `make run` is the visual half of this phase. Known
+  gaps carried to `fidelity-close`: the nav still has no `scroll_faded`
+  edge-fade wrapper (the list fits, and the search row is not inside a fade);
+  the Finance art board does not scale with the UI font size; the About page
+  omits the pre-port Links/dialog group; `AccentSelection`-keyed previews
+  resolve through the built-in variants only.
+  Rollback point: `feat/zeron-stack` at the wave-1 commit `5d57be6`.
+
 ## Validation
 
 - 2026-10-28T15:04Z — phase `stack-bringup` — verdict: APPROVED — mode: gate, independent judge (high-risk lane)
@@ -771,33 +845,38 @@ lane: high-risk
 
 ## Current State and Next Action
 - active_phase: settings-surface
-- lifecycle_status: in-progress (wave 1 of 4 landed; phase gate comes after
-  wave 4)
+- lifecycle_status: in-progress (waves 1–4 landed; phase gate + owner visual
+  pass pending)
 - blockers: none.
-- open_items: wave 1 (T1) landed — see the Log entry at 2026-10-29T14:18Z:
-  zeron's page scaffolding + toggle are vendored, `AppSettings`/`persist`/
-  `i18n` are recreated with unchanged keys, zeron's popover/menu/select stack
-  is vendored, and General (Region + Startup) and Notifications (delivery,
-  channels, digest) render and write through. Machine gates are green
-  (`cargo test` 94, check/lint/fmt-check rc 0, both pages rendered headlessly,
-  window probe stable). Outstanding: the owner's visual pass on the two pages;
-  wave 2 (T2: the remaining widget set — `action_button`/`text_action`/
-  `ghost_action`/`error_strip`/`warning_strip`/`scroll_faded`/`text_tooltip` —
-  plus Profile, Finance UI, Reset, About, the test-notification action and the
-  glass controls); wave 3 (T3: zeron's own Appearance page — option cards,
-  variant rows, `accent_swatch`, Glass select — filling the existing nav row);
-  wave 4 (T4: the search row on the zui fork's input example). Known gaps
-  carried: no `scroll_faded`/edge-fade wrapper on the nav; `text_tooltip`
-  unported (unused so far); `AppSettings`' appearance/accent/font-size/glass
-  fields persist but are not applied yet (T2/T3 wire them); the accent hex
-  codec keeps its pre-port lossy HSL round-trip (NG4: behaviour frozen, noted
-  in the tests); `ReduceMotion::System` stays a no-op.
-- exact_next_action: owner runs `make run` and checks the two new pages —
-  General (language + timezone selects open as zeron's dropdowns with keyboard
-  ↑/↓/Home/End/Enter/Escape, the launch switch toggles) and Notifications
-  (delivery master + its Enabled/Disabled badge, the three channel switches,
-  the all-channels switch reading as the tri-state parent, the digest select)
-  — and confirms the rows read like zeron's cards. Writes land in
-  `~/Library/Application Support/mono-desk/settings.conf` (marker
-  `# managed-by: mono-desk`); wave 2 starts after the visual pass (a defect is
-  fixed inside wave 1 first).
+- open_items: waves 2–4 landed — see the Log entry at 2026-10-29T15:40Z: the
+  remaining zeron widgets are vendored, all seven pages render on zeron's kit
+  (Profile, About, Reset, Notifications' test action, Finance UI, zeron's
+  Appearance page, General), zeron's Appearance structure is ported (mode
+  cards + previews, variant rows, accent swatches, Glass select, motion and
+  font-size rows), and the sidebar search row filters the section list
+  (⌘F focus, Escape/clear). `settings::apply_appearance` is the single theme
+  funnel for mode/accent/surface/font size and the native window background;
+  the OS autostart entry converges at boot and on every launch-at-login write.
+  Machine gates are green (`cargo test` 115, check/lint/fmt-check rc 0, all
+  seven sections render headlessly, Appearance in both pinned appearances,
+  `MONO_DESK_SEARCH` proves the filter). Outstanding: the owner's visual pass
+  on the seven pages (light + dark), especially the Appearance page against
+  zeron's, the Finance UI art board, and the text fields' typing/caret
+  behaviour. Known gaps carried to `fidelity-close`: no nav edge-fade; Finance
+  art board fixed-px (does not scale with font size); About has no
+  Links/dialog group; the appearance-variant selects show only the built-in
+  variant per appearance; motion preference and variant choice are live-only
+  (no persisted keys); accent values from the pre-port palette that match no
+  zeron preset read as "Theme default"; the accent codec keeps its pre-port
+  lossy HSL round-trip (NG4).
+- exact_next_action: owner runs `make run` and checks, in light and dark
+  (`MONO_DESK_APPEARANCE=dark` for a pinned pass): Appearance (mode cards
+  select sweep mode live; accent swatches repaint; Glass select flips the
+  window background Opaque↔Blurred; font size rescales the UI), General +
+  Notifications (unchanged from wave 1, plus the test-notification action),
+  Profile (typing, caret, validation, preview, footer identity), Reset (row
+  resets, two-press Reset-all), About, Finance UI (eight cards, tabs/switches/
+  charts), and the sidebar search (type to filter, ⌘F, Escape, clear). The
+  phase closes on that verdict; then `fidelity-close` (test-suite/docs/notices
+  cleanup, independent `check full`, handoff). A defect found now is fixed
+  inside `settings-surface` before the phase is marked done.

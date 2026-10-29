@@ -31,3 +31,8 @@ zeron-theme = { path = "vendor/zeron-theme" }
 # typography, icons, motion, frost and glass. Ported phase by phase — see
 # `docs/plans/active/zeron-stack-port.md`.
 zeron-ui = { path = "vendor/zeron-ui" }
+
+# The text field's grapheme-aware cursor movement (`src/settings/text_field.rs`,
+# adapted from the zui fork's `crates/gpui/examples/input.rs`). Already in the
+# tree through gpui; declared directly because the code calls it.
+unicode-segmentation = "1.13"

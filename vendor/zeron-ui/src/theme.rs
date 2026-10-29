@@ -280,7 +280,12 @@ fn model_appearance(appearance: zeron_theme::Appearance) -> Appearance {
     }
 }
 
-fn model_color(color: ModelColor) -> Hsla {
+/// Convert a theme-domain model color to the gpui color components paint
+/// with. Public adaptation: zeron's settings pages live in the same crate, so
+/// upstream could keep this private; mono-desk's `src/settings/` is a separate
+/// crate and needs it to compare an accent preset's authored color with the
+/// stored `#RRGGBB` accent.
+pub fn model_color(color: ModelColor) -> Hsla {
     let (h, s, l) = rgb_to_hsl(
         color.r as f32 / 255.0,
         color.g as f32 / 255.0,

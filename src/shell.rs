@@ -18,18 +18,24 @@
 
 use gpui::prelude::*;
 use gpui::{
-    AnyElement, Context, Div, FocusHandle, Hsla, MouseButton, Render, SharedString, Stateful,
-    Window, WindowControlArea, div, px,
+    AnyElement, Context, Div, FocusHandle, Focusable as _, Hsla, MouseButton, Render, SharedString,
+    Stateful, Window, WindowControlArea, div, px,
 };
 
+use crate::settings;
 use zeron_ui::icons;
 use zeron_ui::motion;
+use zeron_ui::popover;
 use zeron_ui::settings::{SettingsSection, menu, widgets};
 use zeron_ui::theme::{self, Appearance, Theme};
 use zeron_ui::typography;
 
-use crate::app_settings::AppSettings;
-use crate::settings::{GeneralPage, NotificationsPage};
+use crate::app_settings::{AppSettings, Appearance as AppAppearance};
+use crate::i18n::tr;
+use crate::settings::text_field::TextField;
+use crate::settings::{
+    AboutPage, AppearancePage, FinancePage, GeneralPage, NotificationsPage, ProfilePage, ResetPage,
+};
 
 /// zeron's default sidebar width (`settings.rs` `SIDEBAR_DEFAULT`). zeron's
 /// settings route reads the persisted chat-sidebar width; mono-desk has no
@@ -49,6 +55,22 @@ const SIDEBAR_FOOTER_AVATAR_SIZE: f32 = 16.0;
 /// Identity shown in the footer when the Profile display name is empty.
 const IDENTITY_NAME: &str = "Mono Desk";
 
+/// Whether a section row matches the sidebar query: case-insensitive substring
+/// over the row's label, with an empty query matching everything.
+fn section_matches(label: &str, query: &str) -> bool {
+    query.is_empty() || label.to_lowercase().contains(query)
+}
+
+/// The section rows the sidebar shows for `query` (trimmed, case-insensitive).
+/// Shared by the nav and the `MONO_DESK_SEARCH` selftest probe.
+pub(crate) fn sections_for_query(query: &str) -> Vec<SettingsSection> {
+    let query = query.trim().to_lowercase();
+    SettingsSection::ALL
+        .into_iter()
+        .filter(|section| section_matches(section.label(), &query))
+        .collect()
+}
+
 /// Dev hook (the same family as `MONO_DESK_APPEARANCE`/`MONO_DESK_SELFTEST`):
 /// `MONO_DESK_SECTION=<slug>` opens the shell on that section, so a headless
 /// run can render (and therefore prove) a page other than the default General.
@@ -63,7 +85,17 @@ pub(crate) fn section_from_env() -> Option<SettingsSection> {
         .find(|section| section.label().to_ascii_lowercase().replace(' ', "-") == wanted)
 }
 
+pub mod shell_actions {
+    use gpui::actions;
+
+    actions!(shell_actions, [FocusSearch]);
+}
+
 pub struct Shell {
+    /// The sidebar search field (zeron `shell/settings_search.rs` layout; the
+    /// hit index is replaced by filtering the section rows, which is all a
+    /// seven-page settings window needs).
+    settings_search: Option<gpui::Entity<TextField>>,
     /// Selected settings section — the page pane follows it.
     section: SettingsSection,
     /// One roving focus handle per section row (zeron `settings_nav_focus`).
@@ -75,12 +107,28 @@ pub struct Shell {
     /// Lazily created page views (zeron's shell keeps one entity per settings
     /// page); each owns its select/scroll state across frames.
     general_page: Option<gpui::Entity<GeneralPage>>,
+    appearance_page: Option<gpui::Entity<AppearancePage>>,
     notifications_page: Option<gpui::Entity<NotificationsPage>>,
+    profile_page: Option<gpui::Entity<ProfilePage>>,
+    finance_page: Option<gpui::Entity<FinancePage>>,
+    reset_page: Option<gpui::Entity<ResetPage>>,
+    about_page: Option<gpui::Entity<AboutPage>>,
 }
 
 impl Shell {
     pub fn new(cx: &mut Context<Self>) -> Self {
+        let placeholder = tr("settings.search", &AppSettings::global(cx).language);
+        let settings_search = cx.new(|cx| TextField::new("settings-search", placeholder, cx));
+        // Dev hook: `MONO_DESK_SEARCH=<text>` seeds the query so a headless run
+        // can prove the section filter without synthetic typing.
+        if let Ok(query) = std::env::var("MONO_DESK_SEARCH") {
+            settings_search.update(cx, |field, cx| field.set_value(query, cx));
+        }
+        // Any edit re-renders the shell so the section list can filter.
+        cx.observe(&settings_search, |_, _, cx| cx.notify())
+            .detach();
         Self {
+            settings_search: Some(settings_search),
             section: section_from_env().unwrap_or_default(),
             nav_focus: SettingsSection::ALL
                 .iter()
@@ -88,7 +136,12 @@ impl Shell {
                 .collect(),
             titlebar_should_move: false,
             general_page: None,
+            appearance_page: None,
             notifications_page: None,
+            profile_page: None,
+            finance_page: None,
+            reset_page: None,
+            about_page: None,
         }
     }
 
@@ -99,25 +152,135 @@ impl Shell {
         }
     }
 
-    /// Flip light/dark and re-point the native window background at the new
-    /// surface (zeron re-installs the theme through the same
-    /// `Theme::install_preferences` path; the window background follows from
-    /// `Theme::window_background_appearance`). The Appearance page owns the
-    /// persisted mode in `settings-surface`; this footer action is the quick
-    /// toggle the demo window has always had.
+    /// Flip light/dark: persist the choice into `AppSettings` (the same key the
+    /// pre-port footer wrote) and funnel it through the one theme path the
+    /// Appearance page uses, so accent, surface material and font size all stay
+    /// applied. The quick toggle the demo window has always had.
     fn toggle_appearance(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let (appearance, accent) = {
-            let theme = Theme::of(cx);
-            (theme.appearance, theme.accent_color)
+        let next = match Theme::of(cx).appearance {
+            Appearance::Dark => AppAppearance::Light,
+            Appearance::Light => AppAppearance::Dark,
         };
-        let next = match appearance {
-            Appearance::Dark => Appearance::Light,
-            Appearance::Light => Appearance::Dark,
-        };
-        Theme::install_preferences(next, accent, cx);
-        window.set_background_appearance(Theme::of(cx).window_background_appearance());
-        cx.refresh_windows();
+        AppSettings::global_mut(cx).appearance = next;
+        settings::persist_now(cx);
+        settings::apply_appearance(window, cx);
         cx.notify();
+    }
+
+    /// ⌘F: put the keyboard in the settings search (zeron's shortcut for the
+    /// same field).
+    fn focus_search(
+        &mut self,
+        _: &shell_actions::FocusSearch,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(input) = self.settings_search.clone() {
+            let focus = input.read(cx).focus_handle(cx);
+            window.focus(&focus, cx);
+        }
+        cx.stop_propagation();
+    }
+
+    /// The query the section list filters on (trimmed, case-insensitive).
+    fn search_query(&self, cx: &Context<Self>) -> String {
+        self.settings_search
+            .as_ref()
+            .map(|input| input.read(cx).value().trim().to_lowercase())
+            .unwrap_or_default()
+    }
+
+    /// zeron's settings search field (`shell/settings_search.rs`
+    /// `render_settings_search_field`): a 32px rounded field with the
+    /// magnifier in a nav glyph's slot, the query, and (idle) the ⌘F hint;
+    /// once there is a query the clear button replaces the hint.
+    fn render_search(
+        &mut self,
+        theme: &Theme,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let Some(input) = self.settings_search.clone() else {
+            return div().into_any_element();
+        };
+        let lang = AppSettings::global(cx).language.clone();
+        let placeholder = tr("settings.search", &lang);
+        if input.read(cx).placeholder() != placeholder {
+            input.update(cx, |field, cx| field.set_placeholder(placeholder, cx));
+        }
+        let focus = input.read(cx).focus_handle(cx);
+        let empty = input.read(cx).value().trim().is_empty();
+        let idle = empty && !focus.is_focused(window);
+        div()
+            .id("settings-search")
+            .debug_selector(|| "settings-search".into())
+            .w_full()
+            .h(px(32.0))
+            .rounded(px(8.0))
+            .px(px(8.0))
+            .flex()
+            .items_center()
+            .gap(px(8.0))
+            .cursor_text()
+            .text_size(typography::ui_rems(13.0))
+            .bg(theme.wash(0.03))
+            .hover(|style| style.bg(theme.wash(0.06)))
+            .on_mouse_down(MouseButton::Left, {
+                let focus = focus.clone();
+                move |_, window, cx| {
+                    window.focus(&focus, cx);
+                    cx.stop_propagation();
+                }
+            })
+            .child(
+                div().w(px(16.0)).flex_none().flex().justify_center().child(
+                    icons::icon(icons::MAGNIFER)
+                        .size(px(14.0))
+                        .text_color(theme.text_muted),
+                ),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .h(px(17.0))
+                    .text_color(theme.text)
+                    .child(input.clone()),
+            )
+            .when(idle, |field| field.child(popover::kbd_hint(theme, "⌘F")))
+            .when(!empty, |field| {
+                field.child(
+                    div()
+                        .id("settings-search-clear")
+                        .role(gpui::Role::Button)
+                        .aria_label(tr("settings.clear", &lang))
+                        .tab_index(0)
+                        .focus_visible(|style| style.border_2().border_color(theme.accent))
+                        .size(px(20.0))
+                        .flex_none()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded(px(4.0))
+                        .cursor_pointer()
+                        .hover(|style| style.bg(theme.wash(0.08)))
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            let Some(input) = this.settings_search.clone() else {
+                                return;
+                            };
+                            let focus = input.read(cx).focus_handle(cx);
+                            input.update(cx, |field, cx| field.set_value("", cx));
+                            window.focus(&focus, cx);
+                            cx.notify();
+                        }))
+                        .child(
+                            icons::icon(icons::CLOSE)
+                                .size(px(12.0))
+                                .text_color(theme.text_muted),
+                        ),
+                )
+            })
+            .into_any_element()
     }
 
     /// zeron `Shell::sidebar_tone`: the absolute full-height column that paints
@@ -198,8 +361,17 @@ impl Shell {
     ) -> AnyElement {
         let reduced_motion = motion::reduced_motion(cx);
         let selected = self.section;
-        let mut rows = Vec::with_capacity(SettingsSection::ALL.len());
+        let lang = AppSettings::global(cx).language.clone();
+        // The search filters the section rows (zeron indexes every setting on
+        // every page; a seven-page window only needs the section list).
+        let query = self.search_query(cx);
+        let visible: Vec<SettingsSection> = sections_for_query(&query);
+        let search = self.render_search(theme, window, cx);
+        let mut rows = Vec::with_capacity(visible.len());
         for (index, item) in SettingsSection::ALL.into_iter().enumerate() {
+            if !visible.contains(&item) {
+                continue;
+            }
             let is_selected = item == selected;
             let key = format!("settings-nav-{}", item.label());
             let hover_key = format!("{key}-hover");
@@ -215,6 +387,7 @@ impl Shell {
                 theme.text,
             );
             let focus = self.nav_focus[index].clone().tab_stop(is_selected);
+            let items = visible.clone();
             rows.push(
                 widgets::section_tab(theme, is_selected, selection_t, key, hover_key)
                     .when(item.starts_nav_group(), |el| el.mt(px(Theme::SPACE_LG)))
@@ -226,11 +399,10 @@ impl Shell {
                     .tab_stop(is_selected)
                     .on_key_down(cx.listener(
                         move |this, event: &gpui::KeyDownEvent, window, cx| {
-                            let items = SettingsSection::ALL;
-                            let current = items
-                                .iter()
-                                .position(|section| *section == item)
-                                .unwrap_or(0);
+                            let Some(current) = items.iter().position(|section| *section == item)
+                            else {
+                                return;
+                            };
                             let next = match event.keystroke.key.as_str() {
                                 "up" | "left" => (current + items.len() - 1) % items.len(),
                                 "down" | "right" => (current + 1) % items.len(),
@@ -238,8 +410,13 @@ impl Shell {
                                 "end" => items.len() - 1,
                                 _ => return,
                             };
-                            this.select_section(items[next], cx);
-                            let focus = this.nav_focus[next].clone();
+                            let target = items[next];
+                            this.select_section(target, cx);
+                            let all_index = SettingsSection::ALL
+                                .iter()
+                                .position(|section| *section == target)
+                                .unwrap_or(0);
+                            let focus = this.nav_focus[all_index].clone();
                             window.focus(&focus, cx);
                             cx.stop_propagation();
                         },
@@ -266,9 +443,26 @@ impl Shell {
                     .px(px(Theme::SPACE_SM))
                     .pt(px(Theme::SPACE_MD))
                     .pb(px(Theme::SPACE_SM))
+                    .child(search),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .px(px(Theme::SPACE_SM))
                     .flex()
                     .flex_col()
                     .gap(px(2.0))
+                    .when(visible.is_empty(), |list| {
+                        list.child(
+                            div()
+                                .px(px(Theme::SPACE_SM))
+                                .py(px(Theme::SPACE_SM))
+                                .text_size(typography::ui_rems(12.5))
+                                .text_color(theme.text_muted)
+                                .child(tr("settings.empty", &lang)),
+                        )
+                    })
                     .children(rows),
             )
             .into_any_element()
@@ -423,66 +617,64 @@ impl Shell {
             .into_any_element()
     }
 
-    /// The page pane: the selected section's page view, or the placeholder for
-    /// the sections whose pages land in the later `settings-surface` waves.
+    /// The page pane: the selected section's page view.
     /// zeron's pages own their scroll (`page_column` carries the titlebar
     /// clearance inside it), so the pane is only the host: `flex_1`, full
     /// height, no scroll of its own. Page views are created lazily and kept,
     /// like zeron's shell keeps one entity per settings page, so open select
     /// menus and scroll offsets survive a re-render.
-    fn render_page(&mut self, theme: &Theme, cx: &mut Context<Self>) -> AnyElement {
+    fn render_page(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        // zeron's shell keeps one lazily created entity per settings page, so
+        // open select menus and scroll offsets survive section switches.
         let page: AnyElement = match self.section {
             SettingsSection::General => {
-                if self.general_page.is_none() {
-                    self.general_page = Some(cx.new(|_| GeneralPage::new()));
-                }
-                self.general_page
-                    .as_ref()
-                    .map(|page| page.clone().into_any_element())
-                    .unwrap_or_else(|| self.render_placeholder(theme))
+                let page = self
+                    .general_page
+                    .get_or_insert_with(|| cx.new(|_| GeneralPage::new()));
+                page.clone().into_any_element()
+            }
+            SettingsSection::Appearance => {
+                let page = self
+                    .appearance_page
+                    .get_or_insert_with(|| cx.new(|_| AppearancePage::new()));
+                page.clone().into_any_element()
             }
             SettingsSection::Notifications => {
-                if self.notifications_page.is_none() {
-                    self.notifications_page = Some(cx.new(|_| NotificationsPage::new()));
-                }
-                self.notifications_page
-                    .as_ref()
-                    .map(|page| page.clone().into_any_element())
-                    .unwrap_or_else(|| self.render_placeholder(theme))
+                let page = self
+                    .notifications_page
+                    .get_or_insert_with(|| cx.new(|_| NotificationsPage::new()));
+                page.clone().into_any_element()
             }
-            _ => self.render_placeholder(theme),
+            SettingsSection::Profile => {
+                let page = self
+                    .profile_page
+                    .get_or_insert_with(|| cx.new(|_| ProfilePage::new()));
+                page.clone().into_any_element()
+            }
+            SettingsSection::FinanceUi => {
+                let page = self
+                    .finance_page
+                    .get_or_insert_with(|| cx.new(|_| FinancePage::new()));
+                page.clone().into_any_element()
+            }
+            SettingsSection::Reset => {
+                let page = self
+                    .reset_page
+                    .get_or_insert_with(|| cx.new(|_| ResetPage::new()));
+                page.clone().into_any_element()
+            }
+            SettingsSection::About => {
+                let page = self
+                    .about_page
+                    .get_or_insert_with(|| cx.new(|_| AboutPage::new()));
+                page.clone().into_any_element()
+            }
         };
         div()
             .flex_1()
             .min_w_0()
             .h_full()
             .child(page)
-            .into_any_element()
-    }
-
-    /// The page pane's placeholder for sections whose pages have not landed yet
-    /// (Appearance is `settings-surface` T3; Profile, Finance UI, Reset and
-    /// About are T2).
-    fn render_placeholder(&self, theme: &Theme) -> AnyElement {
-        div()
-            .id("settings-page-scroll")
-            .size_full()
-            .overflow_y_scroll()
-            .pt(px(Theme::TITLEBAR_HEIGHT + Theme::SPACE_LG))
-            .px(px(Theme::SPACE_LG * 2.0))
-            .child(
-                div()
-                    .text_xl()
-                    .font_weight(gpui::FontWeight::SEMIBOLD)
-                    .child(SharedString::from(self.section.label())),
-            )
-            .child(
-                div()
-                    .mt_2()
-                    .text_sm()
-                    .text_color(theme.text_muted)
-                    .child("page lands in the next `settings-surface` wave"),
-            )
             .into_any_element()
     }
 }
@@ -504,7 +696,7 @@ impl Render for Shell {
             cx,
         );
         let sidebar = self.render_sidebar(&theme, window, cx);
-        let page = self.render_page(&theme, cx);
+        let page = self.render_page(cx);
         // zeron `Shell::render`'s root: `id("shell-root")`, row layout,
         // `bg(theme.glass())`, theme text colour and the 14px rem scale.
         div()
@@ -517,6 +709,7 @@ impl Render for Shell {
             .text_color(theme.text)
             .font_family(theme.font_sans.clone())
             .text_size(typography::ui_rems(14.0))
+            .on_action(cx.listener(Self::focus_search))
             .child(Self::sidebar_tone(SIDEBAR_WIDTH, theme.border))
             .child(
                 div()
@@ -532,5 +725,26 @@ impl Render for Shell {
                     )
                     .child(drag),
             )
+    }
+}
+
+#[cfg(test)]
+mod search_tests {
+    use super::section_matches;
+
+    #[test]
+    fn empty_query_matches_every_section() {
+        for label in ["General", "Appearance", "Notifications", "Finance UI"] {
+            assert!(section_matches(label, ""));
+        }
+    }
+
+    #[test]
+    fn query_filters_labels_case_insensitively() {
+        assert!(section_matches("Finance UI", "finance"));
+        assert!(section_matches("Finance UI", "ui"));
+        assert!(section_matches("General", "gen"));
+        assert!(!section_matches("General", "finance"));
+        assert!(!section_matches("About", "zzz"));
     }
 }

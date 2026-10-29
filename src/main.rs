@@ -7,13 +7,15 @@
 //! model lives in `vendor/zeron-theme/`. See
 //! `docs/plans/active/zeron-stack-port.md` and `THIRD_PARTY_NOTICES.md`.
 //!
-//! Current phase (`chrome`): the window runs on zeron's Settings-route shell —
-//! the glass root surface over the blurred window background, the 38px titlebar
-//! drag strip, the sidebar tone/column, its seven-section list with the roving
-//! tab focus and the footer identity row. `src/shell.rs` owns that chrome; the
-//! settings *pages* and the vendored widget kit land with `settings-surface`.
+//! Current phase (`settings-surface`): the window runs on zeron's Settings-route
+//! shell — the glass root surface over the blurred window background, the 38px
+//! titlebar drag strip, the sidebar tone/column, its seven-section list with the
+//! roving tab focus and the footer identity row — and the seven settings pages
+//! are built on zeron's vendored page/widget kit. `src/shell.rs` owns the
+//! chrome, `src/settings/` the pages, `src/finance/` the Finance UI showcase.
 
 mod app_settings;
+mod finance;
 mod i18n;
 mod persist;
 mod settings;
@@ -138,6 +140,17 @@ fn selftest_and_quit(cx: &mut App) {
         zeron_ui::settings::SettingsSection::FinanceUi.label(),
         shell::section_from_env().unwrap_or_default().label(),
     );
+    if let Ok(query) = std::env::var("MONO_DESK_SEARCH") {
+        let visible: Vec<&str> = shell::sections_for_query(&query)
+            .into_iter()
+            .map(|section| section.label())
+            .collect();
+        eprintln!(
+            "selftest search query={} visible={}",
+            query,
+            visible.join("|")
+        );
+    }
     // Settings state: the global the pages read and write, with the persisted
     // shape it round-trips through (`settings-surface` T1).
     let settings = app_settings::AppSettings::global(cx);
@@ -167,17 +180,7 @@ fn selftest_and_quit(cx: &mut App) {
 /// window background at it. Runs at attach time (the window, not the app, knows
 /// the appearance during launch) and on every OS appearance change.
 fn sync_appearance(window: &mut Window, cx: &mut App) {
-    let appearance = desired_appearance(window.appearance());
-    if cx.try_global::<Theme>().map(|theme| theme.appearance) == Some(appearance) {
-        return;
-    }
-    let accent = cx
-        .try_global::<Theme>()
-        .map(|theme| theme.accent_color)
-        .unwrap_or_default();
-    Theme::install_preferences(appearance, accent, cx);
-    window.set_background_appearance(Theme::of(cx).window_background_appearance());
-    cx.refresh_windows();
+    settings::apply_appearance(window, cx);
 }
 
 fn main() {
@@ -197,15 +200,35 @@ fn main() {
                 cx,
             );
             Theme::install_preferences(system, AccentColor::default(), cx);
+            // The settings text fields' editing bindings, scoped to the
+            // `TextField` key context so they cannot shadow the settings
+            // selects' arrow-key handling (the zui fork's input example binds
+            // these globally; see `src/settings/text_field.rs`).
+            cx.bind_keys(settings::text_field::TextField::key_bindings());
+            // ⌘F puts the keyboard in the settings search (zeron binds the
+            // same shortcut for its settings field).
+            cx.bind_keys([gpui::KeyBinding::new(
+                "cmd-f",
+                shell::shell_actions::FocusSearch,
+                None,
+            )]);
 
             // The persisted settings global, installed before any window (the
             // shell's footer and the pages read it): `AppSettings` is the live
             // state, `persist` is its file form, keys unchanged.
             cx.set_global(app_settings::AppSettings::from_stored(persist::load()));
+            finance::init(cx);
+            // Startup converges the OS autostart entry to the persisted
+            // launch-at-login choice (pre-port R5); a foreign file is left
+            // alone by `persist`'s marker guard.
+            persist::autostart_converge(app_settings::AppSettings::global(cx).launch_at_login);
+            // zeron's motion runtime (hover fades, switch travel, the
+            // Appearance page's reduce-motion row) needs its global installed
+            // before the first paint; the preference starts at follow-the-OS.
+            zeron_ui::motion::init(zeron_ui::motion::ReduceMotion::System, false, cx);
 
             let window_background = Theme::of(cx).window_background_appearance();
             cx.open_window(window_options(window_background), |window, cx| {
-                window.set_rem_size(px(typography::font_size(cx).pixels()));
                 sync_appearance(window, cx);
                 window.observe_window_appearance(sync_appearance).detach();
                 cx.new(Shell::new)

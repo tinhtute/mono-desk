@@ -1,11 +1,18 @@
-//! The Notifications page (`settings-surface` T1): zeron's page scaffolding
+//! The Notifications page (`settings-surface` T1/T2): zeron's page scaffolding
 //! with mono-desk's own content — the delivery master switch, the three
-//! channel switches and the digest cadence.
+//! channel switches, the digest cadence and the test-send action.
 //!
 //! zeron has no checkbox or radio widget in its settings kit, so the channels
 //! are `toggle_switch` rows and the cadence is zeron's `select`; the master
 //! switch keeps the card readable but inert while delivery is off (the old
 //! page disabled the channels in the same state).
+//!
+//! The test send (T2) keeps the pre-port contract: while delivery is off the
+//! action is disabled and a click is a no-op (pre-port R3); while it is on the
+//! page confirms inline with a transient success badge instead of the old
+//! window notification, which the zeron stack has no host for.
+
+use std::time::Duration;
 
 use gpui::prelude::*;
 use gpui::{
@@ -14,11 +21,21 @@ use gpui::{
 };
 
 use zeron_ui::settings::select::{SelectOption, SelectState, select};
-use zeron_ui::settings::widgets;
+use zeron_ui::settings::widgets::{self, ActionTone};
 use zeron_ui::theme::Theme;
 
 use crate::app_settings::{AppSettings, DigestCadence};
 use crate::i18n::tr;
+
+/// How long the "test notification sent" confirmation stays on screen. The
+/// pre-port app pushed a window notification; the port has no notification
+/// host, so the page confirms inline and clears itself.
+const TEST_CONFIRMATION: Duration = Duration::from_millis(2500);
+
+/// Enter/Space activate a focused action, like zeron's own interactive rows.
+fn is_activation(event: &gpui::KeyDownEvent) -> bool {
+    !event.is_held && matches!(event.keystroke.key.as_str(), "enter" | "space")
+}
 
 /// The three notification channels, in the old page's order.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -61,6 +78,11 @@ pub struct NotificationsPage {
     digest: SelectState,
     /// The page's scroll offset (zeron's pages own their scroll handle).
     scroll: ScrollHandle,
+    /// Whether the transient "test notification sent" confirmation is on
+    /// screen (set by the send action, cleared by its timer).
+    test_sent: bool,
+    /// Bumped on every send so a stale timer can never clear a newer badge.
+    test_seq: u64,
 }
 
 impl NotificationsPage {
@@ -68,14 +90,45 @@ impl NotificationsPage {
         Self {
             digest: SelectState::default(),
             scroll: ScrollHandle::new(),
+            test_sent: false,
+            test_seq: 0,
         }
     }
 
     fn set_delivery(&mut self, cx: &mut Context<Self>) {
         let enabled = AppSettings::global(cx).notifications_enabled;
         AppSettings::global_mut(cx).notifications_enabled = !enabled;
+        // Delivery just went off: drop any confirmation the page is still
+        // showing, so the badge can never outlive the switch it depends on.
+        if enabled {
+            self.test_sent = false;
+        }
         super::persist_now(cx);
         cx.notify();
+    }
+
+    /// The test-send action. Pre-port R3: inert while delivery is off (the
+    /// action is also rendered disabled in that state). Otherwise the send
+    /// marks the transient confirmation and a page-owned timer clears it
+    /// after [`TEST_CONFIRMATION`].
+    fn send_test(&mut self, cx: &mut Context<Self>) {
+        if !AppSettings::global(cx).notifications_enabled {
+            return;
+        }
+        self.test_sent = true;
+        self.test_seq = self.test_seq.wrapping_add(1);
+        let seq = self.test_seq;
+        cx.notify();
+        cx.spawn(async move |page, cx| {
+            cx.background_executor().timer(TEST_CONFIRMATION).await;
+            let _ = page.update(cx, |page, cx| {
+                if page.test_seq == seq {
+                    page.test_sent = false;
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
     }
 
     fn set_all_channels(&mut self, on: bool, cx: &mut Context<Self>) {
@@ -236,6 +289,56 @@ impl Render for NotificationsPage {
                 digest,
             ));
 
+        // Actions: the test send. Disabled and inert while delivery is off
+        // (pre-port R3); otherwise it confirms inline for a moment.
+        let test_label = tr("action.send", &lang);
+        let mut test_action = widgets::text_action(&theme, ActionTone::Quiet, test_label)
+            .id("notifications-test-send")
+            .role(Role::Button)
+            .aria_label(format!(
+                "{test_label} {}",
+                tr("item.test_notification", &lang)
+            ))
+            .focus_visible(|style| style.border_2().border_color(theme.accent));
+        test_action = if enabled {
+            test_action
+                .tab_index(0)
+                .cursor_pointer()
+                .on_key_down(cx.listener(|page, event: &gpui::KeyDownEvent, _, cx| {
+                    if is_activation(event) {
+                        cx.stop_propagation();
+                        page.send_test(cx);
+                    }
+                }))
+                .on_click(cx.listener(|page, _, _, cx| page.send_test(cx)))
+        } else {
+            test_action
+                .tab_index(-1)
+                .cursor_not_allowed()
+                .opacity(0.55)
+                .aria_description(tr("status.disabled", &lang))
+        };
+        let test_control = div()
+            .flex()
+            .items_center()
+            .gap(px(12.0))
+            .when(self.test_sent, |el| {
+                el.child(widgets::badge_active(
+                    &theme,
+                    tr("notifications.test_sent", &lang),
+                ))
+            })
+            .child(test_action);
+        let actions_card = widgets::section_card(&theme)
+            .mt_0()
+            .child(super::control_row(
+                &theme,
+                true,
+                tr("item.test_notification", &lang),
+                tr("item.test_notification.desc", &lang),
+                test_control,
+            ));
+
         div()
             .id("notifications-settings-page")
             .size_full()
@@ -262,6 +365,11 @@ impl Render for NotificationsPage {
                         &theme,
                         tr("group.digest", &lang),
                         digest_card,
+                    ))
+                    .child(widgets::section(
+                        &theme,
+                        tr("group.actions", &lang),
+                        actions_card,
                     )),
             )
     }
