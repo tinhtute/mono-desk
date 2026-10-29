@@ -35,14 +35,14 @@ check: ## Type-check without codegen
 test: ## Run tests
 	$(CARGO) test
 
-lint: ## Clippy, warnings denied
-	$(CARGO) clippy --all-targets -- -D warnings
+lint: ## Clippy, warnings denied (first-party code; vendored crates are compiled and tested, not re-linted)
+	$(CARGO) clippy -p mono-desk --all-targets -- -D warnings
 
-fmt: ## Format code
-	$(CARGO) fmt
+fmt: ## Format first-party code (vendored crates keep upstream formatting)
+	$(CARGO) fmt -p mono-desk
 
-fmt-check: ## Check formatting (CI)
-	$(CARGO) fmt --check
+fmt-check: ## Check formatting (CI; first-party code)
+	$(CARGO) fmt -p mono-desk --check
 
 hooks: ## Install the pre-commit hook (fmt-check + lint)
 	ln -sf ../../scripts/pre-commit .git/hooks/pre-commit

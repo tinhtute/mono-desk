@@ -6,10 +6,13 @@ into `vendor/zeron-ui/` keep this notice; the plan that introduced them is
 
 ## zeron — MIT
 
-UI source ported into `vendor/zeron-ui/` (window chrome, sidebar/settings
-layout, settings widgets, theme/motion/frost helpers, icon asset registry)
-and the theme domain model in `vendor/zeron-theme/` come from zeron: https://github.com/zeronsh/zeron (pinned commit
-`8b7afb3`, version v0.2.129).
+UI source adapted into `vendor/zeron-ui/` (theme tokens, typography, icon
+asset registry, motion catalog and pure loader math, frost/glass surfaces, and
+the window chrome/settings widgets as they are ported) and the theme domain
+model in `vendor/zeron-theme/` come from zeron:
+https://github.com/zeronsh/zeron (pinned commit `8b7afb3`, version v0.2.129) —
+`crates/theme`, `crates/ui/src/{theme,typography,icons,motion,frost,glass}.rs`
+and the pure phases in `crates/proto/src/motion.rs`.
 
 ```
 MIT License
@@ -41,6 +44,13 @@ The icon SVGs under `vendor/zeron-ui/assets/icons/` are zeron's embedded
 subset of the Solar Icons set (Linear weight), licensed CC BY 4.0
 (https://creativecommons.org/licenses/by/4.0/). Attribution: "Solar Icons by
 480 Design".
+
+## Bundled fonts — SIL Open Font License 1.1
+
+`assets/fonts/` carries Momo Trust Sans, Hanken Grotesk, Google Sans Code and
+Xanh Mono, each under the SIL Open Font License 1.1
+(https://openfontlicense.org/). The license texts ship beside the fonts
+(`assets/fonts/OFL.txt`, `assets/fonts/MomoTrustSans-OFL.txt`).
 
 ## gpui / gpui_platform — Apache-2.0
 

@@ -77,19 +77,28 @@ lane: high-risk
     behavior survives: appearance mode (light/dark/system), accent, font
     size, glass switches + opacity/tone sliders, language, time zone,
     notifications switch + test notification, profile display name,
-    About, page reset, persistence keys unchanged. | acceptance: functional
-    tests or AX-driven interaction prove each control writes `AppSettings`
-    and persists; the persisted file round-trips; owner visual check.
-    | source: zeron `settings/widgets.rs` + `src/settings.rs` pages
+    About, page reset, persistence keys unchanged. The Appearance page is
+    rebuilt as zeron's *custom* Appearance page (`settings/appearance.rs`),
+    not a generic form: System/Light/Dark option cards with previews, light
+    and dark theme-variant selectors, the accent swatch grid, the "Glass"
+    surface select (Opaque/Frosted), and the fonts/layout rows — wallpaper and
+    cloud-only rows dropped as NG2. | acceptance: functional tests or
+    AX-driven interaction prove each control writes `AppSettings` and
+    persists; the persisted file round-trips; owner visual check against
+    zeron's Appearance page. | source: zeron `settings/widgets.rs`,
+    `settings/appearance.rs`, `src/settings.rs` pages
   - R5: Theme, typography, icons and frost come from zeron's code: zeron-theme
     token crate (vendored), `theme.rs` light/dark/accent surface, the app's
     Momo Trust Sans font stack (kept from the glass initiative), zeron's
     Solar Icons subset (CC BY 4.0 attribution kept) and the frost/glass
     window surfaces ported from `frost.rs`/`glass.rs`. | acceptance:
     appearance toggle repaints without restart; glass on/off changes the
-    window background appearance; icons load; third-party notices present.
+    window background appearance (`Blurred` under Frosted, `Opaque` under
+    Opaque); the shell's translucent surfaces (frost layer + backdrop blur on
+    the floating chrome, sidebar tone/hairlines over it) match zeron's recipe
+    rather than approximating it; icons load; third-party notices present.
     | source: zeron `crates/theme`, `crates/ui/src/{theme,typography,icons,
-    frost,glass}.rs`
+    frost,glass,shell}.rs`
   - R6: Repo hygiene and licensing: zeron-derived files live under
     `vendor/zeron-ui/` with the MIT notice and a `THIRD_PARTY_NOTICES.md`
     entry (zeron MIT; Solar Icons CC BY 4.0; zui/zed gpui license);
@@ -103,6 +112,17 @@ lane: high-risk
     the owner gets a visual checkpoint after chrome and after the settings
     surface, and the final phase runs an independent `check full` before
     `handoff`.
+  - R8 (owner directive 2026-10-29, "layout & background, translucent phải
+    giống cái zeron… có custom UI Appearance y hệt đó"): visual fidelity is
+    literal for (a) the shell layout, (b) the window background / translucent
+    surfaces, and (c) the custom Appearance page. Where zeron's code paints a
+    frost layer, a backdrop blur, a sidebar tone or a page header/card
+    structure, the port uses that code and those constants instead of an
+    equivalent hand-rolled look. | acceptance: the ported surface cites the
+    zeron source file/function it came from in a comment, the constants match
+    (no local approximations), and the owner's visual check at each phase
+    checkpoint confirms parity. | source: owner message this session; zeron
+    `shell.rs`, `frost.rs`, `glass.rs`, `settings/appearance.rs`
 - non-goals:
   - NG1: No zeron chat/session/engine/network features: no sessions,
     composer, transcript, terminal, browser, pickers, voice, pull requests,
@@ -229,7 +249,8 @@ lane: high-risk
       probe (column width, tone edge, section buttons) + run. — stop_if: the
       nav cannot be driven from app state.
   - phase check: `cargo build` + run + AX probe for titlebar/sidebar/nav;
-  owner visual checkpoint.
+  translucent parity probe (window background `Blurred` + the shell paints
+  zeron's frost layer, not an opaque fill), then owner visual checkpoint.
 - phase_slug: `settings-surface`
   status: planned
   - goal: R4 | depends_on: `chrome`
@@ -251,6 +272,18 @@ lane: high-risk
       glass controls and test notification. — output: all six pages
       functional. — check: run + settings round-trip + i18n strings.
       — stop_if: a needed control has no ported primitive.
+    - T3 — rebuild Appearance as zeron's custom page: port
+      `settings/appearance.rs`'s structure (`option_card` mode cards with
+      previews, theme-variant rows, `accent_swatch` grid, "Glass" surface
+      select, fonts/layout rows) plus its `widgets::option_card`/
+      `accent_swatch` primitives, wiring mode/accent/surface/font-size to
+      `AppSettings` and persistence; drop wallpaper/cloud rows (NG2). —
+      output: Appearance matches zeron's page structure and behaviour
+      (glass select switches the native window background live). — check:
+      run + settings round-trip + `MONO_DESK_SELFTEST` on both surface
+      preferences + owner visual. — stop_if: the page needs zeron
+      wallpaper/theme-library infrastructure beyond the vendored theme
+      registry.
   - phase check: `cargo build` + run + settings file round-trip; owner
   visual checkpoint.
 - phase_slug: `fidelity-close`
@@ -325,6 +358,61 @@ lane: high-risk
   `typography.rs` (Momo Trust Sans registration), icons + Solar SVG subset,
   and motion/frost/glass, then wire the theme-driven `window_background`.
 
+- 2026-10-29T12:05Z — theme-foundation/T1 — done — vendored zeron's visual
+  foundation into a new workspace member `vendor/zeron-ui/` (adapted from
+  `crates/ui` @ 8b7afb3, MIT): `theme.rs` (tokens/appearance global; local
+  `highlight.rs` replaces the `zeron_syntax::HighlightKind` import, wallpaper
+  tinting and the `gpui_base` scrollbar sync dropped), `typography.rs`
+  (rewritten around the bundled families — Momo Trust Sans, Hanken Grotesk,
+  Google Sans Code, Xanh Mono — with zeron's font-inspection and settings
+  writes dropped), and the bootstrap wiring in `src/main.rs`
+  (`with_assets(icons::Assets)`, `register_fonts` + `typography::init`,
+  `Theme::install_preferences` before `open_window`, window background from the
+  theme, appearance observer re-syncing the native window background). This
+  lands gate finding 1 from `stack-bringup`: the window background is no
+  longer hardcoded (`Blurred` under zeron's default frosted surface) and the
+  base colour comes from `Theme::bg`. Check: `cargo check` rc 0;
+  `MONO_DESK_SELFTEST=1 MONO_DESK_APPEARANCE=light|dark` prints Light
+  (`bg` white, `surface` 0.958, `text` 0.131, indigo accent) / Dark (`bg`
+  0.024, `surface` 0.051, `text` 0.898) with all four families registered and
+  `window_background=Blurred frost=true`.
+- 2026-10-29T12:10Z — theme-foundation/T2 — done — icon registry + the full
+  128-SVG Solar set (`assets/icons/`, zeron's `Assets` source minus the
+  file-icon theme), `motion.rs` adapted (zeron_proto's pure phase math vendored
+  as `loader_math.rs`; OS reduce-motion detection and settings writes dropped),
+  `frost.rs` and `glass.rs` copied verbatim. Check: `icons::Assets.load(SUN)`
+  returns SVG bytes in the selftest; `cargo test` runs 26 unit tests
+  (24 `vendor/zeron-theme`, 2 `vendor/zeron-ui`); `make check`/`lint`/
+  `fmt-check` rc 0; app window still 1320×880 at (120,120) (CGWindow probe) and
+  stays up.
+- 2026-10-29T12:12Z — theme-foundation — decision — the vendored crates are
+  workspace `default-members` so plain `cargo test` exercises them (this
+  required restoring `tempfile` as a `zeron-theme` dev-dependency), while
+  `make lint` and `make fmt`/`fmt-check` are scoped to `-p mono-desk`: clippy's
+  newer style lints fire on upstream files and `cargo fmt` would rewrite them
+  away from the pinned rev, so each vendor crate carries
+  `#![allow(clippy::all)]` and keeps upstream formatting. Recorded in
+  `AGENTS.md` and `docs/memory/zeron-stack-port.md`.
+- 2026-10-29T12:13Z — theme-foundation — decision — added two dev-only review
+  hooks in `src/main.rs` (`MONO_DESK_APPEARANCE`, `MONO_DESK_SELFTEST`): the
+  phase check needs machine-checkable evidence of the painted theme, and the
+  alternatives are unavailable — macOS Screen Recording is not granted to
+  agent tooling and `Window::render_to_image()` is behind gpui's
+  `test-support` feature with no macOS platform implementation.
+
+- 2026-10-29T12:30Z — theme-foundation — decision (owner directive) — owner
+  asked that the port remember "layout & background, translucent phải giống
+  cái zeron… có custom UI Appearance y hệt đó". Recorded as R8 and as an
+  explicit scope amendment: R4's Appearance page is zeron's *custom* page
+  (`settings/appearance.rs`: mode option cards with previews, light/dark
+  theme-variant rows, accent swatch grid, "Glass" surface select, fonts/layout
+  rows), `settings-surface` gains task T3 to port it, and R5/the `chrome`
+  phase check now require the translucent recipe itself (frost layer +
+  backdrop blur, `Blurred` window background under Frosted) rather than a
+  visually similar approximation. Recon: `settings/appearance.rs` is ~5k lines
+  and depends on zeron's wallpaper/theme-library rows; the port keeps the
+  structure and drops wallpaper/cloud rows per NG2.
+
 ## Validation
 
 - 2026-10-28T15:04Z — phase `stack-bringup` — verdict: APPROVED — mode: gate, independent judge (high-risk lane)
@@ -354,12 +442,14 @@ lane: high-risk
 - active_phase: theme-foundation
 - lifecycle_status: in-progress
 - blockers: none
-- open_items: port theme/typography/icons/motion/frost/glass and wire the
-  theme-driven `window_background` (deferred gate finding 1, must land before
-  the glass acceptance); Phase 3 AX content-tree caveat (explicit role/aria
-  labels + early probe); AGENTS.md updated to the new stack this session;
-  README/docs/design/memory cleanup is Phase 5 (R6).
-- exact_next_action: work full phase `theme-foundation` — T1 port `theme.rs` +
-  `typography.rs` on top of the vendored `zeron-theme` crate (window background
-  from the theme), T2 vendor the icon SVG subset + `motion.rs`/`frost.rs`/
-  `glass.rs`.
+- open_items: independent phase-2 gate not yet run; probe surface in
+  `src/main.rs` is intentionally temporary (chrome replaces it in Phase 3);
+  owner fidelity directive R8 (literal layout/translucent/Appearance parity)
+  is now in the requirements and the phase tasks; Phase 3 AX content-tree
+  caveat (explicit role/aria labels + early probe); README/docs/design cleanup
+  is Phase 5 (R6).
+- exact_next_action: independent phase gate for `theme-foundation`, then mark
+  the phase `checked` and start `chrome`: T1 titlebar cluster (88px start,
+  24px toggle, drag region, centered title), T2 sidebar column/tone/hairline +
+  zeron's frost/glass root surface, 242–400 resize, 1px collapsed sliver,
+  footer identity row and the six-section nav.
