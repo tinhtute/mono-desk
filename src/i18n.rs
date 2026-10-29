@@ -5,7 +5,6 @@
 //! left untranslated in every locale.
 
 /// One row per UI string: `(key, en, vi, zh-CN, ja)`.
-#[allow(dead_code)] // wired by settings-surface T2
 static STRINGS: &[(&str, &str, &str, &str, &str)] = &[
     // Pages
     ("page.general", "General", "Chung", "通用", "一般"),
@@ -758,7 +757,6 @@ static STRINGS: &[(&str, &str, &str, &str, &str)] = &[
 /// Callsite keys are string literals, so `key` is `&'static str` and a miss
 /// can return it directly — no allocation, no leak. Falls back to English
 /// when the key exists but the locale is unknown.
-#[allow(dead_code)] // wired by settings-surface T2
 pub fn tr(key: &'static str, lang: &str) -> &'static str {
     for &(k, en, vi, zh, ja) in STRINGS {
         if k == key {

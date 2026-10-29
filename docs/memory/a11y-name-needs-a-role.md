@@ -2,6 +2,11 @@
 id: mem-a11y-name-needs-a-role-20261026
 created: 2026-10-26
 ---
+
+> **Historical (pre-port gpui-kit stack), kept for context** — the code it
+> describes is on branch `wip/gpui-kit-shell`; the app now runs on zeron's
+> GPUI stack (see `docs/memory/zeron-stack-port.md`).
+
 # A11y names need a role, and `Button` has its own label API
 
 Two traps hit while fixing the "controls with no accessible name"

@@ -3,6 +3,11 @@ id: mem-gpui-window-glass-20261027
 created: 2026-10-27
 updated: 2026-10-28
 ---
+
+> **Historical (pre-port gpui-kit stack), kept for context** — the code it
+> describes is on branch `wip/gpui-kit-shell`; the app now runs on zeron's
+> GPUI stack (see `docs/memory/zeron-stack-port.md`).
+
 # Window transparency + glass in GPUI 0.3.5 (mono-desk)
 
 Facts that cost a detour while adding the Background (glass) settings in
