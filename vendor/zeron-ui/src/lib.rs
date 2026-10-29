@@ -33,6 +33,7 @@ pub mod highlight;
 pub mod icons;
 pub mod loader_math;
 pub mod motion;
+pub mod settings;
 pub mod theme;
 pub mod typography;
 

@@ -522,6 +522,31 @@ lane: high-risk
   runtime probes (light and dark) show the window at 1320×880 at (120,120),
   no panic, process exits cleanly. Pixels are the owner's check.
 
+- 2026-10-29T12:43Z — chrome/T2 — done — ported the section list and the
+  footer identity row. New `vendor/zeron-ui/src/settings/`: `mod.rs` with the
+  six-section `SettingsSection` (labels/icons/`starts_nav_group` following
+  zeron's enum conventions) and `widgets.rs` with `section_tab`,
+  `tab_selection_t` and `TabSelectionTravel` ported from zeron's
+  `settings/widgets.rs`; the shell side adds `render_nav` (zeron's
+  `render_settings_nav`: `Role::TabList` + row `Role::Tab`/`aria_selected`,
+  roving `tab_stop` handles, accent focus ring, up/left/down/right/home/end,
+  spacing-only group break at Finance UI) and `render_footer` (zeron's
+  `render_sidebar_footer_row` metrics and user-menu trigger pill, identity
+  only — no account popover; the footer's square action is the appearance
+  toggle, which flips the theme and re-points the native window background).
+  Added `vendor/zeron-ui/assets/icons/user.svg`, a mono-desk hand-drawn Solar
+  Linear glyph for the Profile row (neither the embedded set nor zeron ships
+  one), and recorded it in `THIRD_PARTY_NOTICES.md`. Check: `cargo test` 33
+  tests (24 zeron-theme, 9 zeron-ui: the 5 ported chrome-geometry tests,
+  section-order and selection-travel tests); `make check`/`lint`/`fmt-check`
+  rc 0; selftest `nav sections=6
+  labels=General|Notifications|Profile|Finance UI|Reset|About
+  group_break=Finance UI selected=General`; light and dark runtime probes keep
+  the window at 1320×880 at (120,120) with an empty log and a clean exit.
+  Click/keyboard/selection motion are the owner's visual check — the AX
+  content tree exposes no GPUI nodes and agent tooling has no synthetic-input
+  grant, so those are not claimed here.
+
 ## Validation
 
 - 2026-10-28T15:04Z — phase `stack-bringup` — verdict: APPROVED — mode: gate, independent judge (high-risk lane)
@@ -594,24 +619,25 @@ lane: high-risk
 - active_phase: chrome
 - lifecycle_status: in-progress
 - blockers: none
-- open_items: the probe surface in `src/main.rs` still paints an opaque
-  `theme.bg` over a `Blurred` native window — chrome T2 must replace it with
-  zeron's frost/glass root surface, and R8 translucent parity then needs the
-  owner's pixels (do not infer translucency from the current probe); the AX
-  content tree exposes only the window and native traffic lights, so chrome
-  acceptance needs explicit role/aria-label/tab-index metadata plus an early
-  probe; ported chrome in `vendor/zeron-ui/` is compiled and tested but not
-  clippy-linted (`make lint` is `-p mono-desk`), so new non-verbatim code gets
-  weaker static checks and must be reviewed by hand; `ReduceMotion::System`
-  stays a no-op until platform wiring lands, so chrome animations ignore the
-  OS setting; `font_sans_fixed` resolves to the bundled Google Sans Code
-  (Geist is not vendored) — verify any fixed-width chrome control visually;
-  owner visuals for `theme-foundation` and `chrome` are still owed.
-- exact_next_action: `chrome` T1 — port the titlebar cluster from zeron's
-  shell (88px control start, `TITLEBAR_TOP_PAD`/`TITLEBAR_CLUSTER_PAD`, 24px
-  buttons, `TITLEBAR_CONTROL_GAP`/`TITLEBAR_GROUP_GAP`, drag region via
-  `WindowControlArea::Drag` + `start_window_move`, double-click zoom, centered
-  title) and wire the sidebar collapse toggle; verify geometry with the
-  CGWindow/selftest probes. Then T2: sidebar column/tone/hairline, zeron's
-  frost/glass root surface, 242–400 resize, 1px collapsed sliver, footer
-  identity row and the six-section settings nav.
+- open_items: `chrome` T1+T2 are implemented and machine-checked; the phase
+  gate (independent judge) and the owner's visual checkpoint are still owed,
+  and pixels/synthetic input remain unverifiable by agent tooling (no Screen
+  Recording, no AX nodes for GPUI controls, no in-process capture on macOS).
+  Deliberately not ported from zeron's chat chrome: titlebar cluster/toggle,
+  centered title, sidebar resize and collapsed sliver (R2, owner decision —
+  zeron's settings route has none). Still to come in `chrome`'s successor
+  phases: zeron's settings search row (needs the text-input primitive, T4 of
+  `settings-surface`) and an Appearance section row for the custom Appearance
+  page (T3 adds it). `vendor/zeron-ui/` chrome/settings code is compiled and
+  tested but not clippy-linted (`make lint` is `-p mono-desk`), so new
+  non-verbatim code is reviewed by hand; `ReduceMotion::System` stays a no-op
+  with chrome animations; `font_sans_fixed` resolves to the bundled Google
+  Sans Code.
+- exact_next_action: independent phase gate for `chrome` (T1+T2) against the
+  current tree, then mark the phase `checked` and start `settings-surface`:
+  T1 port `settings/widgets.rs` page scaffolding (`page_column`,
+  `page_header`, `section`, `section_card`, `card_row`, labels/dividers) and
+  rebuild General + Notifications on `AppSettings`/persistence; T2 the
+  remaining pages; T3 the custom Appearance page + its nav row; T4 the search
+  row on a text-input primitive. Ask the owner for the visual checkpoint after
+  the phase gate.

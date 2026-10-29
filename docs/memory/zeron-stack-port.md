@@ -65,7 +65,7 @@ gated behind gpui's `test-support` feature and unimplemented on the macOS
 platform, and macOS Screen Recording is not granted to agent tooling.
 
 Gate wiring: the vendored crates are workspace `default-members` (so `cargo
-test` runs their unit tests: 31 today — 24 `vendor/zeron-theme`, 7
+test` runs their unit tests: 33 today — 24 `vendor/zeron-theme`, 9
 `vendor/zeron-ui`; `vendor/zeron-theme` regains `tempfile` as a
 dev-dependency), while `make lint`/`make fmt` stay scoped to `-p mono-desk` —
 vendored files carry upstream clippy style lints and `cargo fmt` would rewrite
@@ -84,7 +84,9 @@ R2/R3 amendments in the plan.
 | Vendored / first-party | Upstream | Adaptation |
 |---|---|---|
 | `vendor/zeron-ui/chrome.rs` | `crates/ui/src/shell.rs` (`titlebar_cluster_start`, `titlebar_spacer_width`, `caption_buttons_width`, `cluster_buttons_start`, `cluster_clearance`, `titlebar_right_padding`, `TITLEBAR_*`/`CLUSTER_BUTTONS_WIDTH`, `window_control_button*`) | Windows/Linux caption buttons dropped (NG3) but their geometry kept so upstream's tests port over; button tooltip deferred to `settings-surface` (`aria_label` kept); the spacer is static (no `WidthTween` fullscreen tween yet) |
-| `src/shell.rs` (first-party app wiring) | `shell.rs` (`Shell::render` root, `sidebar_tone`, `titlebar_drag_region`, `render_settings_page` skeleton) | app state reduced to the selected section + the drag flag; chat chrome not ported (see above) |
+| `vendor/zeron-ui/settings/mod.rs` | `shell.rs` `SettingsSection` | mono-desk's six sections (General, Notifications, Profile, Finance UI, Reset, About) with zeron's label/icon/`starts_nav_group` conventions; the custom Appearance page joins the list with `settings-surface` |
+| `vendor/zeron-ui/settings/widgets.rs` | `settings/widgets.rs` (`section_tab`, `tab_selection_t`, `TabSelectionTravel`) | verbatim; `scroll_faded`/edge-fade wrappers not ported yet |
+| `src/shell.rs` (first-party app wiring) | `shell.rs` (`Shell::render` root, `sidebar_tone`, `titlebar_drag_region`, `render_settings_page` skeleton, `render_settings_nav`, `render_sidebar_footer_row` user-menu trigger) | app state reduced to the selected section + roving focus handles + the drag flag; chat chrome not ported (see above); no account popover — the footer pill is identity only, and the footer's square action is the appearance toggle |
 
 Settings-route layout recipe as ported: root `id("shell-root")` +
 `.relative().flex().flex_row().size_full().bg(theme.glass())` +
@@ -95,4 +97,16 @@ row); page pane `flex_1` whose scroll carries `TITLEBAR_HEIGHT + SPACE_LG` top
 clearance; a full-width 38px `WindowControlArea::Drag` strip above the page
 (`start_window_move` guarded by `pressed_button`, double-click
 `titlebar_double_click`).
+
+Section list (T2), zeron `render_settings_nav`: `Role::TabList` +
+`aria_label("Settings sections")` column, 2px gaps, rows built by
+`widgets::section_tab` with `aria_selected`, `Role::Tab`, roving
+`tab_stop(selected)` handles, `focus_visible` accent ring, up/left →
+previous, down/right → next, home/end, and the workspace group
+(`FinanceUi`) starting a new group with `mt(SPACE_LG)`. Footer (T2): zeron's
+`SIDEBAR_FOOTER_*` metrics (28px pill/action, 16px avatar, 4px action gap),
+initial-avatar pill + name, appearance toggle in the action slot.
+`vendor/zeron-ui/assets/icons/user.svg` is a mono-desk addition (Solar Linear
+style) because neither set ships a user glyph; noted in
+`THIRD_PARTY_NOTICES.md`.
 
