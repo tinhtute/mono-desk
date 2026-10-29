@@ -204,7 +204,7 @@ lane: high-risk
   - phase check: `cargo build` + `make run` window/AX probe (recording the
     AX frame and the window id).
 - phase_slug: `theme-foundation`
-  status: in-progress
+  status: checked
   - goal: R5 | depends_on: `stack-bringup`
   - surfaces: `vendor/zeron-theme/`, `vendor/zeron-ui/theme.rs`,
     `typography.rs`, `icons.rs`, `motion.rs`, `frost.rs`, `glass.rs`,
@@ -227,7 +227,7 @@ lane: high-risk
   - phase check: `cargo build`, `make run`, and an AX/probe check that the
     theme base is painted in both appearances.
 - phase_slug: `chrome`
-  status: planned
+  status: in-progress
   - goal: R2, R3 | depends_on: `theme-foundation`
   - surfaces: `vendor/zeron-ui/` (titlebar cluster, sidebar column/tone/
     resize/collapse, settings nav, footer identity), `src/shell.rs` (app
@@ -432,6 +432,28 @@ lane: high-risk
   crates becoming workspace members in the same phase and is recorded in the
   decision entry above.
 
+- 2026-10-29T12:26Z — theme-foundation — correction — the two Log timestamps
+  above are ahead of the clock and are corrected here because the Log is
+  append-only (nothing was rewritten): the gate entry recorded `12:45Z` and the
+  owner-directive entry `12:30Z`, whereas the gated commit `105a984` is
+  authored `12:20:46Z` and the wall clock at judgment was `12:24Z` (`bdd6680`
+  is authored `12:13:22Z`). The content of both entries is accurate; only the
+  timestamps were wrong, because they were written from an estimate instead of
+  the clock. Timestamps below are taken from `date -u` / `git log`.
+- 2026-10-29T12:26Z — theme-foundation — gate (re-gate) — verdict APPROVED by
+  a fresh independent judge (the first judge could not be re-addressed): the
+  blocking hardcoded-colour fix is real, all seven claimed fixes verify in the
+  tree, every gate re-ran green, no regression. The judge independently
+  re-confirmed `frost.rs`/`glass.rs` diff-identical to upstream and 128/128
+  icon SVGs identical, and that the Log stayed append-only across
+  `8c3ad7a`→HEAD. Two non-blocking minors, both fixed before this entry: the
+  future-dated Log timestamps (corrected above rather than rewritten) and a
+  stale `vendor/zeron-theme/Cargo.toml` comment claiming `tempfile` was
+  dropped, while it is a dev-dependency for the ported tests. Pixels for this
+  phase are unverifiable by agent tooling and were not claimed by the judge;
+  the phase check rests on the selftest tokens, asset/background probes and
+  the owner's eye.
+
 ## Validation
 
 - 2026-10-28T15:04Z — phase `stack-bringup` — verdict: APPROVED — mode: gate, independent judge (high-risk lane)
@@ -456,19 +478,72 @@ lane: high-risk
   - rollback_point: `feat/zeron-stack` commit `94ff732`; previous approach on
     `wip/gpui-kit-shell` (`50823e3`).
 
+- 2026-10-29T12:26Z — phase `theme-foundation` — verdict: APPROVED — mode: gate, independent judge (high-risk lane)
+  - judge: fresh independent subagent (separate context, read-only, no history
+    reuse); judge_model: deepseek-v4.1-flash; graded commit `105a984`.
+  - `cargo test` rc 0 — 26 tests passed, 0 failed (24 `vendor/zeron-theme`,
+    2 `vendor/zeron-ui`), doc-tests 0 — pass
+  - `make check` / `make lint` / `make fmt-check` / `make build` /
+    `cargo build --locked` — rc 0 — pass
+  - selftest light: `appearance=Light`; bg l=1.0, surface l=0.958, text
+    l=0.131, indigo accent; four bundled families registered
+    (`effective=Momo Trust Sans fixed=Google Sans Code`); `icon_sun_svg=Some(true)`;
+    `window_background=Blurred frost=true`; rem=16 — pass
+  - selftest dark: `appearance=Dark`; bg l=0.0235, surface l=0.051, text
+    l=0.898; same fonts/icon/background lines — pass
+  - runtime probe: window layer 0 alpha 1 onscreen 1, bounds 1320×880 at
+    (120,120), empty log (no panic), process exits cleanly; a light-pinned run
+    reports the same frame — pass
+  - `diff -u` `frost.rs` / `glass.rs` against `/tmp/zeron-src` — identical
+    (rc 0 both); `diff -rq` icon directory — identical, 128 SVGs each side —
+    pass
+  - no `zeron_syntax`/`zeron_proto`/`gpui_base` use paths in
+    `vendor/zeron-ui/src` (only explanatory doc mentions); no
+    `gpui_kit`/`gpui-kit`/`gpui-component`/`vendor/patches` in first-party or
+    vendored manifests — pass
+  - surfaces: `vendor/zeron-theme/**`, `vendor/zeron-ui/{theme,typography,
+    icons,motion,frost,glass}.rs` + `assets/icons/`, `src/main.rs`,
+    `Cargo.toml`, `Cargo.lock`, `THIRD_PARTY_NOTICES.md`, `AGENTS.md`,
+    `docs/memory/` — on target — pass
+  - scope: `Makefile` gate scoping changed although outside the declared
+    surface list, recorded as accepted drift with its reason — noted, not
+    blocking
+  - findings: no blocking. Two minors fixed after the verdict (future-dated
+    Log timestamps; stale `zeron-theme/Cargo.toml` comment). Deferred/named:
+    rendered pixels and the owner visual for this phase are not recorded —
+    agent tooling cannot capture this window, so the check rests on
+    tokens/assets/background probes; old-stack text in `README.md`,
+    `docs/PROJECT.md`, `docs/design/*` and completed plans is Phase 5 (R6);
+    `ReduceMotion::System` no-op and the unported file-icon theme are
+    documented vendor adaptations; R5's "appearance toggle repaints without
+    restart" is not exercisable until chrome/settings.
+  - rollback_point: `feat/zeron-stack` commit `bdd6680` (last green commit
+    before the gate fixes); previous approach on `wip/gpui-kit-shell`
+    (`50823e3`).
+
 
 ## Current State and Next Action
-- active_phase: theme-foundation
+- active_phase: chrome
 - lifecycle_status: in-progress
 - blockers: none
-- open_items: independent phase-2 gate not yet run; probe surface in
-  `src/main.rs` is intentionally temporary (chrome replaces it in Phase 3);
-  owner fidelity directive R8 (literal layout/translucent/Appearance parity)
-  is now in the requirements and the phase tasks; Phase 3 AX content-tree
-  caveat (explicit role/aria labels + early probe); README/docs/design cleanup
-  is Phase 5 (R6).
-- exact_next_action: independent phase gate for `theme-foundation`, then mark
-  the phase `checked` and start `chrome`: T1 titlebar cluster (88px start,
-  24px toggle, drag region, centered title), T2 sidebar column/tone/hairline +
-  zeron's frost/glass root surface, 242–400 resize, 1px collapsed sliver,
-  footer identity row and the six-section nav.
+- open_items: the probe surface in `src/main.rs` still paints an opaque
+  `theme.bg` over a `Blurred` native window — chrome T2 must replace it with
+  zeron's frost/glass root surface, and R8 translucent parity then needs the
+  owner's pixels (do not infer translucency from the current probe); the AX
+  content tree exposes only the window and native traffic lights, so chrome
+  acceptance needs explicit role/aria-label/tab-index metadata plus an early
+  probe; ported chrome in `vendor/zeron-ui/` is compiled and tested but not
+  clippy-linted (`make lint` is `-p mono-desk`), so new non-verbatim code gets
+  weaker static checks and must be reviewed by hand; `ReduceMotion::System`
+  stays a no-op until platform wiring lands, so chrome animations ignore the
+  OS setting; `font_sans_fixed` resolves to the bundled Google Sans Code
+  (Geist is not vendored) — verify any fixed-width chrome control visually;
+  owner visuals for `theme-foundation` and `chrome` are still owed.
+- exact_next_action: `chrome` T1 — port the titlebar cluster from zeron's
+  shell (88px control start, `TITLEBAR_TOP_PAD`/`TITLEBAR_CLUSTER_PAD`, 24px
+  buttons, `TITLEBAR_CONTROL_GAP`/`TITLEBAR_GROUP_GAP`, drag region via
+  `WindowControlArea::Drag` + `start_window_move`, double-click zoom, centered
+  title) and wire the sidebar collapse toggle; verify geometry with the
+  CGWindow/selftest probes. Then T2: sidebar column/tone/hairline, zeron's
+  frost/glass root surface, 242–400 resize, 1px collapsed sliver, footer
+  identity row and the six-section settings nav.

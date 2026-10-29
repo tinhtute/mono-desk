@@ -1,7 +1,9 @@
 # Vendored from zeron (MIT, Copyright 2026 Wing) — see THIRD_PARTY_NOTICES.md.
 # Source: https://github.com/zeronsh/zeron, crates/theme @ 8b7afb3.
-# The upstream crate's `bin/zeron-theme-import` tool and its clap/tempfile
-# dependencies are dropped: mono-desk only consumes the theme domain model.
+# The upstream crate's `bin/zeron-theme-import` tool is dropped along with its
+# clap dependency: mono-desk only consumes the theme domain model. `tempfile`
+# comes back as a dev-dependency because the ported unit tests write theme
+# files to disk (the import tool itself is not vendored).
 [package]
 name = "zeron-theme"
 version = "0.2.129"
