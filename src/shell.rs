@@ -24,9 +24,12 @@ use gpui::{
 
 use zeron_ui::icons;
 use zeron_ui::motion;
-use zeron_ui::settings::{SettingsSection, widgets};
+use zeron_ui::settings::{SettingsSection, menu, widgets};
 use zeron_ui::theme::{self, Appearance, Theme};
 use zeron_ui::typography;
+
+use crate::app_settings::AppSettings;
+use crate::settings::{GeneralPage, NotificationsPage};
 
 /// zeron's default sidebar width (`settings.rs` `SIDEBAR_DEFAULT`). zeron's
 /// settings route reads the persisted chat-sidebar width; mono-desk has no
@@ -43,9 +46,22 @@ const SIDEBAR_FOOTER_ACTION_GAP: f32 = 4.0;
 const SIDEBAR_FOOTER_BUTTON_SIZE: f32 = 28.0;
 /// The avatar circle (zeron `SIDEBAR_FOOTER_AVATAR_SIZE`).
 const SIDEBAR_FOOTER_AVATAR_SIZE: f32 = 16.0;
-/// Identity shown in the footer until `settings-surface` wires `AppSettings`
-/// (the Profile page's display name).
+/// Identity shown in the footer when the Profile display name is empty.
 const IDENTITY_NAME: &str = "Mono Desk";
+
+/// Dev hook (the same family as `MONO_DESK_APPEARANCE`/`MONO_DESK_SELFTEST`):
+/// `MONO_DESK_SECTION=<slug>` opens the shell on that section, so a headless
+/// run can render (and therefore prove) a page other than the default General.
+/// Slugs are the section labels lowercased with spaces as dashes: `general`,
+/// `appearance`, `notifications`, `profile`, `finance-ui`, `reset`, `about`.
+pub(crate) fn section_from_env() -> Option<SettingsSection> {
+    let slug = std::env::var("MONO_DESK_SECTION").ok()?;
+    let wanted = slug.trim().to_ascii_lowercase();
+    SettingsSection::ALL
+        .iter()
+        .copied()
+        .find(|section| section.label().to_ascii_lowercase().replace(' ', "-") == wanted)
+}
 
 pub struct Shell {
     /// Selected settings section — the page pane follows it.
@@ -56,17 +72,23 @@ pub struct Shell {
     /// the button down hands the drag to the compositor (zeron's
     /// `titlebar_should_move`).
     titlebar_should_move: bool,
+    /// Lazily created page views (zeron's shell keeps one entity per settings
+    /// page); each owns its select/scroll state across frames.
+    general_page: Option<gpui::Entity<GeneralPage>>,
+    notifications_page: Option<gpui::Entity<NotificationsPage>>,
 }
 
 impl Shell {
     pub fn new(cx: &mut Context<Self>) -> Self {
         Self {
-            section: SettingsSection::default(),
+            section: section_from_env().unwrap_or_default(),
             nav_focus: SettingsSection::ALL
                 .iter()
                 .map(|_| cx.focus_handle())
                 .collect(),
             titlebar_should_move: false,
+            general_page: None,
+            notifications_page: None,
         }
     }
 
@@ -252,17 +274,26 @@ impl Shell {
             .into_any_element()
     }
 
-    /// The sidebar footer identity row (zeron's user-menu trigger): an initial
+    /// The footer's account trigger (zeron's user-menu trigger): an initial
     /// avatar in the inverse text colour, the display name, and the appearance
-    /// toggle as the footer's square action.
+    /// toggle as the footer's square action. The name is the Profile display
+    /// name from `AppSettings` (settings-surface's known gap); the built-in
+    /// identity is only the empty-name fallback.
     fn render_footer(&mut self, theme: &Theme, cx: &mut Context<Self>) -> AnyElement {
-        let initial: SharedString = IDENTITY_NAME
+        let name: SharedString = {
+            let configured = AppSettings::global(cx).display_name.clone();
+            if configured.trim().is_empty() {
+                IDENTITY_NAME.into()
+            } else {
+                configured
+            }
+        };
+        let initial: SharedString = name
             .chars()
             .next()
             .map(|c| c.to_uppercase().to_string())
             .unwrap_or_else(|| "?".into())
             .into();
-        let name: SharedString = IDENTITY_NAME.into();
         div()
             .p(px(Theme::SPACE_SM))
             .flex_none()
@@ -392,40 +423,76 @@ impl Shell {
             .into_any_element()
     }
 
-    /// The page pane: zeron's page column scrolls to the window's top edge and
-    /// carries the titlebar clearance inside the scroll, so a page header can
-    /// sit at the very top of the column once it scrolls (`page_column` in
-    /// zeron's `settings/widgets.rs`). `settings-surface` replaces the
-    /// placeholder with the real pages.
-    fn render_page(&self, theme: &Theme) -> impl IntoElement {
-        div().flex_1().min_w_0().h_full().flex().flex_col().child(
-            div()
-                .id("settings-page-scroll")
-                .flex_1()
-                .min_h_0()
-                .overflow_y_scroll()
-                .pt(px(Theme::TITLEBAR_HEIGHT + Theme::SPACE_LG))
-                .px(px(Theme::SPACE_LG * 2.0))
-                .child(
-                    div()
-                        .text_xl()
-                        .font_weight(gpui::FontWeight::SEMIBOLD)
-                        .child(SharedString::from(self.section.label())),
-                )
-                .child(
-                    div()
-                        .mt_2()
-                        .text_sm()
-                        .text_color(theme.text_muted)
-                        .child("chrome phase · T2 — page content lands in `settings-surface`"),
-                ),
-        )
+    /// The page pane: the selected section's page view, or the placeholder for
+    /// the sections whose pages land in the later `settings-surface` waves.
+    /// zeron's pages own their scroll (`page_column` carries the titlebar
+    /// clearance inside it), so the pane is only the host: `flex_1`, full
+    /// height, no scroll of its own. Page views are created lazily and kept,
+    /// like zeron's shell keeps one entity per settings page, so open select
+    /// menus and scroll offsets survive a re-render.
+    fn render_page(&mut self, theme: &Theme, cx: &mut Context<Self>) -> AnyElement {
+        let page: AnyElement = match self.section {
+            SettingsSection::General => {
+                if self.general_page.is_none() {
+                    self.general_page = Some(cx.new(|_| GeneralPage::new()));
+                }
+                self.general_page
+                    .as_ref()
+                    .map(|page| page.clone().into_any_element())
+                    .unwrap_or_else(|| self.render_placeholder(theme))
+            }
+            SettingsSection::Notifications => {
+                if self.notifications_page.is_none() {
+                    self.notifications_page = Some(cx.new(|_| NotificationsPage::new()));
+                }
+                self.notifications_page
+                    .as_ref()
+                    .map(|page| page.clone().into_any_element())
+                    .unwrap_or_else(|| self.render_placeholder(theme))
+            }
+            _ => self.render_placeholder(theme),
+        };
+        div()
+            .flex_1()
+            .min_w_0()
+            .h_full()
+            .child(page)
+            .into_any_element()
+    }
+
+    /// The page pane's placeholder for sections whose pages have not landed yet
+    /// (Appearance is `settings-surface` T3; Profile, Finance UI, Reset and
+    /// About are T2).
+    fn render_placeholder(&self, theme: &Theme) -> AnyElement {
+        div()
+            .id("settings-page-scroll")
+            .size_full()
+            .overflow_y_scroll()
+            .pt(px(Theme::TITLEBAR_HEIGHT + Theme::SPACE_LG))
+            .px(px(Theme::SPACE_LG * 2.0))
+            .child(
+                div()
+                    .text_xl()
+                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                    .child(SharedString::from(self.section.label())),
+            )
+            .child(
+                div()
+                    .mt_2()
+                    .text_sm()
+                    .text_color(theme.text_muted)
+                    .child("page lands in the next `settings-surface` wave"),
+            )
+            .into_any_element()
     }
 }
 
 impl Render for Shell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = Theme::of(cx).clone();
+        // zeron publishes the sidebar width every frame so a page's dropdown
+        // can measure the content pane (`settings::set_sidebar_width`).
+        menu::set_sidebar_width(SIDEBAR_WIDTH, cx);
         let drag = self.titlebar_drag_region(
             "settings-titlebar",
             div()
@@ -437,7 +504,7 @@ impl Render for Shell {
             cx,
         );
         let sidebar = self.render_sidebar(&theme, window, cx);
-        let page = self.render_page(&theme);
+        let page = self.render_page(&theme, cx);
         // zeron `Shell::render`'s root: `id("shell-root")`, row layout,
         // `bg(theme.glass())`, theme text colour and the 14px rem scale.
         div()

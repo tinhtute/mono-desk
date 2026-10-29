@@ -52,12 +52,16 @@ Use the Makefile — it auto-injects the linker shim flag (see caveats):
   `Window::render_to_image()` exists in the fork but is gated behind the
   `test-support` feature and unimplemented on the macOS platform, so
   in-process screenshots are not available yet.
-- Dev review hooks in `src/main.rs`: `MONO_DESK_APPEARANCE=dark|light` pins the
-  palette without touching the OS setting, and `MONO_DESK_SELFTEST=1` prints
-  the resolved appearance, tokens, registered font families, icon asset load
-  and native window background, then quits. Use the selftest as the
-  machine-checkable half of a visual phase check; the owner supplies the
-  pixels. Do not claim pixel evidence from an agent run.
+- Dev review hooks in `src/main.rs`/`src/shell.rs`:
+  `MONO_DESK_APPEARANCE=dark|light` pins the palette without touching the OS
+  setting, `MONO_DESK_SELFTEST=1` prints the resolved appearance, tokens,
+  fonts, icon asset load, native window background, chrome geometry, nav and
+  settings state, then quits, and `MONO_DESK_SECTION=<general|appearance|
+  notifications|profile|finance-ui|reset|about>` opens the shell on that
+  section (use it with the selftest to prove a page other than General
+  paints). Use the selftest as the machine-checkable half of a visual phase
+  check; the owner supplies the pixels. Do not claim pixel evidence from an
+  agent run.
 - Missing dev symlinks `libxkbcommon-x11.so` and `libX11-xcb.so` (Linux only)
   are shimmed at `~/.local/lib/dev-shim/`; the Makefile adds `-L` only while
   that dir exists. Proper fix is `make deps`.
@@ -80,8 +84,18 @@ Use the Makefile — it auto-injects the linker shim flag (see caveats):
   without a titlebar control cluster, centered title or resizable/collapsible
   sidebar — those are zeron's chat-route chrome (plan R2, owner decision
   2026-10-29).
-- App state lives in a gpui `Global` (`AppSettings`); settings writes go
-  through the app's save path and `cx.notify()`.
+- App state lives in a gpui `Global` (`AppSettings`, installed from
+  `persist::load()` before the window opens); a settings write mirrors the
+  global through `to_stored()` into `persist::save` via
+  `settings::persist_now(cx)` and then `cx.notify()`s the writing view.
+- Settings pages (`src/settings/`): built from zeron's vendored kit
+  (`settings::widgets` rows/cards + `settings::select`), one gpui *view* per
+  page so it can own its `SelectState`s and `ScrollHandle`; the shell keeps the
+  page entities and only hosts the pane (`flex_1`, no scroll of its own, since
+  `page_column` carries the titlebar clearance). Strings come from `i18n::tr`
+  keyed by `AppSettings.language`. Add role/aria/tab-index to every ported
+  control the way upstream does, and publish `settings::set_sidebar_width` each
+  frame (the shell does) or dropdowns cannot measure the pane.
 - Accessibility: GPUI-painted controls do not appear in the macOS AX tree
   unless they carry explicit role/aria-label/tab-index metadata. Add it when
   porting a control that tests or the owner should reach by keyboard.

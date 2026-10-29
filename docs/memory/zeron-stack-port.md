@@ -113,3 +113,48 @@ plan's `settings-surface` known-gaps list): the nav still has no
 `scroll_faded`/edge-fade wrapper, and the footer pill is identity-only (no
 role/aria/popover, no `sidebar_faded_label`).
 
+
+## Settings surface (phase `settings-surface`, wave 1, 2026-10-29)
+
+Wave 1 rebuilt the two simplest pages on zeron's own page kit and vendored the
+real select stack, so no page control is an approximation:
+
+| Vendored file | Upstream | Adaptation |
+|---|---|---|
+| `vendor/zeron-ui/settings/widgets.rs` | `settings/widgets.rs` (page scaffolding: `page_column`, `page_header`, `page_subtitle`, `field_label`, `option_card*`, `section*`, `section_card`, `card_row`, `row_tile`, `row_title`, `meta_line`, `block_fill`, `row_divider`, `badge*`, `toggle_switch` + switch tests) | verbatim; only imports + header changed. Popover-dependent widgets (`dropdown`, `select`, `scroll_faded`, `text_tooltip`, action buttons, strips) live in the other files below |
+| `vendor/zeron-ui/settings/menu.rs` | `settings/widgets.rs` lines 14–166 (`SettingsSidebarWidth`/`set_sidebar_width`, `pane_bounds`, `column_width`, `dropdown`, `dropdown_limits`, `dropdown_rows`, `dropdown_list_height`, `DropdownRows`) | new file because `widgets.rs` is owned separately; `SIDEBAR_DEFAULT` (256.0) defined here citing `crates/ui/src/settings.rs`, `SettingsDropdown` + fields widened to `pub(crate)` |
+| `vendor/zeron-ui/settings/select.rs` | `settings/widgets.rs` lines 1101–1537 (`select`/`Select`, `SelectState`, `SelectOption`, `select_*` helpers, `close_select`) | new file, verbatim otherwise |
+| `vendor/zeron-ui/popover.rs` + `popover/{contained,hover_intent}.rs` | `crates/ui/src/popover.rs` + submodules | verbatim except the `search_highlight*` helpers + their tests, which paint through the unvendored `crate::markdown`; the anchored/deferred menu layer, reducers, rails and 17 pure tests are in |
+| `vendor/zeron-ui/edge_fade.rs` | `crates/ui/src/edge_fade.rs` | verbatim; required by `dropdown_rows`'s scrolling list (`edge_faded(...).fade_overflow_y(...)`); the 2 windowed `#[gpui::test]`s are dropped (vendored crate does not enable gpui `test-support`) |
+
+First-party layout:
+
+| File | Role |
+|---|---|
+| `src/app_settings.rs` | `AppSettings` (18 fields, `Global`), `Appearance`, `DigestCadence`, `from_stored`/`to_stored`/`save_settings`, and the old app-theme defaults/clamps/accent codec (old `theme.rs:25–186`) |
+| `src/persist.rs` | the old settings file codec, ported verbatim: marker `# managed-by: mono-desk`, unknown-key tolerance, legacy `dark_mode` fallback, foreign-file guard, atomic write, autostart plists |
+| `src/i18n.rs` | the old 107-key × 4-locale table (`tr(key, lang)`) |
+| `src/settings/{mod,general,notifications}.rs` | the pages; `mod.rs` holds `persist_now` (write-through: mirror global → `to_stored` → `persist::save`) and `control_row` (zeron's title/meta/control row shape) |
+| `src/shell.rs` | page pane hosts `Entity<GeneralPage>`/`Entity<NotificationsPage>` (lazily created, kept like zeron's shell keeps page entities); `menu::set_sidebar_width(256.0, cx)` is published every frame so dropdowns measure the pane; footer reads `AppSettings.display_name` |
+| `src/main.rs` | installs `AppSettings::from_stored(persist::load())` as a global before the window opens |
+
+Page conventions that must hold when adding the next pages:
+- a page is a `gpui` *view* (its own `Entity`), because zeron's `select` is
+  generic over the page type and stores open/highlight state in a
+  `SelectState` field on that page;
+- the page owns its `ScrollHandle` and its scroll host; the pane in
+  `src/shell.rs` is only `flex_1` + full height (no scroll of its own), so
+  `page_column`'s `TITLEBAR_HEIGHT + 16` clearance scrolls with the content as
+  in zeron;
+- rows are `widgets::section` / `section_card().mt_0()` / `super::control_row`;
+  a write does `AppSettings::global_mut(cx).field = value;`
+  `super::persist_now(cx); cx.notify();`
+- there is no checkbox/radio/segmented widget in zeron's kit: booleans are
+  `toggle_switch` rows, choices are `select`.
+
+Gates today: `cargo test` = 94 tests (mono-desk 33 = 9 `app_settings` +
+3 `i18n` + 21 `persist`; `vendor/zeron-theme` 24; `vendor/zeron-ui` 37).
+`make lint`/`fmt-check` remain `-p mono-desk`. Dev hooks grew one:
+`MONO_DESK_SECTION=<general|appearance|notifications|profile|finance-ui|reset|about>`
+opens the shell on that section, so a headless selftest renders that page
+(`MONO_DESK_SELFTEST=1` prints `selftest settings language=… timezone=…`).
