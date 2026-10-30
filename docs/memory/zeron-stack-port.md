@@ -1,7 +1,7 @@
 ---
 id: zeron-stack-port
 date: 2026-10-28
-status: active
+status: completed
 ---
 # Zeron stack port (owner decision, 2026-10-28)
 
