@@ -27,8 +27,11 @@ lane: high-risk
   with zeron's widgets. All six pages render and round-trip through
   `AppSettings` + persistence; light/dark and glass/opaque modes work;
   `cargo test && make check && make lint && make fmt-check` are green on the
-  new stack; no `gpui_kit`/`gpui-component` reference remains in
-  `Cargo.toml`, `Cargo.lock` or `src/`.
+  new stack; no pre-port dependency, path or import (`gpui-kit` /
+  `gpui-component`) remains in `Cargo.toml`, `Cargo.lock` or `src/` —
+  provenance comments that name the dropped stack in order to explain an
+  adaptation are allowed (amend: grep-for-zero-hit reading superseded,
+  2026-10-30).
 - actors: the owner (visual authority for this demo), developers reading the
   repo for GPUI shell/settings patterns.
 - authority: owner decisions in this session (2026-10-28): "Port nguyên code
@@ -90,17 +93,25 @@ lane: high-risk
     `select_trigger`, `dropdown`, `block_fill`, `row_divider`,
     `field_label`), not with gpui-component controls. All existing settings
     behavior survives: appearance mode (light/dark/system), accent, font
-    size, glass switches + opacity/tone sliders, language, time zone,
+    size, glass surface (the Appearance page's "Glass" select supersedes the
+    pre-port opacity/sidebar-tone sliders: those persisted values survive in
+    the file and round-trip, but the zeron page exposes the surface policy
+    instead — owner directive R8, Log 2026-10-29T15:40Z (a)), language, time zone,
     notifications switch + test notification, profile display name,
     About, page reset, persistence keys unchanged. The Appearance page is
     rebuilt as zeron's *custom* Appearance page (`settings/appearance.rs`),
     not a generic form: System/Light/Dark option cards with previews, light
     and dark theme-variant selectors, the accent swatch grid, the "Glass"
-    surface select (Opaque/Frosted), and the fonts/layout rows — wallpaper and
-    cloud-only rows dropped as NG2. | acceptance: functional tests or
-    AX-driven interaction prove each control writes `AppSettings` and
-    persists; the persisted file round-trips; owner visual check against
-    zeron's Appearance page. | source: zeron `settings/widgets.rs`,
+    surface select (Theme default/Translucent/Solid), the reduce-motion row
+    and the interface font-size row (zeron's UI/terminal/code font pickers,
+    transcript width and math-size rows have no persisted key and are dropped
+    for NG4) — wallpaper and cloud-only rows dropped as NG2. | acceptance:
+    functional tests or AX-driven interaction prove each control writes
+    `AppSettings` and persists; the persisted file round-trips; owner visual
+    check against zeron's Appearance page. (Replaced half, accepted: control
+    writes are proven by the pure suite + headless render probes instead of
+    AX-driven interaction, Log 2026-10-29T16:35Z; the owner waived the visual
+    checkpoint on 2026-10-29, Log 16:00Z.) | source: zeron `settings/widgets.rs`,
     `settings/appearance.rs`, `src/settings.rs` pages
   - R5: Theme, typography, icons and frost come from zeron's code: zeron-theme
     token crate (vendored), `theme.rs` light/dark/accent surface, the app's
@@ -190,7 +201,7 @@ lane: high-risk
   `git branch -D feat/zeron-stack`; to roll back a phase: `git checkout
   <last-good-commit> -- .` on the branch.
 - phase_slug: `stack-bringup`
-  status: checked
+  status: done
   - goal: R1 | depends_on: none
   - surfaces: `Cargo.toml`, `Cargo.lock`, `src/` (replaced with the new
     bootstrap), `Makefile` (only if the build needs it) | avoided:
@@ -219,7 +230,7 @@ lane: high-risk
   - phase check: `cargo build` + `make run` window/AX probe (recording the
     AX frame and the window id).
 - phase_slug: `theme-foundation`
-  status: checked
+  status: done
   - goal: R5 | depends_on: `stack-bringup`
   - surfaces: `vendor/zeron-theme/`, `vendor/zeron-ui/theme.rs`,
     `typography.rs`, `icons.rs`, `motion.rs`, `frost.rs`, `glass.rs`,
@@ -242,7 +253,7 @@ lane: high-risk
   - phase check: `cargo build`, `make run`, and an AX/probe check that the
     theme base is painted in both appearances.
 - phase_slug: `chrome`
-  status: checked
+  status: done
   - goal: R2, R3, R5 (translucent parity) | depends_on: `theme-foundation`
   - surfaces: `vendor/zeron-ui/chrome.rs` (ported titlebar geometry +
     upstream's tests), `vendor/zeron-ui/settings/` (section model + nav row
@@ -283,7 +294,7 @@ lane: high-risk
     `theme.glass()`, sidebar tone from `wash(0.05)`), then owner visual
     checkpoint.
 - phase_slug: `settings-surface`
-  status: checked
+  status: done
   - goal: R4 | depends_on: `chrome`
   - surfaces: `vendor/zeron-ui/settings/{widgets,select,menu}.rs`,
     `vendor/zeron-ui/{popover.rs,popover/,edge_fade.rs}` (the select stack's
@@ -345,7 +356,7 @@ lane: high-risk
   - phase check: `cargo build` + run + settings file round-trip; owner
   visual checkpoint.
 - phase_slug: `fidelity-close`
-  status: in-progress
+  status: done
   - goal: R6, R7 | depends_on: `settings-surface`
   - surfaces: `vendor/zeron-ui/` (cleanup), `Cargo.toml`, `Cargo.lock`,
     `Makefile`, `AGENTS.md`, `README.md`, `docs/memory/`, `THIRD_PARTY_NOTICES.md`,
@@ -810,6 +821,47 @@ lane: high-risk
   the independent `check full` for R7, then the handoff and the plan moves to
   `docs/plans/completed/`.
 
+- 2026-10-30T19:40Z — fidelity-close — close-out — the independent `check
+  full` returned APPROVE_WITH_REQUESTS (judge: fresh read-only subagent,
+  model deepseek-v4.1-flash; rollback point `85a1fdd`) with eight requests,
+  all resolved or recorded in this close-out before the phase sign-off:
+  (1) the four uncommitted comment-scrub files are committed (this entry's
+  commit) and the gate was re-run on that exact commit; provenance in the
+  vendored `popover/contained.rs` was restored verbatim, so the R6
+  grep-for-zero-hit reading is no longer the success criterion (amended in
+  the Goal); (2) R4 amended above to the delivered surface (Glass select
+  supersedes the opacity/tone sliders; the fonts section is the
+  interface-size row) and `src/settings/appearance.rs`'s drop list now names
+  the reduction; (3) success_signal reworded to dependency/path/import;
+  (4) T2 hygiene finished — all 27 stale `#[allow(dead_code)] // wired by
+  settings-surface T2` markers removed from `src/app_settings.rs`, genuinely
+  dead helpers/constants removed (`sidebar_tone_alpha`,
+  `SIDEBAR_TONE_MAX_ALPHA`, `clamp_font_size`, `FONT_SIZE_MIN/MAX`,
+  `save_settings`) with their obsolete assertions, and the stale phase-tense
+  doc comments in `src/main.rs`, `src/shell.rs`, `src/settings/mod.rs`,
+  `src/settings/finance.rs` and `vendor/zeron-ui/src/lib.rs` refreshed;
+  (5) the vacuous `system_choice_resolves_against_the_window` test replaced by
+  `concrete_choices_map_and_system_defers_to_the_window` over the new pure
+  `choice_appearance` helper; (6) the sidebar rows/aria and the search filter
+  now go through `i18n::tr` (`section_label`, both the localized and the
+  English label match), so the nav follows `AppSettings.language`; (7)
+  `src/settings/text_field.rs`'s text model extracted into four pure
+  functions (grapheme boundaries, UTF-16 ↔ UTF-8 offsets) with four unit
+  tests (decomposed diacritic, CJK, astral emoji, saturation); (8) the missing
+  `settings-surface` entry is added to `## Validation` below. Also recorded,
+  not fixed (documented gaps): 29 i18n keys from removed controls (old glass
+  sliders/About dialog) remain unused; the pre-port integration harness
+  (view tests) is replaced by pure tests + render probes (Log 16:35Z).
+  Check on the close-out: `cargo test` 119 pass (mono-desk 58, zeron-theme
+  24, zeron-ui 37); `make check`/`lint`/`fmt-check` rc 0;
+  `grep -rn "gpui_kit\|gpui-kit" Cargo.toml` empty; the provenance grep hits
+  only the two restored upstream comment citations; all seven sections and
+  the search probe re-run headlessly; runtime window probe 1320×880 @
+  (120,120) with empty stderr.
+- 2026-10-30T19:40Z — fidelity-close — decision — absorb: memory
+  zeron-stack-port (`docs/memory/zeron-stack-port.md`; the port's module map
+  and adaptation rules are the durable artifact this plan hands off to).
+
 ## Validation
 
 - 2026-10-28T15:04Z — phase `stack-bringup` — verdict: APPROVED — mode: gate, independent judge (high-risk lane)
@@ -897,27 +949,62 @@ lane: high-risk
   - unverified, by construction: rendered pixels, synthetic click/keyboard/drag, hover/selection motion, AX exposure — agent tooling has no capture or input grant. This entry records the owner's acceptance, not agent-captured evidence; a defect the owner reports later is fixed inside `chrome` before `fidelity-close`.
   - rollback_point: `feat/zeron-stack` commit `5c1e92b`.
 
+- 2026-10-30T19:40Z — phase `settings-surface` — verdict: APPROVED — mode: gate, owner directive (visual checkpoint waived)
+  - owner directive: "không cần check tiếp nữa đâu … làm tiếp luôn là được rồi" (2026-10-29T23:00+07:00) closed the phase without a separate visual report; same precedent as the `chrome` owner verdict.
+  - `cargo test` — 115 pass, 0 failed (mono-desk 54, zeron-theme 24, zeron-ui 37) at the wave-4 commit `85a1fdd` — pass
+  - `make check` / `make lint` / `make fmt-check` — rc 0 — pass
+  - `MONO_DESK_SELFTEST=1 MONO_DESK_SECTION=<general|appearance|notifications|profile|finance-ui|reset|about>` — each prints its `selected=` line, no panic — pass
+  - `MONO_DESK_APPEARANCE=dark MONO_DESK_SECTION=appearance` — `selftest appearance=Dark` — pass
+  - `MONO_DESK_SEARCH=pro` — `selftest search query=pro visible=Profile` — pass
+  - `cargo run` + CGWindow probe (~12 s) — 1 window, layer 0, alpha 1, onscreen 1, bounds 1320×880 at (120,120), empty stderr — pass
+  - scope: on target (waves 1–4: vendored widget/select/popover stack, `src/settings/*` pages, `src/finance/`, `src/shell.rs` search row, `src/main.rs` bootstrap, docs)
+  - proof_classes: output, unit, integration
+  - requirements: R4 met (seven pages on zeron's kit; Appearance is zeron's custom page; glass sliders superseded by the Glass select per R8) | R3 met with upstream's keyboard set (Enter/Space not wired, matching zeron) | R8 met (code parity + owner directive)
+  - rollback_point: `feat/zeron-stack` commit `85a1fdd`
+  - requests: none
+  - not_independently_verified: rendered pixels, hover/selection motion, click/keyboard behaviour, AX exposure (agent tooling has no capture or synthetic-input grant; waived by the owner directive)
+  - judge: same-session (owner directive)
+  - judge_model: deepseek-v4.1-flash
+
+- 2026-10-30T19:40Z — phase `fidelity-close` — verdict: APPROVE_WITH_REQUESTS — mode: full (lane high-risk, final phase)
+  - judge: independent subagent (separate context, read-only); judge_model: deepseek-v4.1-flash; graded first at HEAD `743e7d6`, then on the close-out commit that resolves its requests.
+  - `cargo test` — 119 pass, 0 failed (mono-desk 58, zeron-theme 24, zeron-ui 37) — pass
+  - `make check` / `make lint` / `make fmt-check` — rc 0 — pass
+  - `grep -rn "gpui_kit\|gpui-kit" Cargo.toml` — no matches — pass
+  - `grep -rn "gpui-component\|vendor/patches" Cargo.toml src vendor/zeron-ui` — only the two restored upstream provenance citations in the vendored popover file; no dependency, path or import — pass
+  - `git ls-files vendor/gpui-component vendor/patches` — empty; `ls vendor` = `zeron-theme`, `zeron-ui` — pass
+  - `cargo run` + CGWindow probe + all seven `MONO_DESK_SECTION` probes + `MONO_DESK_SEARCH` — window 1320×880 at (120,120), every page paints, filter probe matches — pass
+  - scope: on target (README/PROJECT rewrite, docs/design archive, memory banners, notices, dead-code/doc-comment hygiene, nav i18n, text-field tests, plan Log/Validation)
+  - proof_classes: output, unit
+  - proof_gaps: integration — no interaction harness (no synthetic input; gpui `test-support` not enabled), and rendered pixels, hover/selection motion, keyboard/typing, AX exposure, the Opaque↔Blurred flip and runtime min-size enforcement are unverifiable from agent tooling
+  - requirements: R6 met (grep sweep, notices, old vendor trees absent, docs rewritten) | R7 met (four phase gates recorded; this is the final independent `full`)
+  - rollback_point: `feat/zeron-stack` commit `85a1fdd`
+  - requests: 8 judge findings — all resolved in the close-out (Log 2026-10-30T19:40Z): dirty-tree commit + gate re-run; R4 amended; success_signal reworded; T2 hygiene finished; vacuous test replaced; nav localized via i18n; text_field covered by pure tests; this phase's `settings-surface` Validation entry added above
+  - not_independently_verified: nothing beyond `proof_gaps`
+  - judge: independent
+  - judge_model: deepseek-v4.1-flash
+
 ## Current State and Next Action
-- active_phase: fidelity-close
-- lifecycle_status: in-progress (R6/R7 close-out; settings-surface is
-  `checked` by owner directive)
+- active_phase: none
+- lifecycle_status: completed (all five phases `done`; final `check full`
+  returned APPROVE_WITH_REQUESTS and every request is resolved or recorded)
 - blockers: none.
-- open_items: `settings-surface` closed on the owner's "no more checks, keep
-  going" directive (Log 2026-10-29T16:00Z) with waves 1–4 landed in commits
-  `5d57be6`/`85a1fdd`; machine evidence green (`cargo test` 115,
-  check/lint/fmt-check, seven headless page renders, search probe, window
-  probe). `fidelity-close` is closing the remaining R6/R7 items:
-  (T1) the pre-port view-test suite (1477 lines of gpui-component behaviour
-  tests on `wip/gpui-kit-shell`) is replaced rather than ported — the widgets
-  and overlay layers it drove no longer exist and the fork's `test-support`
-  feature is not enabled for mono-desk, so equivalence is the current pure
-  suite plus headless render probes, recorded as a coverage mapping; (T2)
-  hygiene: README/PROJECT.md rewritten for the zeron stack, the gpui-kit-era
-  `docs/design/*` specs archived as historical, the temporary
-  `#[allow(dead_code)]` markers removed, R6's grep sweep clean outside the
-  notices. Remaining after hygiene: independent `check full`, final gates,
-  `handoff`, plan moves to `docs/plans/completed/`.
-- exact_next_action: run the R6 grep sweep, the full gate set
-  (`cargo test && make check && make lint && make fmt-check`), the
-  independent `check full` judge, then commit the close-out and move the plan
-  to `completed/` with the handoff entry.
+- open_items: none for this initiative. Carried as documented, accepted gaps
+  (not backlog for this plan): rendered pixels / hover / click / keyboard /
+  AX exposure are unverifiable from agent tooling and the owner waived the
+  visual checkpoint (Log 2026-10-29T16:00Z); the Opaque↔Blurred flip and the
+  900×600 minimum are code-verified only; the pre-port interaction suite is
+  replaced by pure tests + headless render probes (Log 2026-10-29T16:35Z);
+  no nav edge-fade wrapper; the Finance art board is fixed-px and does not
+  scale with the interface font size; About has no Links/dialog group;
+  reduce-motion and theme-variant choices are live-only (no persisted key,
+  NG4); pre-port accent values that match no zeron preset read as "Theme
+  default"; 29 i18n keys from removed controls remain unused; zeron's theme
+  library/wallpaper/cloud surfaces are out of scope (NG2).
+- exact_next_action: owner runs `make run` for the visual pass over the seven
+  pages (light and dark, `MONO_DESK_APPEARANCE=dark` for a pinned pass). Any
+  defect it finds starts a new plan (`docs/plans/active/`) or reopens the
+  owning area; there is no further work queued in this initiative.
+- durable handoff: `docs/memory/zeron-stack-port.md` (module map + adaptation
+  rules), `docs/PROJECT.md`, `THIRD_PARTY_NOTICES.md`, and this plan's
+  Validation entries.

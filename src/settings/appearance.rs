@@ -6,9 +6,14 @@
 //!
 //! Dropped from upstream, per the port plan's NG2: the wallpaper folder and
 //! background-image rows, the theme library/import rows, the cloud-only rows
-//! and the settings-search anchors. Kept structurally: the page is the same
-//! column of sections/rows/cards as upstream's render (appearance.rs:4238-4273),
-//! so a visual diff against zeron's page reads as the same page.
+//! and the settings-search anchors. Reduced for this app's persisted keys: the
+//! "Fonts and layout" section keeps only the interface font size (zeron's
+//! UI/terminal/code font pickers, transcript width and math-size rows have no
+//! `AppSettings` field, NG4), and the motion section keeps only "Reduce
+//! motion". Both reductions are deliberate and recorded in the plan's R4
+//! amendment. Kept structurally: the page is the same column of
+//! sections/rows/cards as upstream's render (appearance.rs:4238-4273), so a
+//! visual diff against zeron's page reads as the same page.
 //!
 //! Wiring differs from upstream on purpose: zeron's `appearance::set_*` helpers
 //! write into zeron's settings service, which mono-desk does not vendor. Every

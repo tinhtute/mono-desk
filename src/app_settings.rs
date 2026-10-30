@@ -20,64 +20,39 @@ use gpui::{App, Global, Hsla, Rgba, SharedString};
 
 use crate::persist::StoredSettings;
 
-/// Lower bound of the Font Size setting, in px.
-#[allow(dead_code)] // wired by settings-surface T2
-pub(crate) const FONT_SIZE_MIN: f64 = 8.0;
-/// Upper bound of the Font Size setting, in px.
-#[allow(dead_code)] // wired by settings-surface T2
-pub(crate) const FONT_SIZE_MAX: f64 = 32.0;
-
 /// Lower bound of the Window opacity setting, in percent.
 ///
 /// Floored well above zero: below ~40% the frost layer stops carrying
 /// enough contrast over an arbitrary desktop backdrop for this app's text,
 /// which is a readability cliff rather than a taste choice.
-#[allow(dead_code)] // wired by settings-surface T2
 pub(crate) const WINDOW_OPACITY_MIN: f64 = 40.0;
 /// Upper bound of the Window opacity setting, in percent (opaque).
-#[allow(dead_code)] // wired by settings-surface T2
 pub(crate) const WINDOW_OPACITY_MAX: f64 = 100.0;
 /// Default Window opacity, in percent, when translucency is first enabled.
 ///
 /// Matches monocode's 0.85 surface opacity: low enough to see the frosted
 /// backdrop immediately, high enough for the settings text to stay readable.
-#[allow(dead_code)] // wired by settings-surface T2
 pub(crate) const WINDOW_OPACITY_DEFAULT: f64 = 85.0;
 
 /// Lower bound of the Sidebar tone setting, in percent of the max wash.
-#[allow(dead_code)] // wired by settings-surface T2
 pub(crate) const SIDEBAR_TONE_MIN: f64 = 0.0;
 /// Upper bound of the Sidebar tone setting, in percent of the max wash.
-#[allow(dead_code)] // wired by settings-surface T2
 pub(crate) const SIDEBAR_TONE_MAX: f64 = 100.0;
 /// Default Sidebar tone, in percent: 50% of the max wash, i.e. an ink tint of
 /// 0.05 — the same weight zeron's glass sidebar paints (`wash(0.05)`).
-#[allow(dead_code)] // wired by settings-surface T2
 pub(crate) const SIDEBAR_TONE_DEFAULT: f64 = 50.0;
-/// The strongest sidebar tone, as an alpha: 100% puts 10% ink over the frost.
-///
-/// Deliberately small: the tone separates the navigation column from the
-/// content without becoming a second surface, which is what the previous
-/// pane-alpha model did (and why it read as two stacked panels).
-#[allow(dead_code)] // wired by settings-surface T2
-pub(crate) const SIDEBAR_TONE_MAX_ALPHA: f32 = 0.10;
-
 /// Sidebar rail width bounds, in logical pixels.
 ///
 /// Matches zeron's `SIDEBAR_MIN`/`SIDEBAR_MAX`/`SIDEBAR_DEFAULT`: the rail is
 /// resizable between those limits and its last width persists across launches.
-#[allow(dead_code)] // wired by settings-surface T2
 pub(crate) const SIDEBAR_WIDTH_MIN: f64 = 242.0;
-#[allow(dead_code)] // wired by settings-surface T2
 pub(crate) const SIDEBAR_WIDTH_MAX: f64 = 400.0;
-#[allow(dead_code)] // wired by settings-surface T2
 pub(crate) const SIDEBAR_WIDTH_DEFAULT: f64 = 256.0;
 
 /// Clamp a requested sidebar width into the supported pixel range.
 ///
 /// A non-finite value falls back to the default width, so a malformed file
 /// cannot produce a zero-width or runaway rail.
-#[allow(dead_code)] // wired by settings-surface T2
 pub(crate) fn clamp_sidebar_width(width: f64) -> f64 {
     if !width.is_finite() {
         return SIDEBAR_WIDTH_DEFAULT;
@@ -87,10 +62,9 @@ pub(crate) fn clamp_sidebar_width(width: f64) -> f64 {
 
 /// Clamp a requested window opacity into the supported percentage range.
 ///
-/// Same NaN guard as [`clamp_font_size`], but the fallback is the *opaque*
+/// Same NaN guard as the other clamps, but the fallback is the *opaque*
 /// end: a malformed value must never make the window unexpectedly
 /// transparent.
-#[allow(dead_code)] // wired by settings-surface T2
 pub(crate) fn clamp_window_opacity(opacity: f64) -> f64 {
     if !opacity.is_finite() {
         return WINDOW_OPACITY_MAX;
@@ -102,7 +76,6 @@ pub(crate) fn clamp_window_opacity(opacity: f64) -> f64 {
 ///
 /// The fallback is the default tone, never "more ink than asked for": a
 /// malformed file must not darken the rail unexpectedly.
-#[allow(dead_code)] // wired by settings-surface T2
 pub(crate) fn clamp_sidebar_tone(tone: f64) -> f64 {
     if !tone.is_finite() {
         return SIDEBAR_TONE_DEFAULT;
@@ -110,40 +83,14 @@ pub(crate) fn clamp_sidebar_tone(tone: f64) -> f64 {
     tone.clamp(SIDEBAR_TONE_MIN, SIDEBAR_TONE_MAX)
 }
 
-/// The ink alpha the sidebar paints for a tone percentage.
-///
-/// `0` returns fully transparent (the column is then separated only by its
-/// hairline), `100` returns [`SIDEBAR_TONE_MAX_ALPHA`]; a non-finite value
-/// falls back to the default tone.
-#[allow(dead_code)] // wired by settings-surface T2
-pub(crate) fn sidebar_tone_alpha(percent: f64) -> f32 {
-    (clamp_sidebar_tone(percent) / 100.0) as f32 * SIDEBAR_TONE_MAX_ALPHA
-}
-
-/// Clamp a requested UI font size into the supported range.
-///
-/// `f64::clamp` is NaN-transparent — `NaN.clamp(8.0, 32.0)` returns `NaN`
-/// — so a NaN would flow straight into `px()` and poison the rem-based
-/// layout. NaN falls back to the default size instead. Infinities need no
-/// special case: `clamp` already saturates them to the bounds. Callers
-/// gate on `is_finite` before this, so the NaN arm is a backstop.
-#[allow(dead_code)] // wired by settings-surface T2
-pub(crate) fn clamp_font_size(size: f64) -> f64 {
-    if size.is_nan() {
-        return 14.0;
-    }
-    size.clamp(FONT_SIZE_MIN, FONT_SIZE_MAX)
-}
-
 /// Parse a stored accent — `#RRGGBB` (or `#RRGGBBAA`) — or `None` for the
 /// theme's own.
 ///
 /// Anything unparseable is `None`, so a hand-edited file falls back to the
 /// shipped palette rather than to an arbitrary color. The pre-port layer used
-/// gpui-component's `Colorize::parse_hex`; the zeron stack has no such
+/// the pre-port UI kit's `Colorize::parse_hex`; the zeron stack has no such
 /// extension trait, so the same byte-level codec is implemented here over
 /// gpui's `Rgba` (same accepted input set, same `Hsla` result).
-#[allow(dead_code)] // wired by settings-surface T2
 pub(crate) fn accent_from_str(s: &str) -> Option<Hsla> {
     let hex = s.trim_start_matches('#');
     // Byte-sliced below: non-ASCII input is rejected up front instead of
@@ -162,9 +109,8 @@ pub(crate) fn accent_from_str(s: &str) -> Option<Hsla> {
     Some(Hsla::from(Rgba { r, g, b, a }))
 }
 
-/// The persisted `#RRGGBB` word for an accent, uppercase like gpui-component's
+/// The persisted `#RRGGBB` word for an accent, uppercase like the pre-port kit's
 /// `Colorize::to_hex` (the pre-port `to_stored` used it verbatim).
-#[allow(dead_code)] // wired by settings-surface T2
 pub(crate) fn accent_to_str(accent: Hsla) -> String {
     let rgb = accent.to_rgb();
     let channel = |c: f32| (c * 255.) as u32;
@@ -192,7 +138,6 @@ pub(crate) fn accent_to_str(accent: Hsla) -> String {
 /// the app's *choice*, which can also be "follow the OS", so the two cannot
 /// be the same type.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-#[allow(dead_code)] // wired by settings-surface T2
 pub(crate) enum Appearance {
     #[default]
     Light,
@@ -200,7 +145,6 @@ pub(crate) enum Appearance {
     System,
 }
 
-#[allow(dead_code)] // wired by settings-surface T2
 impl Appearance {
     /// The persisted `key=value` word. Stable — it is written to disk.
     pub(crate) fn as_str(self) -> &'static str {
@@ -235,14 +179,12 @@ impl Appearance {
 
 /// How often digest notifications arrive (the Notifications → Digest radio).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[allow(dead_code)] // wired by settings-surface T2
 pub(crate) enum DigestCadence {
     Immediate,
     Daily,
     Weekly,
 }
 
-#[allow(dead_code)] // wired by settings-surface T2
 impl DigestCadence {
     /// The value persisted and used as each radio's key.
     pub(crate) fn value(self) -> &'static str {
@@ -281,7 +223,6 @@ impl DigestCadence {
 /// Fields are `pub(crate)` — the pre-port state lived in `main.rs` and was
 /// private by virtue of the module boundary; the pages/tests now live in
 /// sibling modules.
-#[allow(dead_code)] // wired by settings-surface T2
 pub(crate) struct AppSettings {
     pub(crate) appearance: Appearance,
     /// Brand accent, or `None` for the theme's own. Persisted as `#RRGGBB`.
@@ -349,7 +290,6 @@ impl Default for AppSettings {
 
 impl Global for AppSettings {}
 
-#[allow(dead_code)] // wired by settings-surface T2
 impl AppSettings {
     pub(crate) fn global(cx: &App) -> &Self {
         cx.global::<AppSettings>()
@@ -360,7 +300,6 @@ impl AppSettings {
     }
 }
 
-#[allow(dead_code)] // wired by settings-surface T2
 impl AppSettings {
     pub(crate) fn from_stored(s: StoredSettings) -> Self {
         Self {
@@ -427,17 +366,6 @@ impl AppSettings {
     }
 }
 
-/// Persist the current settings through the one save path; I/O errors are
-/// logged inside [`crate::persist::save`] and never panic.
-///
-/// Ported from old `main.rs` (`save_settings`): every page mutates
-/// `AppSettings` and funnels through here, so the pages cannot drift on what
-/// gets written.
-#[allow(dead_code)] // wired by settings-surface T2
-pub(crate) fn save_settings(cx: &App) {
-    crate::persist::save(&AppSettings::global(cx).to_stored());
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -456,12 +384,8 @@ mod tests {
         assert_eq!(clamp_window_opacity(f64::INFINITY), WINDOW_OPACITY_MAX);
         assert_eq!(clamp_window_opacity(f64::NEG_INFINITY), WINDOW_OPACITY_MAX);
 
-        // The sidebar tone is a wash strength, not an opacity: zero must be
-        // invisible, the default must land on zeron's 5% ink, and a bad value
-        // must fall back to the default rather than to the strongest tone.
-        assert_eq!(sidebar_tone_alpha(0.0), 0.0);
-        assert!((sidebar_tone_alpha(SIDEBAR_TONE_DEFAULT) - 0.05).abs() < f32::EPSILON);
-        assert_eq!(sidebar_tone_alpha(100.0), SIDEBAR_TONE_MAX_ALPHA);
+        // The sidebar tone is a wash percentage clamped to 0–100, and a bad
+        // value falls back to the default rather than to the strongest tone.
         assert_eq!(clamp_sidebar_tone(f64::NAN), SIDEBAR_TONE_DEFAULT);
         assert_eq!(clamp_sidebar_tone(f64::INFINITY), SIDEBAR_TONE_DEFAULT);
         assert_eq!(clamp_sidebar_tone(-10.0), 0.0);
@@ -473,23 +397,6 @@ mod tests {
         assert_eq!(clamp_sidebar_width(256.0), 256.0);
         assert_eq!(clamp_sidebar_width(10_000.0), 400.0);
         assert_eq!(clamp_sidebar_width(f64::NAN), 256.0);
-    }
-
-    /// Ported from old `src/theme.rs` `font_size_clamps_to_supported_range`.
-    #[test]
-    fn font_size_clamps_to_supported_range() {
-        assert_eq!(clamp_font_size(0.0), FONT_SIZE_MIN);
-        assert_eq!(clamp_font_size(7.9), FONT_SIZE_MIN);
-        assert_eq!(clamp_font_size(FONT_SIZE_MIN), FONT_SIZE_MIN);
-        assert_eq!(clamp_font_size(15.0), 15.0);
-        assert_eq!(clamp_font_size(FONT_SIZE_MAX), FONT_SIZE_MAX);
-        assert_eq!(clamp_font_size(33.0), FONT_SIZE_MAX);
-        assert_eq!(clamp_font_size(999.0), FONT_SIZE_MAX);
-        // Non-finite input must not pass through: `f64::clamp` alone is
-        // NaN-transparent and would hand `px()` a NaN rem size.
-        assert_eq!(clamp_font_size(f64::NAN), 14.0);
-        assert_eq!(clamp_font_size(f64::INFINITY), FONT_SIZE_MAX);
-        assert_eq!(clamp_font_size(f64::NEG_INFINITY), FONT_SIZE_MIN);
     }
 
     /// Ported from old `src/theme.rs` `stored_accent_parses_or_falls_back`
@@ -512,7 +419,7 @@ mod tests {
     ///
     /// The codec round-trips through HSL, so one encode can move a channel by
     /// a unit (`#124b68` writes `#124B67`). That is the pre-port
-    /// gpui-component path's behaviour; plan NG4 freezes it rather than
+    /// pre-port path's behaviour; plan NG4 freezes it rather than
     /// "fixing" it, so this test asserts the shape, not a byte-exact hop.
     #[test]
     fn accent_words_round_trip() {

@@ -2,10 +2,10 @@
 //! (`vendor/zeron-ui/src/settings/widgets.rs`) and zeron's own select
 //! primitive (`vendor/zeron-ui/src/settings/select.rs`).
 //!
-//! Phase `settings-surface` T1 lands General and Notifications, T2 the
-//! Profile/Finance UI/Reset/About pages, T3 zeron's own Appearance page and T4
-//! the sidebar search. The page *content* is mono-desk's own (i18n strings,
-//! `AppSettings`, persistence); the page structure — `page_column`,
+//! Phase `settings-surface` landed General and Notifications (T1), the
+//! Profile/Finance UI/Reset/About pages (T2), zeron's own Appearance page (T3)
+//! and the sidebar search (T4). The page *content* is mono-desk's own (i18n
+//! strings, `AppSettings`, persistence); the page structure — `page_column`,
 //! `page_header`, `section`, `section_card`, `card_row`, `row_title`,
 //! `meta_line`, `toggle_switch`, `select` — is zeron's, ported verbatim, so the
 //! pages read as the same product surface as the vendored chrome.
@@ -109,10 +109,16 @@ pub(crate) fn theme_appearance(
     choice: app_settings::Appearance,
     window: &Window,
 ) -> ThemeAppearance {
+    choice_appearance(choice).unwrap_or_else(|| ThemeAppearance::from_window(window.appearance()))
+}
+
+/// The appearance a pinned choice resolves to; `None` for `System`, which
+/// depends on the live window and is resolved by [`theme_appearance`].
+fn choice_appearance(choice: app_settings::Appearance) -> Option<ThemeAppearance> {
     match choice {
-        app_settings::Appearance::Light => ThemeAppearance::Light,
-        app_settings::Appearance::Dark => ThemeAppearance::Dark,
-        app_settings::Appearance::System => ThemeAppearance::from_window(window.appearance()),
+        app_settings::Appearance::Light => Some(ThemeAppearance::Light),
+        app_settings::Appearance::Dark => Some(ThemeAppearance::Dark),
+        app_settings::Appearance::System => None,
     }
 }
 
@@ -275,16 +281,17 @@ mod tests {
     }
 
     #[test]
-    fn system_choice_resolves_against_the_window() {
-        // `theme_appearance` needs a live window for the `System` arm; the two
-        // concrete choices are pure and are the only part a unit test can pin.
+    fn concrete_choices_map_and_system_defers_to_the_window() {
         assert_eq!(
-            ThemeAppearance::Dark,
-            match app_settings::Appearance::Dark {
-                app_settings::Appearance::Light => ThemeAppearance::Light,
-                app_settings::Appearance::Dark => ThemeAppearance::Dark,
-                app_settings::Appearance::System => ThemeAppearance::Dark,
-            }
+            choice_appearance(app_settings::Appearance::Light),
+            Some(ThemeAppearance::Light)
         );
+        assert_eq!(
+            choice_appearance(app_settings::Appearance::Dark),
+            Some(ThemeAppearance::Dark)
+        );
+        // `System` has no pure answer: `theme_appearance` resolves it from the
+        // window (and the `MONO_DESK_APPEARANCE` pin can override it).
+        assert_eq!(choice_appearance(app_settings::Appearance::System), None);
     }
 }

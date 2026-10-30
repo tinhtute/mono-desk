@@ -61,6 +61,57 @@ pub const KEY_CONTEXT: &str = "TextField";
 /// Called after every content change, with the new value.
 type ChangeHandler = Box<dyn Fn(&str, &mut Window, &mut Context<TextField>) + 'static>;
 
+/// The nearest grapheme boundary before `offset`, or 0 at the start.
+fn previous_boundary(content: &str, offset: usize) -> usize {
+    content
+        .grapheme_indices(true)
+        .rev()
+        .find_map(|(idx, _)| (idx < offset).then_some(idx))
+        .unwrap_or(0)
+}
+
+/// The nearest grapheme boundary after `offset`, or the content length at the
+/// end. Grapheme clusters keep multi-scalar characters (decomposed Vietnamese
+/// diacritics, emoji ZWJ sequences) from splitting under a single backspace.
+fn next_boundary(content: &str, offset: usize) -> usize {
+    content
+        .grapheme_indices(true)
+        .find_map(|(idx, _)| (idx > offset).then_some(idx))
+        .unwrap_or(content.len())
+}
+
+/// UTF-16 offset (what the platform IME APIs speak) to a UTF-8 byte offset.
+fn offset_from_utf16(content: &str, offset: usize) -> usize {
+    let mut utf8_offset = 0;
+    let mut utf16_count = 0;
+
+    for ch in content.chars() {
+        if utf16_count >= offset {
+            break;
+        }
+        utf16_count += ch.len_utf16();
+        utf8_offset += ch.len_utf8();
+    }
+
+    utf8_offset
+}
+
+/// UTF-8 byte offset to a UTF-16 offset for the platform IME APIs.
+fn offset_to_utf16(content: &str, offset: usize) -> usize {
+    let mut utf16_offset = 0;
+    let mut utf8_count = 0;
+
+    for ch in content.chars() {
+        if utf8_count >= offset {
+            break;
+        }
+        utf8_count += ch.len_utf8();
+        utf16_offset += ch.len_utf16();
+    }
+
+    utf16_offset
+}
+
 /// One-line editable text field. Pages own it as a child entity and mirror
 /// its value into `AppSettings` through [`TextField::on_change`].
 pub struct TextField {
@@ -328,33 +379,11 @@ impl TextField {
     }
 
     fn offset_from_utf16(&self, offset: usize) -> usize {
-        let mut utf8_offset = 0;
-        let mut utf16_count = 0;
-
-        for ch in self.content.chars() {
-            if utf16_count >= offset {
-                break;
-            }
-            utf16_count += ch.len_utf16();
-            utf8_offset += ch.len_utf8();
-        }
-
-        utf8_offset
+        offset_from_utf16(&self.content, offset)
     }
 
     fn offset_to_utf16(&self, offset: usize) -> usize {
-        let mut utf16_offset = 0;
-        let mut utf8_count = 0;
-
-        for ch in self.content.chars() {
-            if utf8_count >= offset {
-                break;
-            }
-            utf8_count += ch.len_utf8();
-            utf16_offset += ch.len_utf16();
-        }
-
-        utf16_offset
+        offset_to_utf16(&self.content, offset)
     }
 
     fn range_to_utf16(&self, range: &Range<usize>) -> Range<usize> {
@@ -366,18 +395,11 @@ impl TextField {
     }
 
     fn previous_boundary(&self, offset: usize) -> usize {
-        self.content
-            .grapheme_indices(true)
-            .rev()
-            .find_map(|(idx, _)| (idx < offset).then_some(idx))
-            .unwrap_or(0)
+        previous_boundary(&self.content, offset)
     }
 
     fn next_boundary(&self, offset: usize) -> usize {
-        self.content
-            .grapheme_indices(true)
-            .find_map(|(idx, _)| (idx > offset).then_some(idx))
-            .unwrap_or(self.content.len())
+        next_boundary(&self.content, offset)
     }
 
     fn reset(&mut self) {
@@ -776,5 +798,51 @@ impl TextField {
             ),
             KeyBinding::new("escape", actions::Clear, Some(KEY_CONTEXT)),
         ]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ascii_boundaries_step_by_one_byte() {
+        let content = "hello";
+        assert_eq!(previous_boundary(content, 0), 0);
+        assert_eq!(previous_boundary(content, 3), 2);
+        assert_eq!(next_boundary(content, 3), 4);
+        assert_eq!(next_boundary(content, content.len()), content.len());
+    }
+
+    #[test]
+    fn boundaries_keep_grapheme_clusters_whole() {
+        // Decomposed "e" + combining acute (3 bytes, one grapheme): a single
+        // backspace from the following "l" must not split the cluster.
+        let content = "he\u{301}llo";
+        let after_cluster = 4;
+        assert_eq!(previous_boundary(content, after_cluster), 1);
+        assert_eq!(next_boundary(content, 1), after_cluster);
+        assert_eq!(previous_boundary(content, 0), 0);
+    }
+
+    #[test]
+    fn utf16_conversion_handles_multibyte_and_astral_chars() {
+        let cjk = "日本語"; // 3 bytes / 1 UTF-16 unit each
+        assert_eq!(offset_from_utf16(cjk, 1), 3);
+        assert_eq!(offset_to_utf16(cjk, 3), 1);
+        let crab = "🦀"; // 4 bytes / 2 UTF-16 units
+        assert_eq!(offset_from_utf16(crab, 2), 4);
+        assert_eq!(offset_to_utf16(crab, 4), 2);
+        assert_eq!(offset_to_utf16(crab, 0), 0);
+    }
+
+    #[test]
+    fn utf16_offsets_saturate_at_the_end() {
+        let content = "ok";
+        assert_eq!(offset_from_utf16(content, 99), content.len());
+        assert_eq!(
+            offset_to_utf16(content, 99),
+            content.chars().map(char::len_utf16).sum::<usize>()
+        );
     }
 }

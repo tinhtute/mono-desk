@@ -11,10 +11,12 @@
 //! (cluster at 88px, sidebar resize/collapse, centered title) is deliberately
 //! not ported; the plan's R2 records that decision.
 //!
-//! Phase `chrome` T1 landed the shell surface, the drag strip, the sidebar
-//! tone/column and the page's titlebar clearance; T2 adds the section list
-//! (`render_nav`, zeron `render_settings_nav`) and the footer identity row
-//! (`render_footer`, zeron's `render_sidebar_footer_row` / user-menu trigger).
+//! Landed by phase `chrome`: the shell surface, the drag strip, the sidebar
+//! tone/column, the page's titlebar clearance, the section list (`render_nav`,
+//! zeron `render_settings_nav`) and the footer identity row (`render_footer`,
+//! zeron's `render_sidebar_footer_row` / user-menu trigger). Phase
+//! `settings-surface` added the settings search field (`render_search`, zeron
+//! `shell/settings_search.rs` layout), the section filter and the page pane.
 
 use gpui::prelude::*;
 use gpui::{
@@ -55,19 +57,39 @@ const SIDEBAR_FOOTER_AVATAR_SIZE: f32 = 16.0;
 /// Identity shown in the footer when the Profile display name is empty.
 const IDENTITY_NAME: &str = "Mono Desk";
 
-/// Whether a section row matches the sidebar query: case-insensitive substring
-/// over the row's label, with an empty query matching everything.
-fn section_matches(label: &str, query: &str) -> bool {
-    query.is_empty() || label.to_lowercase().contains(query)
+/// The nav label for a section in `lang`: the same `page.*` key the page
+/// header uses, so the sidebar follows `AppSettings.language` like the pages do.
+fn section_label(section: SettingsSection, lang: &str) -> &'static str {
+    match section {
+        SettingsSection::General => tr("page.general", lang),
+        SettingsSection::Appearance => tr("page.appearance", lang),
+        SettingsSection::Notifications => tr("page.notifications", lang),
+        SettingsSection::Profile => tr("page.profile", lang),
+        SettingsSection::FinanceUi => tr("page.finance", lang),
+        SettingsSection::Reset => tr("page.reset", lang),
+        SettingsSection::About => tr("page.about", lang),
+    }
 }
 
-/// The section rows the sidebar shows for `query` (trimmed, case-insensitive).
-/// Shared by the nav and the `MONO_DESK_SEARCH` selftest probe.
-pub(crate) fn sections_for_query(query: &str) -> Vec<SettingsSection> {
+/// Whether a section row matches the sidebar query: case-insensitive substring
+/// over both the localized and the English label, an empty query matching
+/// everything (so both the current UI language and the upstream section names
+/// stay searchable).
+fn section_matches(section: SettingsSection, query: &str, lang: &str) -> bool {
+    if query.is_empty() {
+        return true;
+    }
+    section.label().to_lowercase().contains(query)
+        || section_label(section, lang).to_lowercase().contains(query)
+}
+
+/// The section rows the sidebar shows for `query` in `lang` (trimmed,
+/// case-insensitive). Shared by the nav and the `MONO_DESK_SEARCH` probe.
+pub(crate) fn sections_for_query(query: &str, lang: &str) -> Vec<SettingsSection> {
     let query = query.trim().to_lowercase();
     SettingsSection::ALL
         .into_iter()
-        .filter(|section| section_matches(section.label(), &query))
+        .filter(|section| section_matches(*section, &query, lang))
         .collect()
 }
 
@@ -350,9 +372,10 @@ impl Shell {
     }
 
     /// The section list (zeron `render_settings_nav`): a roving tab list of
-    /// label + icon rows with one group break at the workspace rows. zeron's
-    /// nav also carries the settings search row above it — that lands with
-    /// `settings-surface` T4 (it needs a text-input primitive).
+    /// label + icon rows with one group break at the workspace rows, filtered
+    /// by the settings search above it. Labels come from the page i18n table
+    /// (`section_label`), so the nav follows `AppSettings.language`; the
+    /// filter matches both the localized and the English label.
     fn render_nav(
         &mut self,
         theme: &Theme,
@@ -365,7 +388,7 @@ impl Shell {
         // The search filters the section rows (zeron indexes every setting on
         // every page; a seven-page window only needs the section list).
         let query = self.search_query(cx);
-        let visible: Vec<SettingsSection> = sections_for_query(&query);
+        let visible: Vec<SettingsSection> = sections_for_query(&query, &lang);
         let search = self.render_search(theme, window, cx);
         let mut rows = Vec::with_capacity(visible.len());
         for (index, item) in SettingsSection::ALL.into_iter().enumerate() {
@@ -392,7 +415,7 @@ impl Shell {
                 widgets::section_tab(theme, is_selected, selection_t, key, hover_key)
                     .when(item.starts_nav_group(), |el| el.mt(px(Theme::SPACE_LG)))
                     .role(gpui::Role::Tab)
-                    .aria_label(item.label())
+                    .aria_label(section_label(item, &lang))
                     .aria_selected(is_selected)
                     .track_focus(&focus)
                     .tab_index(0)
@@ -425,7 +448,7 @@ impl Shell {
                     .cursor_pointer()
                     .on_click(cx.listener(move |this, _, _, cx| this.select_section(item, cx)))
                     .child(icons::icon(item.icon()).size(px(16.0)).text_color(tab_text))
-                    .child(SharedString::from(item.label())),
+                    .child(SharedString::from(section_label(item, &lang))),
             );
         }
         div()
@@ -730,21 +753,46 @@ impl Render for Shell {
 
 #[cfg(test)]
 mod search_tests {
-    use super::section_matches;
+    use super::{SettingsSection, sections_for_query};
 
     #[test]
     fn empty_query_matches_every_section() {
-        for label in ["General", "Appearance", "Notifications", "Finance UI"] {
-            assert!(section_matches(label, ""));
-        }
+        assert_eq!(
+            sections_for_query("", "en").len(),
+            SettingsSection::ALL.len()
+        );
+        assert_eq!(
+            sections_for_query("  ", "vi").len(),
+            SettingsSection::ALL.len()
+        );
     }
 
     #[test]
-    fn query_filters_labels_case_insensitively() {
-        assert!(section_matches("Finance UI", "finance"));
-        assert!(section_matches("Finance UI", "ui"));
-        assert!(section_matches("General", "gen"));
-        assert!(!section_matches("General", "finance"));
-        assert!(!section_matches("About", "zzz"));
+    fn query_filters_english_labels_case_insensitively() {
+        assert_eq!(
+            sections_for_query("fin", "en"),
+            vec![SettingsSection::FinanceUi]
+        );
+        assert!(sections_for_query("ui", "en").contains(&SettingsSection::FinanceUi));
+        assert_eq!(
+            sections_for_query("gen", "en"),
+            vec![SettingsSection::General]
+        );
+        assert!(sections_for_query("zzz", "en").is_empty());
+    }
+
+    #[test]
+    fn query_also_matches_the_localized_label() {
+        // Vietnamese "Chung" is General's page title in `src/i18n.rs`; the nav
+        // shows that label, so the filter must find it.
+        assert_eq!(
+            sections_for_query("chung", "vi"),
+            vec![SettingsSection::General]
+        );
+        // The English label stays searchable as well.
+        assert_eq!(
+            sections_for_query("general", "vi"),
+            vec![SettingsSection::General]
+        );
     }
 }
