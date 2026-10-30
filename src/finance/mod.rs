@@ -1,6 +1,6 @@
 //! The finance showcase the "Finance UI" settings page hosts, adapted from
 //! the pre-port app's `src/cadence/` modules (preserved on
-//! `wip/gpui-kit-shell`), which were built on gpui-component.
+//! `wip/gpui-kit-shell`), which were built on the pre-port UI kit.
 //!
 //! ## What this is
 //!

@@ -1,10 +1,7 @@
 //! The Finance UI page (`settings-surface` T2): zeron's page scaffolding hosts
 //! mono-desk's own finance showcase — the eight-card canvas cloned from the
-//! pre-port app (`src/finance/`), rebuilt on zeron's widgets instead of
-//! gpui-component.
-//!
-//! Placeholder body: the shell wiring lands first; the showcase is filled in
-//! by the T2 finance task.
+//! pre-port app (`src/finance/`), rebuilt on zeron's widgets instead of the
+//! pre-port UI kit.
 
 use gpui::prelude::*;
 use gpui::{Context, IntoElement, Render, ScrollHandle, Window, div};

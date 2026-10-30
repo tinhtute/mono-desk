@@ -7,12 +7,12 @@
 //! model lives in `vendor/zeron-theme/`. See
 //! `docs/plans/active/zeron-stack-port.md` and `THIRD_PARTY_NOTICES.md`.
 //!
-//! Current phase (`settings-surface`): the window runs on zeron's Settings-route
-//! shell — the glass root surface over the blurred window background, the 38px
-//! titlebar drag strip, the sidebar tone/column, its seven-section list with the
-//! roving tab focus and the footer identity row — and the seven settings pages
-//! are built on zeron's vendored page/widget kit. `src/shell.rs` owns the
-//! chrome, `src/settings/` the pages, `src/finance/` the Finance UI showcase.
+//! The window runs on zeron's Settings-route shell — the glass root surface
+//! over the blurred window background, the 38px titlebar drag strip, the
+//! sidebar tone/column, its seven-section list with the roving tab focus, the
+//! search field and the footer identity row — and the seven settings pages are
+//! built on zeron's vendored page/widget kit. `src/shell.rs` owns the chrome,
+//! `src/settings/` the pages, `src/finance/` the Finance UI showcase.
 
 mod app_settings;
 mod finance;
@@ -141,10 +141,11 @@ fn selftest_and_quit(cx: &mut App) {
         shell::section_from_env().unwrap_or_default().label(),
     );
     if let Ok(query) = std::env::var("MONO_DESK_SEARCH") {
-        let visible: Vec<&str> = shell::sections_for_query(&query)
-            .into_iter()
-            .map(|section| section.label())
-            .collect();
+        let visible: Vec<&str> =
+            shell::sections_for_query(&query, &app_settings::AppSettings::global(cx).language)
+                .into_iter()
+                .map(|section| section.label())
+                .collect();
         eprintln!(
             "selftest search query={} visible={}",
             query,

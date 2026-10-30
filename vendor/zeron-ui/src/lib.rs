@@ -16,8 +16,9 @@
 //! Design (CC BY 4.0); the GPUI fork is Apache-2.0. See
 //! `THIRD_PARTY_NOTICES.md` at the repository root.
 
-// The port is incremental: this phase lands the visual foundation, while the
-// functions that only the later chrome/settings phases call stay unused for now.
+// The port is complete for the surfaces mono-desk uses; a few upstream helpers
+// remain unused here (theme library, scrollbar rail, wallpaper plumbing) and
+// keep the vendored crate warning-free without patching upstream style rules.
 #![allow(dead_code)]
 // Vendored upstream source. Clippy's evolving style lints (derivable impls,
 // argument counts, collapsible branches) are upstream's to fix: patching them
