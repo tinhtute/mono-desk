@@ -35,7 +35,7 @@ status: completed
 - Rollback/lineage: the gpui-kit implementation (glass + zeron-style sidebar
   work) is preserved on branch `wip/gpui-kit-shell` (commit 50823e3); the
   port works on `feat/zeron-stack` and the plan is
-  `docs/plans/active/zeron-stack-port.md`.
+  `docs/plans/completed/zeron-stack-port.md`.
 
 ## Ported modules (phase `theme-foundation`, 2026-10-29)
 
