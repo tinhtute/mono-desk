@@ -50,8 +50,8 @@
   + rem font size
 - i18n: zero-dependency table in `src/i18n.rs` (en/vi/zh-CN/ja)
 - assets: `assets/fonts/` (registered by `vendor/zeron-ui/src/typography.rs`),
-  `assets/brand/` (SVG/PNG mark + `icon.icns`), zeron's Solar icon subset under
-  `vendor/zeron-ui/assets/icons/`
+  `assets/brand/` (SVG/PNG mark + `icon.icns`), the Phosphor Icons subset under
+  `vendor/zeron-ui/assets/icons/` (slot → glyph map in `icons.rs`)
 - where state lives: `AppSettings` in a GPUI `Global`, installed from
   `persist::load()` before the window opens; writes go through
   `settings::persist_now`

@@ -67,7 +67,7 @@ auto-applies `~/.local/libdev-shim` while it exists.
 
 ## Third-party notices
 
-Vendored zeron UI/theme (MIT), the Solar Icons subset (CC BY 4.0), the zui GPUI
+Vendored zeron UI/theme (MIT), the Phosphor Icons subset (MIT), the zui GPUI
 fork (Apache-2.0), the input example adapted into `src/settings/text_field.rs`
 (Apache-2.0), bundled fonts (OFL-1.1) and the theme palettes are recorded in
 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). The port plan and module map

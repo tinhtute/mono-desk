@@ -30,7 +30,8 @@ status: completed
   `shell.rs` `render_settings_page`/`render_sidebar`/`sidebar_tone`/titlebar
   cluster/`render_sidebar_footer_row`, `settings/widgets.rs` (page scaffold +
   section cards + toggle/select/dropdown), `crates/theme` + `theme.rs`
-  (tokens/appearance), `icons.rs` + `assets/icons` (Solar Icons, CC BY 4.0),
+  (tokens/appearance), `icons.rs` + `assets/icons` (Phosphor Icons, MIT; slot
+  names kept from zeron, map per line in `icons.rs`),
   `motion.rs`, `frost.rs`, `glass.rs`.
 - Rollback/lineage: the gpui-kit implementation (glass + zeron-style sidebar
   work) is preserved on branch `wip/gpui-kit-shell` (commit 50823e3); the
@@ -106,9 +107,10 @@ previous, down/right → next, home/end, and the workspace group
 (`FinanceUi`) starting a new group with `mt(SPACE_LG)`. Footer (T2): zeron's
 `SIDEBAR_FOOTER_*` metrics (28px pill/action, 16px avatar, 4px action gap),
 initial-avatar pill + name, appearance toggle in the action slot.
-`vendor/zeron-ui/assets/icons/user.svg` is a mono-desk addition (Solar Linear
-style) because neither set ships a user glyph; noted in
-`THIRD_PARTY_NOTICES.md`. Known gaps in this recipe (gate M6, recorded in the
+`vendor/zeron-ui/assets/icons/user.svg` is the Phosphor `user` glyph in that
+slot — no icon slot is a hand-drawn mono-desk addition any more (the set was
+swapped from Solar to Phosphor on 2026-10-31; see the swap record below).
+Known gaps in this recipe (gate M6, recorded in the
 plan's `settings-surface` known-gaps list): the nav still has no
 `scroll_faded`/edge-fade wrapper, and the footer pill is identity-only (no
 role/aria/popover, no `sidebar_faded_label`).
@@ -206,3 +208,34 @@ Gates today: `cargo test` = 115 (mono-desk 54 = 9 `app_settings` + 3 `i18n` +
 pages), `MONO_DESK_APPEARANCE=light|dark` now also analyzed through
 `apply_appearance` (the pin wins over the persisted choice),
 `MONO_DESK_SEARCH=<text>` prints `selftest search query=… visible=…`.
+
+## Icon set swap — Phosphor Icons (2026-10-31)
+
+The UI glyph set was replaced wholesale: every non-brand slot under
+`vendor/zeron-ui/assets/icons/` now carries a **Phosphor Icons** v2.1.1 glyph
+(MIT, <https://phosphoricons.com/>), copied verbatim from
+`@phosphor-icons/core@2.1.1` — `assets/regular/` for the line set, `assets/fill/`
+for the two filled twin slots (`fast-tier-bold.svg`, `star-bold.svg`).
+Phosphor's 256-unit canvas with a 16-unit outline matches the old Solar Linear
+1.5-on-24 stroke, so icon sizes/colors at the call sites did not change.
+
+Rules that keep the swap honest:
+- Asset filenames keep zeron's slot names (`MAGNIFER` → `magnifying-glass` is
+  still `icons/magnifer.svg`), so no vendored or first-party call site churned.
+  The slot → Phosphor-glyph map is the per-line `// phosphor:` comments in
+  `vendor/zeron-ui/src/icons.rs`; keep it in sync when changing a glyph.
+- Brand marks keep zeron's artwork (no Phosphor equivalent): `antigravity-mark`,
+  `claude-mark`, `cursor-mark`, `devin-mark`, `grok-mark`, `hermes-mark`,
+  `muse-mark`, `openai-mark`, `opencode-mark`, `pi-mark`, `zeron-logo`.
+  `assets/brand/` (app mark + `icon.icns`) is first-party artwork and untouched.
+- The two animated panel glyphs (`icons::sidebar_glyph`,
+  `icons::corner_card_glyph`) are drawn from quads, not assets, and keep
+  zeron's geometry because the panel width morphs with motion state.
+- The unreferenced `assets/icons/status/*` chip artwork (left over from the
+  removed status-chip module) was converted to Phosphor too, so no icon file in
+  the repo is from the old set.
+- Guard: `vendor/zeron-ui/src/icons.rs::tests::ui_icons_are_phosphor_glyphs`
+  loads every slot and asserts each non-brand glyph sits on the 256-unit canvas
+  (the red/green proof for the swap). Gates after it: `cargo test` = 120
+  (mono-desk 58 + zeron-theme 24 + zeron-ui 38), plus `make check`,
+  `make lint`, `make fmt-check` — all green.
