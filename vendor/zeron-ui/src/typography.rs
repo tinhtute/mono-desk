@@ -2,13 +2,13 @@
 //! choice, and the effective family installed into [`crate::theme::Theme`].
 //!
 //! Adapted from zeron's `crates/ui/src/typography.rs` (MIT). The parts that
-//! depend on zeron's persisted settings store (`settings::update`), its
-//! `appearance` module and font inspection via `fontdb`/`ttf-parser` are
-//! dropped: mono-desk bundles its own four families, persists typography
-//! through `AppSettings`, and only offers the bundled faces plus the system UI
-//! font. The shape of the state global, the call sites `theme.rs` and
-//! `main.rs` use, and the rem-based scaling rule are kept so a later upstream
-//! re-sync stays mechanical.
+//! depend on zeron's persisted settings store (`settings::update`) and its
+//! `appearance` module are dropped: mono-desk bundles its own four families and
+//! persists typography through `AppSettings`. The device-local font catalog is
+//! kept — `fontdb`/`ttf-parser` inspect the installed faces so the Appearance
+//! font pickers can list system families and classify fixed width. The shape of
+//! the state global, the call sites `theme.rs` and `main.rs` use, and the
+//! rem-based scaling rule are kept so a later upstream re-sync stays mechanical.
 //!
 //! Families registered here (all vendored under `assets/fonts/`):
 //! - `Momo Trust Sans` — the interface sans (400/500/600/700);
@@ -17,11 +17,13 @@
 //! - `Google Sans Code` — code/telemetry mono (400/500);
 //! - `Xanh Mono` — the wordmark/display mono (400/italic, semibold italic).
 
-use std::borrow::Cow;
+use std::{
+    borrow::Cow,
+    collections::{BTreeMap, BTreeSet},
+};
 
 use gpui::{App, Global, Rems, SharedString, Window, px, rems};
 
-use crate::theme::{AccentColor, Appearance, Theme};
 
 /// Base size used by rem-based interface text. Persisted as a number so future
 /// builds can add choices without changing the settings format.
@@ -77,8 +79,7 @@ pub fn clamp_font_size(size: f32) -> f32 {
     size.clamp(FONT_SIZE_MIN, FONT_SIZE_MAX)
 }
 
-/// A bundled interface font choice. `System` is always available and is the
-/// fallback when a bundled family fails to register.
+/// A bundled, virtual, or device-local interface font choice.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub enum UiFontFamily {
     #[default]
@@ -87,17 +88,13 @@ pub enum UiFontFamily {
     GoogleSansCode,
     XanhMono,
     System,
+    /// A family supplied by the OS or the user, listed only when its installed
+    /// faces passed the Latin-metrics check in
+    /// `installed_families_with_latin_metrics`.
+    Installed(String),
 }
 
 impl UiFontFamily {
-    pub const ALL: [Self; 5] = [
-        Self::MomoTrustSans,
-        Self::HankenGrotesk,
-        Self::GoogleSansCode,
-        Self::XanhMono,
-        Self::System,
-    ];
-
     pub fn label(&self) -> &str {
         match self {
             Self::MomoTrustSans => "Momo Trust Sans",
@@ -105,6 +102,7 @@ impl UiFontFamily {
             Self::GoogleSansCode => "Google Sans Code",
             Self::XanhMono => "Xanh Mono",
             Self::System => "System UI",
+            Self::Installed(name) => name,
         }
     }
 
@@ -115,42 +113,50 @@ impl UiFontFamily {
             Self::GoogleSansCode => "Google Sans Code",
             Self::XanhMono => "Xanh Mono",
             Self::System => ".SystemUIFont",
+            Self::Installed(name) => name,
         }
-    }
-
-    /// Whether the family's glyphs share one advance width, which the terminal
-    /// grid assumes. Bundled mono faces only; `System` is never grid-safe.
-    fn is_fixed_width(&self) -> bool {
-        matches!(self, Self::GoogleSansCode | Self::XanhMono)
     }
 }
 
-/// Which catalog families successfully registered during this process.
+/// Which catalog families successfully registered during this process, and the
+/// device-local families the Appearance font pickers may list.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FontAvailability {
-    registered: Vec<UiFontFamily>,
+    momo_trust_sans: bool,
+    hanken_grotesk: bool,
+    google_sans_code: bool,
+    xanh_mono: bool,
+    choices: Vec<UiFontFamily>,
+    fixed_width: Vec<UiFontFamily>,
 }
 
 impl FontAvailability {
     pub fn choices(&self) -> &[UiFontFamily] {
-        &self.registered
+        &self.choices
     }
 
     /// Families whose glyph advances match the terminal renderer's cell grid.
-    pub fn fixed_width_choices(&self) -> impl Iterator<Item = &UiFontFamily> {
-        self.registered.iter().filter(|family| family.is_fixed_width())
+    pub fn fixed_width_choices(&self) -> &[UiFontFamily] {
+        &self.fixed_width
     }
 
     pub fn is_available(&self, family: &UiFontFamily) -> bool {
-        matches!(family, UiFontFamily::System) || self.registered.contains(family)
+        match family {
+            UiFontFamily::MomoTrustSans => self.momo_trust_sans,
+            UiFontFamily::HankenGrotesk => self.hanken_grotesk,
+            UiFontFamily::GoogleSansCode => self.google_sans_code,
+            UiFontFamily::XanhMono => self.xanh_mono,
+            UiFontFamily::System => true,
+            UiFontFamily::Installed(_) => self.choices.contains(family),
+        }
     }
 
     pub fn is_fixed_width_available(&self, family: &UiFontFamily) -> bool {
-        family.is_fixed_width() && self.is_available(family)
+        self.is_available(family) && self.fixed_width.contains(family)
     }
 
     fn fallback(&self) -> UiFontFamily {
-        if self.is_available(&UiFontFamily::MomoTrustSans) {
+        if self.momo_trust_sans {
             UiFontFamily::MomoTrustSans
         } else {
             UiFontFamily::System
@@ -158,10 +164,10 @@ impl FontAvailability {
     }
 
     /// Code and terminal degrade to a bundled mono face instead of the
-    /// interface sans: a missing face should not silently turn fixed-width
-    /// surfaces proportional.
+    /// interface sans: a device-local pick that later disappears should not
+    /// silently turn fixed-width surfaces proportional.
     fn fallback_mono(&self) -> UiFontFamily {
-        if self.is_available(&UiFontFamily::GoogleSansCode) {
+        if self.google_sans_code {
             UiFontFamily::GoogleSansCode
         } else {
             self.fallback()
@@ -172,7 +178,12 @@ impl FontAvailability {
 impl Default for FontAvailability {
     fn default() -> Self {
         Self {
-            registered: vec![UiFontFamily::System],
+            momo_trust_sans: false,
+            hanken_grotesk: false,
+            google_sans_code: false,
+            xanh_mono: false,
+            choices: vec![UiFontFamily::System],
+            fixed_width: Vec::new(),
         }
     }
 }
@@ -226,6 +237,16 @@ const XANH_MONO: [&[u8]; 3] = [
     include_bytes!("../../../assets/fonts/XanhMono-SemiBoldItalic.ttf"),
 ];
 
+/// Family names of the bundled faces: the `Installed` section of the catalog is
+/// captured before these register, but a system copy of a bundled family must
+/// still not be offered twice.
+const BUNDLED_FAMILY_NAMES: [&str; 4] = [
+    "Momo Trust Sans",
+    "Hanken Grotesk",
+    "Google Sans Code",
+    "Xanh Mono",
+];
+
 /// Every bundled face, for renderers that install the family outside gpui's
 /// text system (SVG text-to-path, offscreen capture).
 pub(crate) fn bundled_font_faces() -> impl Iterator<Item = &'static [u8]> {
@@ -248,22 +269,127 @@ fn register_family(cx: &App, family: &UiFontFamily, faces: &'static [&'static [u
     }
 }
 
+/// Relative spread the sampled advances may show and still count as fixed
+/// width. Hinting and rounding leave sub-unit differences in real mono faces;
+/// proportional faces differ by whole multiples, never a percent.
+const FIXED_WIDTH_TOLERANCE: f32 = 0.01;
+
+/// Whether a face satisfies the terminal renderer's assumption that every
+/// Latin cell is one `m` wide.
+///
+/// The PANOSE bit and `fontdb`'s `monospaced` flag are metadata a font can set
+/// wrongly; what the grid actually needs is equal advances, so measure them.
+fn face_is_fixed_width(font: &ttf_parser::Face) -> bool {
+    let Some(advances) = ['i', 'm', 'W', '0']
+        .iter()
+        .map(|ch| {
+            font.glyph_index(*ch)
+                .and_then(|id| font.glyph_hor_advance(id))
+        })
+        .collect::<Option<Vec<_>>>()
+    else {
+        return false;
+    };
+    let (min, max) = (
+        advances.iter().copied().min().unwrap_or(0),
+        advances.iter().copied().max().unwrap_or(0),
+    );
+    min > 0 && f32::from(max - min) <= FIXED_WIDTH_TOLERANCE * f32::from(min)
+}
+
+/// Families that contain the Latin glyph GPUI relies on for text metrics,
+/// mapped to whether every one of their faces is fixed width.
+///
+/// `all_font_names` intentionally reports every system family, including
+/// script-specific and symbol fonts. GPUI must reject a face without `m`, but
+/// doing that only after it has been selected both falls back silently and
+/// emits a warning. Inspect the installed files first so those families never
+/// appear in an interface-font picker.
+fn installed_families_with_latin_metrics() -> BTreeMap<String, bool> {
+    let mut database = fontdb::Database::new();
+    database.load_system_fonts();
+
+    let mut families = BTreeMap::new();
+    for face in database.faces() {
+        let Some(Some(fixed_width)) = database.with_face_data(face.id, |data, index| {
+            ttf_parser::Face::parse(data, index)
+                .ok()
+                .filter(|font| font.glyph_index('m').is_some())
+                .map(|font| face_is_fixed_width(&font))
+        }) else {
+            continue;
+        };
+        for (name, _) in &face.families {
+            // Selecting a family selects all its faces, so one proportional
+            // italic is enough to break the grid.
+            families
+                .entry(name.clone())
+                .and_modify(|all_fixed| *all_fixed &= fixed_width)
+                .or_insert(fixed_width);
+        }
+    }
+    families
+}
+
 /// Register each family independently so one bad optional asset cannot hide the
 /// rest of the catalog.
 pub fn register_fonts(cx: &App) -> FontAvailability {
-    let mut registered = Vec::new();
-    for (family, faces) in [
-        (UiFontFamily::MomoTrustSans, &MOMO_TRUST_SANS[..]),
-        (UiFontFamily::HankenGrotesk, &HANKEN_GROTESK[..]),
-        (UiFontFamily::GoogleSansCode, &GOOGLE_SANS_CODE[..]),
-        (UiFontFamily::XanhMono, &XANH_MONO[..]),
+    // Capture device fonts before adding ours so the Installed section only
+    // contains families supplied by the OS/user, not our embedded assets.
+    let families_with_latin_metrics = installed_families_with_latin_metrics();
+    let system_names: BTreeSet<_> = cx
+        .text_system()
+        .all_font_names()
+        .into_iter()
+        .filter(|name| !name.starts_with('.'))
+        .filter(|name| !BUNDLED_FAMILY_NAMES.contains(&name.as_str()))
+        .filter(|name| families_with_latin_metrics.contains_key(name))
+        .collect();
+
+    let momo_trust_sans = register_family(cx, &UiFontFamily::MomoTrustSans, &MOMO_TRUST_SANS);
+    let hanken_grotesk = register_family(cx, &UiFontFamily::HankenGrotesk, &HANKEN_GROTESK);
+    let google_sans_code = register_family(cx, &UiFontFamily::GoogleSansCode, &GOOGLE_SANS_CODE);
+    let xanh_mono = register_family(cx, &UiFontFamily::XanhMono, &XANH_MONO);
+
+    let mut choices = Vec::new();
+    for (family, registered) in [
+        (UiFontFamily::MomoTrustSans, momo_trust_sans),
+        (UiFontFamily::HankenGrotesk, hanken_grotesk),
+        (UiFontFamily::GoogleSansCode, google_sans_code),
+        (UiFontFamily::XanhMono, xanh_mono),
     ] {
-        if register_family(cx, &family, faces) {
-            registered.push(family);
+        if registered {
+            choices.push(family);
         }
     }
-    registered.push(UiFontFamily::System);
-    FontAvailability { registered }
+    choices.push(UiFontFamily::System);
+
+    // Bundled mono faces stay the first fixed-width entries; the installed
+    // families follow, sorted by the `BTreeSet` above.
+    let mut fixed_width = Vec::new();
+    for (family, registered) in [
+        (UiFontFamily::GoogleSansCode, google_sans_code),
+        (UiFontFamily::XanhMono, xanh_mono),
+    ] {
+        if registered {
+            fixed_width.push(family);
+        }
+    }
+    for name in system_names {
+        if families_with_latin_metrics.get(&name) == Some(&true) {
+            fixed_width.push(UiFontFamily::Installed(name.clone()));
+        }
+        choices.push(UiFontFamily::Installed(name));
+    }
+
+    FontAvailability {
+        momo_trust_sans,
+        hanken_grotesk,
+        google_sans_code,
+        xanh_mono,
+        choices,
+        fixed_width,
+    }
 }
 
 fn resolve_effective(requested: &UiFontFamily, availability: &FontAvailability) -> UiFontFamily {
@@ -429,19 +555,23 @@ pub fn set_family(family: UiFontFamily, cx: &mut App) -> bool {
 
     if effective_changed {
         state.generation = state.generation.wrapping_add(1);
-        reinstall_theme(cx);
+        repaint_after_typography_change(cx);
     }
     effective_changed
 }
 
-/// Rebuild the [`Theme`] so it picks up the new families and sizes it carries,
-/// then repaint.
-fn reinstall_theme(cx: &mut App) {
-    let (appearance, accent) = cx
-        .try_global::<Theme>()
-        .map(|theme| (theme.appearance, theme.accent_color))
-        .unwrap_or((Appearance::Dark, AccentColor::default()));
-    Theme::install_preferences(appearance, accent, cx);
+/// Repaint after a typography change; the **app** owns the theme reinstall.
+///
+/// Upstream rebuilt the theme here with `Theme::install_preferences`, which
+/// mono-desk cannot do: that helper resolves only the built-in light/dark
+/// variant, so every font change clobbered the selected `variant_id`,
+/// `accent_selection` and `surface_preference` (the `appearance-parity`
+/// `state-persistence` T2 clobber). The vendored setters therefore only update
+/// `TypographyState` (and its generation) and repaint; the app re-installs the
+/// full selection through `settings::apply_appearance`, whose ordering applies
+/// typography first and the theme last so the installed `Theme`'s font fields
+/// never go stale.
+fn repaint_after_typography_change(cx: &mut App) {
     cx.refresh_windows();
 }
 
@@ -501,7 +631,7 @@ fn set_category_family(family: UiFontFamily, category: Category, cx: &mut App) -
             state.code_effective = effective;
         }
     }
-    reinstall_theme(cx);
+    repaint_after_typography_change(cx);
     true
 }
 
@@ -534,7 +664,7 @@ fn set_category_font_size(size: f32, category: Category, cx: &mut App) -> bool {
         Category::Terminal => state.terminal_font_size = size,
         Category::Code => state.code_font_size = size,
     }
-    reinstall_theme(cx);
+    repaint_after_typography_change(cx);
     true
 }
 
@@ -552,13 +682,57 @@ pub fn set_font_size(size: UiFontSize, window: &mut Window, cx: &mut App) -> boo
     state.size = size;
     state.generation = state.generation.wrapping_add(1);
     window.set_rem_size(px(size.pixels()));
-    reinstall_theme(cx);
+    repaint_after_typography_change(cx);
     true
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{UiFontFamily, UiFontSize};
+    use super::*;
+
+    /// Test fixture: every bundled family registered, `System` available, and
+    /// two device-local families — one proportional, one fixed width (mirrors
+    /// upstream's `FontAvailability::all()`).
+    fn availability() -> FontAvailability {
+        FontAvailability {
+            momo_trust_sans: true,
+            hanken_grotesk: true,
+            google_sans_code: true,
+            xanh_mono: true,
+            choices: vec![
+                UiFontFamily::MomoTrustSans,
+                UiFontFamily::HankenGrotesk,
+                UiFontFamily::GoogleSansCode,
+                UiFontFamily::XanhMono,
+                UiFontFamily::System,
+                UiFontFamily::Installed("Arial".into()),
+                UiFontFamily::Installed("Menlo".into()),
+            ],
+            fixed_width: vec![
+                UiFontFamily::GoogleSansCode,
+                UiFontFamily::XanhMono,
+                UiFontFamily::Installed("Menlo".into()),
+            ],
+        }
+    }
+
+    /// Test fixture mirroring upstream's `FontAvailability::without`: a family
+    /// that failed to register (or is no longer installed) disappears from the
+    /// availability lists.
+    fn without(mut availability: FontAvailability, family: &UiFontFamily) -> FontAvailability {
+        match family {
+            UiFontFamily::MomoTrustSans => availability.momo_trust_sans = false,
+            UiFontFamily::HankenGrotesk => availability.hanken_grotesk = false,
+            UiFontFamily::GoogleSansCode => availability.google_sans_code = false,
+            UiFontFamily::XanhMono => availability.xanh_mono = false,
+            UiFontFamily::System => {}
+            UiFontFamily::Installed(_) => {
+                availability.choices.retain(|choice| choice != family);
+            }
+        }
+        availability.fixed_width.retain(|choice| choice != family);
+        availability
+    }
 
     #[test]
     fn sizes_snap_to_the_catalog() {
@@ -571,10 +745,185 @@ mod tests {
     }
 
     #[test]
-    fn mono_families_are_the_fixed_width_ones() {
-        assert!(UiFontFamily::GoogleSansCode.is_fixed_width());
-        assert!(UiFontFamily::XanhMono.is_fixed_width());
-        assert!(!UiFontFamily::MomoTrustSans.is_fixed_width());
-        assert!(!UiFontFamily::System.is_fixed_width());
+    fn ui_font_sizes_have_stable_labels_and_normalize() {
+        assert_eq!(UiFontSize::default().label().as_ref(), "16 px");
+        assert_eq!(UiFontSize(250).normalized(), UiFontSize(20));
+        assert_eq!(ui_rems(14.0).0, 0.875);
+    }
+
+    /// Bundled and installed names label the picker; `System` keeps GPUI's
+    /// private UI family name as the family it installs.
+    #[test]
+    fn family_labels_cover_bundled_and_installed() {
+        for (family, label, family_name) in [
+            (UiFontFamily::MomoTrustSans, "Momo Trust Sans", "Momo Trust Sans"),
+            (
+                UiFontFamily::HankenGrotesk,
+                "Hanken Grotesk",
+                "Hanken Grotesk",
+            ),
+            (
+                UiFontFamily::GoogleSansCode,
+                "Google Sans Code",
+                "Google Sans Code",
+            ),
+            (UiFontFamily::XanhMono, "Xanh Mono", "Xanh Mono"),
+            (UiFontFamily::System, "System UI", ".SystemUIFont"),
+            (
+                UiFontFamily::Installed("Menlo".into()),
+                "Menlo",
+                "Menlo",
+            ),
+        ] {
+            assert_eq!(family.label(), label, "{family:?}");
+            assert_eq!(family.family_name(), family_name, "{family:?}");
+        }
+    }
+
+    #[test]
+    fn unavailable_family_resolves_to_the_interface_default() {
+        let unavailable = UiFontFamily::Installed("Inter".into());
+        let availability = without(availability(), &unavailable);
+        assert_eq!(
+            resolve_effective(&unavailable, &availability),
+            UiFontFamily::MomoTrustSans
+        );
+        assert!(availability.is_available(&UiFontFamily::System));
+    }
+
+    #[test]
+    fn unavailable_code_and_terminal_families_stay_monospaced() {
+        let unavailable = UiFontFamily::Installed("MesloLGS NF".into());
+        let availability = availability();
+        assert_eq!(
+            resolve_effective_mono(&unavailable, &availability, false),
+            UiFontFamily::GoogleSansCode
+        );
+        assert_eq!(
+            resolve_effective_mono(
+                &unavailable,
+                &without(availability.clone(), &unavailable),
+                true
+            ),
+            UiFontFamily::GoogleSansCode
+        );
+        // Only when the bundled mono face itself failed to register does a
+        // fixed-width surface fall back to the interface family.
+        let without_mono = without(availability, &UiFontFamily::GoogleSansCode);
+        assert_eq!(
+            resolve_effective_mono(&unavailable, &without_mono, false),
+            UiFontFamily::MomoTrustSans
+        );
+    }
+
+    #[test]
+    fn advance_check_separates_bundled_mono_from_bundled_sans() {
+        for bytes in GOOGLE_SANS_CODE {
+            assert!(face_is_fixed_width(
+                &ttf_parser::Face::parse(bytes, 0).unwrap()
+            ));
+        }
+        for bytes in XANH_MONO {
+            assert!(face_is_fixed_width(
+                &ttf_parser::Face::parse(bytes, 0).unwrap()
+            ));
+        }
+        for bytes in MOMO_TRUST_SANS {
+            assert!(!face_is_fixed_width(
+                &ttf_parser::Face::parse(bytes, 0).unwrap()
+            ));
+        }
+        for bytes in HANKEN_GROTESK {
+            assert!(!face_is_fixed_width(
+                &ttf_parser::Face::parse(bytes, 0).unwrap()
+            ));
+        }
+    }
+
+    #[test]
+    fn terminal_catalog_drops_proportional_families() {
+        let availability = availability();
+        for proportional in [
+            UiFontFamily::MomoTrustSans,
+            UiFontFamily::HankenGrotesk,
+            UiFontFamily::System,
+            UiFontFamily::Installed("Arial".into()),
+        ] {
+            assert!(availability.is_available(&proportional));
+            assert!(!availability.is_fixed_width_available(&proportional));
+            assert!(!availability.fixed_width_choices().contains(&proportional));
+        }
+        for fixed in [
+            UiFontFamily::GoogleSansCode,
+            UiFontFamily::XanhMono,
+            UiFontFamily::Installed("Menlo".into()),
+        ] {
+            assert!(availability.is_fixed_width_available(&fixed));
+            assert!(availability.fixed_width_choices().contains(&fixed));
+        }
+    }
+
+    #[test]
+    fn persisted_proportional_terminal_family_falls_back() {
+        let availability = availability();
+        // Written by a build before the terminal picker was constrained.
+        let persisted = UiFontFamily::Installed("Arial".into());
+        assert_eq!(
+            resolve_effective_mono(&persisted, &availability, true),
+            UiFontFamily::GoogleSansCode
+        );
+        assert_eq!(
+            resolve_effective_mono(&UiFontFamily::System, &availability, true),
+            UiFontFamily::GoogleSansCode
+        );
+        // The same value is still legal for code and diffs.
+        assert_eq!(
+            resolve_effective_mono(&persisted, &availability, false),
+            persisted
+        );
+    }
+
+    #[test]
+    fn catalog_keeps_bundled_and_virtual_choices_first() {
+        let availability = availability();
+        assert_eq!(
+            availability.choices()[..5],
+            [
+                UiFontFamily::MomoTrustSans,
+                UiFontFamily::HankenGrotesk,
+                UiFontFamily::GoogleSansCode,
+                UiFontFamily::XanhMono,
+                UiFontFamily::System,
+            ]
+        );
+        // Device-local families come after the bundled set and stay sorted.
+        assert_eq!(
+            availability.choices()[5..],
+            [
+                UiFontFamily::Installed("Arial".into()),
+                UiFontFamily::Installed("Menlo".into()),
+            ]
+        );
+    }
+
+    /// Before `register_fonts` runs (or when no bundled face registered) the
+    /// catalog offers only the always-available system family, and both
+    /// fallbacks land there instead of on a missing bundled face.
+    #[test]
+    fn default_availability_only_offers_system() {
+        let availability = FontAvailability::default();
+        assert_eq!(availability.choices(), [UiFontFamily::System]);
+        assert!(availability.fixed_width_choices().is_empty());
+        assert!(!availability.is_available(&UiFontFamily::MomoTrustSans));
+        assert!(!availability.is_available(&UiFontFamily::Installed("Menlo".into())));
+        assert!(availability.is_available(&UiFontFamily::System));
+        assert_eq!(availability.fallback(), UiFontFamily::System);
+        assert_eq!(availability.fallback_mono(), UiFontFamily::System);
+    }
+
+    #[test]
+    fn latin_metric_filter_requires_the_glyph_gpui_measures() {
+        let latin = ttf_parser::Face::parse(MOMO_TRUST_SANS[0], 0).unwrap();
+        assert!(latin.glyph_index('m').is_some());
     }
 }

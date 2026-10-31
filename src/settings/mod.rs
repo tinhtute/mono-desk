@@ -22,12 +22,16 @@
 
 mod about;
 mod appearance;
+mod background;
 mod finance;
 mod general;
 mod notifications;
 mod profile;
 mod reset;
 pub(crate) mod text_field;
+pub(crate) mod theme_library;
+mod wallpaper;
+mod wallpaper_colors;
 
 pub(crate) use about::AboutPage;
 pub(crate) use appearance::AppearancePage;
@@ -42,10 +46,11 @@ use gpui::{
     px,
 };
 
-use zeron_theme::{AccentPreset, AccentSelection, SurfacePreference};
+use zeron_theme::{AccentPreset, AccentSelection, Color, SurfacePreference, ThemeSelection};
+use zeron_ui::motion::ReduceMotion;
 use zeron_ui::settings::widgets;
 use zeron_ui::theme::{Appearance as ThemeAppearance, Theme};
-use zeron_ui::typography::{self, UiFontSize};
+use zeron_ui::typography::{self, UiFontFamily, UiFontSize};
 
 use crate::app_settings::{self, AppSettings};
 use crate::persist;
@@ -183,38 +188,192 @@ pub(crate) fn surface_preference(translucent: bool) -> SurfacePreference {
     }
 }
 
-/// Apply the live `AppSettings` to zeron's theme and the native window:
-/// appearance mode (System resolves against the window), accent preset, surface
-/// material and the rem-scaling font size, then re-point the window background
-/// (blurred for frosted surfaces). Every Appearance-page control funnels here.
-pub(crate) fn apply_appearance(window: &mut Window, cx: &mut App) {
-    let settings = AppSettings::global(cx);
-    let appearance =
-        pinned_appearance().unwrap_or_else(|| theme_appearance(settings.appearance, window));
-    let accent = accent_selection(settings.accent, appearance);
-    let surface = surface_preference(settings.background_translucent);
-    let font_size = ui_size(settings.font_size as f32);
-    Theme::install_selection(
-        appearance,
-        builtin_variant_id(appearance),
-        accent,
-        surface,
-        cx,
-    );
-    typography::set_font_size(font_size, window, cx);
-    window.set_background_appearance(Theme::of(cx).window_background_appearance());
-    cx.refresh_windows();
-}
-
-/// The built-in registry's variant id for `appearance`. mono-desk vendors
-/// zeron's built-in variants only (the theme library/import machinery is out of
-/// scope), and `Theme::for_selection` falls back to exactly these ids.
+/// The built-in registry's variant id for `appearance`: the fallback when a
+/// persisted id is empty (the built-in ids are `zeron-light`/`zeron-dark`).
 pub(crate) fn builtin_variant_id(appearance: ThemeAppearance) -> &'static str {
     if appearance.is_dark() {
         "zeron-dark"
     } else {
         "zeron-light"
     }
+}
+
+/// The registry variant id to install for `appearance`, from the persisted
+/// per-appearance selection. An empty id (a hand-built state) falls back to the
+/// built-in variant; an unknown id is tolerated here because the registry's
+/// `for_selection` resolves or falls back at install time.
+pub(crate) fn variant_id(settings: &AppSettings, appearance: ThemeAppearance) -> &str {
+    let persisted = if appearance.is_dark() {
+        &settings.theme_dark
+    } else {
+        &settings.theme_light
+    };
+    if persisted.is_empty() {
+        builtin_variant_id(appearance)
+    } else {
+        persisted
+    }
+}
+
+/// The persisted theme selection, shaped for
+/// [`theme_library::reconcile`]/[`Theme::install_selection_with_color`].
+pub(crate) fn theme_selection(settings: &AppSettings) -> ThemeSelection {
+    ThemeSelection {
+        light: settings.theme_light.clone(),
+        dark: settings.theme_dark.clone(),
+    }
+}
+
+/// Reconcile the persisted variant ids against the active registry (which
+/// includes the custom theme library loaded at boot) and persist any correction
+/// back into `AppSettings`. Returns whether the stored selection changed.
+///
+/// Must run after [`theme_library::init`] and before the first theme install,
+/// so a selection that names a removed custom variant is healed before it can
+/// reach the painter.
+pub(crate) fn reconcile_persisted_selection(cx: &mut App) -> bool {
+    let mut selection = theme_selection(AppSettings::global(cx));
+    if !theme_library::reconcile(&mut selection) {
+        return false;
+    }
+    {
+        let settings = AppSettings::global_mut(cx);
+        settings.theme_light = selection.light;
+        settings.theme_dark = selection.dark;
+    }
+    // A healed selection is a user-visible correction: keep the file truthful.
+    persist_now(cx);
+    true
+}
+
+/// The wallpaper-derived tint a theme install should apply: `Some` only while
+/// "Match wallpaper colors" is on and a managed new-thread background exists
+/// (`wallpaper_colors::active`'s gate).
+pub(crate) fn wallpaper_tint(settings: &AppSettings) -> Option<Color> {
+    wallpaper_colors::active(settings)
+}
+
+/// Everything one appearance install needs, resolved purely from the persisted
+/// state so it can be tested without a window.
+struct AppearancePlan {
+    appearance: ThemeAppearance,
+    variant_id: String,
+    accent: AccentSelection,
+    surface: SurfacePreference,
+    wallpaper_color: Option<Color>,
+}
+
+fn appearance_plan(settings: &AppSettings, appearance: ThemeAppearance) -> AppearancePlan {
+    AppearancePlan {
+        appearance,
+        variant_id: variant_id(settings, appearance).to_string(),
+        accent: accent_selection(settings.accent, appearance),
+        surface: surface_preference(settings.background_translucent),
+        wallpaper_color: wallpaper_tint(settings),
+    }
+}
+
+/// Install one resolved plan through zeron's full selection path (variant id +
+/// accent + surface + wallpaper tint). The vendored install reads the effective
+/// typography out of the typography state, so callers must apply families/sizes
+/// first.
+fn install_plan(plan: &AppearancePlan, cx: &mut App) {
+    Theme::install_selection_with_color(
+        plan.appearance,
+        &plan.variant_id,
+        plan.accent,
+        plan.surface,
+        plan.wallpaper_color,
+        cx,
+    );
+}
+
+/// The appearance for the pre-window boot install: the review pin, else the
+/// persisted Light/Dark choice, else the OS window appearance (`System`). Using
+/// the persisted choice means the first painted frame is already the user's
+/// appearance; the window-attached [`apply_appearance`] re-resolves it with the
+/// real window (and handles OS changes).
+pub(crate) fn boot_appearance(cx: &App) -> ThemeAppearance {
+    pinned_appearance().unwrap_or_else(|| {
+        choice_appearance(AppSettings::global(cx).appearance)
+            .unwrap_or_else(|| ThemeAppearance::from_window(cx.window_appearance()))
+    })
+}
+
+/// The boot install, before the first window exists: the typography state must
+/// already be initialized by [`typography_seed`] + `typography::init` and the
+/// selection reconciled. The window-attached [`apply_appearance`] re-runs this
+/// with the window's actual appearance.
+pub(crate) fn install_appearance(appearance: ThemeAppearance, cx: &mut App) {
+    let plan = appearance_plan(AppSettings::global(cx), appearance);
+    install_plan(&plan, cx);
+    cx.refresh_windows();
+}
+
+/// The persisted typography values the boot path seeds the vendored typography
+/// state with. Pure so the persisted-word → type mappings are testable without
+/// a window.
+pub(crate) struct TypographySeed {
+    pub(crate) ui_family: UiFontFamily,
+    pub(crate) ui_size: UiFontSize,
+    pub(crate) terminal_family: UiFontFamily,
+    pub(crate) terminal_size: f32,
+    pub(crate) code_family: UiFontFamily,
+    pub(crate) code_size: f32,
+}
+
+/// Seed typography from the persisted families/sizes: bundled families or
+/// `installed:<name>` from the file, the UI size snapped onto zeron's discrete
+/// catalog, and the terminal/code pixel sizes (already clamped by the codec).
+pub(crate) fn typography_seed(settings: &AppSettings) -> TypographySeed {
+    TypographySeed {
+        ui_family: settings.ui_font_family.clone(),
+        ui_size: ui_size(settings.font_size as f32),
+        terminal_family: settings.terminal_font_family.clone(),
+        terminal_size: settings.terminal_font_size as f32,
+        code_family: settings.code_font_family.clone(),
+        code_size: settings.code_font_size as f32,
+    }
+}
+
+/// The persisted motion values the boot path installs zeron's motion runtime
+/// with: the reduced-motion preference word and the pause-in-background switch.
+pub(crate) fn motion_seed(settings: &AppSettings) -> (ReduceMotion, bool) {
+    (settings.reduce_motion, settings.pause_in_background)
+}
+
+/// Apply the live `AppSettings` to zeron's theme and the native window:
+/// appearance mode (System resolves against the window), accent preset, surface
+/// material and the persisted variant id, then re-point the window background
+/// (blurred for frosted surfaces). Every Appearance-page control funnels here.
+///
+/// Typography is applied *before* the theme: [`Theme::install_selection_with_color`]
+/// reads the effective families/sizes out of the vendored typography state, so
+/// installing the theme first (the pre-T2 order) left the installed `Theme`'s
+/// font fields one change stale.
+pub(crate) fn apply_appearance(window: &mut Window, cx: &mut App) {
+    let appearance = pinned_appearance()
+        .unwrap_or_else(|| theme_appearance(AppSettings::global(cx).appearance, window));
+    let seed = typography_seed(AppSettings::global(cx));
+    typography::set_family(seed.ui_family, cx);
+    typography::set_terminal_family(seed.terminal_family, cx);
+    typography::set_code_family(seed.code_family, cx);
+    typography::set_terminal_font_size(seed.terminal_size, cx);
+    typography::set_code_font_size(seed.code_size, cx);
+    typography::set_font_size(seed.ui_size, window, cx);
+    // `typography::set_font_size` only writes the window rem when its state
+    // value changes. At boot the state is seeded from these same persisted
+    // settings (see `main.rs`'s boot order), so that setter early-returns and
+    // the window would keep GPUI's 16px default while every `ui_rems` site
+    // expects the persisted size. Upstream sets the rem explicitly when the
+    // window opens (`crates/ui/src/lib.rs:490`), so mirror that here: the
+    // funnel always writes the rem, whatever the typography state did.
+    window.set_rem_size(px(seed.ui_size.pixels()));
+
+    let plan = appearance_plan(AppSettings::global(cx), appearance);
+    install_plan(&plan, cx);
+    window.set_background_appearance(Theme::of(cx).window_background_appearance());
+    cx.refresh_windows();
 }
 
 /// Snap a persisted pixel size onto zeron's discrete UI size catalog (the
@@ -293,5 +452,157 @@ mod tests {
         // `System` has no pure answer: `theme_appearance` resolves it from the
         // window (and the `MONO_DESK_APPEARANCE` pin can override it).
         assert_eq!(choice_appearance(app_settings::Appearance::System), None);
+    }
+
+    /// The install variant id comes from the persisted per-appearance choice;
+    /// an empty id falls back to the built-in registry id so the installer
+    /// never receives "".
+    #[test]
+    fn variant_ids_follow_the_persisted_selection_with_builtin_fallback() {
+        let mut settings = AppSettings::default();
+        assert_eq!(variant_id(&settings, ThemeAppearance::Light), "zeron-light");
+        assert_eq!(variant_id(&settings, ThemeAppearance::Dark), "zeron-dark");
+        assert_eq!(
+            theme_selection(&settings),
+            ThemeSelection {
+                light: "zeron-light".into(),
+                dark: "zeron-dark".into(),
+            }
+        );
+
+        settings.theme_light = "family:custom-light".into();
+        settings.theme_dark = "family:custom-dark".into();
+        assert_eq!(
+            variant_id(&settings, ThemeAppearance::Light),
+            "family:custom-light"
+        );
+        assert_eq!(
+            variant_id(&settings, ThemeAppearance::Dark),
+            "family:custom-dark"
+        );
+
+        // A hand-built state with empty ids (T1's codec never produces one)
+        // still installs a real variant.
+        settings.theme_light.clear();
+        settings.theme_dark.clear();
+        assert_eq!(variant_id(&settings, ThemeAppearance::Light), "zeron-light");
+        assert_eq!(variant_id(&settings, ThemeAppearance::Dark), "zeron-dark");
+    }
+
+    /// The wallpaper tint reaches the install only while the toggle is on and
+    /// a managed background with a sampled color exists; every other state
+    /// installs the plain selection.
+    #[test]
+    fn appearance_plan_gates_the_wallpaper_tint() {
+        use crate::app_settings::{NewThreadBackground, NewThreadBackgroundAdjustment};
+        use std::path::PathBuf;
+
+        let mut settings = AppSettings::default();
+        // No artwork yet.
+        assert_eq!(
+            appearance_plan(&settings, ThemeAppearance::Dark).wallpaper_color,
+            None
+        );
+
+        settings.new_thread_background = Some(NewThreadBackground {
+            path: PathBuf::from("/managed/new-thread-background.png"),
+            name: "picked.png".into(),
+            adjustment: NewThreadBackgroundAdjustment::default(),
+        });
+        // Toggle still off.
+        assert_eq!(
+            appearance_plan(&settings, ThemeAppearance::Dark).wallpaper_color,
+            None
+        );
+
+        settings.wallpaper_theme_colors = true;
+        // Toggle on but no sampled color yet.
+        assert_eq!(
+            appearance_plan(&settings, ThemeAppearance::Dark).wallpaper_color,
+            None
+        );
+
+        let sampled = Color::rgb(30, 130, 220);
+        settings.wallpaper_color = Some(sampled);
+        assert_eq!(
+            appearance_plan(&settings, ThemeAppearance::Dark).wallpaper_color,
+            Some(sampled)
+        );
+        // The plan keeps the persisted variant behind the install.
+        assert_eq!(
+            appearance_plan(&settings, ThemeAppearance::Dark).variant_id,
+            "zeron-dark"
+        );
+
+        // Turning the toggle off drops the tint again.
+        settings.wallpaper_theme_colors = false;
+        assert_eq!(
+            appearance_plan(&settings, ThemeAppearance::Dark).wallpaper_color,
+            None
+        );
+    }
+
+    /// Boot typography seeds from the persisted words: `installed:` families
+    /// survive, the UI size snaps onto zeron's catalog, and the terminal/code
+    /// pixel sizes come from the file.
+    #[test]
+    fn typography_seed_uses_persisted_words_and_catalog() {
+        use crate::persist::StoredSettings;
+
+        let stored = StoredSettings {
+            ui_font_family: "installed:Inter".into(),
+            terminal_font_family: "system".into(),
+            code_font_family: "xanh-mono".into(),
+            font_size: 17.0,
+            terminal_font_size: 15.0,
+            code_font_size: 11.0,
+            ..StoredSettings::default()
+        };
+        let seed = typography_seed(&AppSettings::from_stored(stored));
+        assert_eq!(seed.ui_family, UiFontFamily::Installed("Inter".into()));
+        assert_eq!(seed.terminal_family, UiFontFamily::System);
+        assert_eq!(seed.code_family, UiFontFamily::XanhMono);
+        // 17 px snaps down to zeron's 16 px catalog entry.
+        assert_eq!(seed.ui_size.pixels(), 16.0);
+        assert_eq!(seed.terminal_size, 15.0);
+        assert_eq!(seed.code_size, 11.0);
+
+        // An unknown persisted word loads as the key's bundled default.
+        let junk = StoredSettings {
+            ui_font_family: "future-font".into(),
+            terminal_font_family: "installed:".into(),
+            code_font_family: String::new(),
+            ..StoredSettings::default()
+        };
+        let seed = typography_seed(&AppSettings::from_stored(junk));
+        assert_eq!(seed.ui_family, UiFontFamily::MomoTrustSans);
+        assert_eq!(seed.terminal_family, UiFontFamily::XanhMono);
+        assert_eq!(seed.code_family, UiFontFamily::GoogleSansCode);
+    }
+
+    /// Boot motion seeds from the persisted reduced-motion word and pause
+    /// switch; an unknown word follows the OS.
+    #[test]
+    fn motion_seed_uses_persisted_words() {
+        use crate::persist::StoredSettings;
+
+        let stored = StoredSettings {
+            reduce_motion: "off".into(),
+            pause_in_background: true,
+            ..StoredSettings::default()
+        };
+        assert_eq!(
+            motion_seed(&AppSettings::from_stored(stored)),
+            (ReduceMotion::Off, true)
+        );
+
+        let junk = StoredSettings {
+            reduce_motion: "sometimes".into(),
+            ..StoredSettings::default()
+        };
+        assert_eq!(
+            motion_seed(&AppSettings::from_stored(junk)),
+            (ReduceMotion::System, false)
+        );
     }
 }

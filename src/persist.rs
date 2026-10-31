@@ -16,8 +16,13 @@ use std::path::{Path, PathBuf};
 // the zeron stack they are app-owned (see `crate::app_settings`), since the
 // vendored `zeron_ui::theme` owns the paint tokens instead.
 use crate::app_settings::{
-    SIDEBAR_TONE_DEFAULT, SIDEBAR_WIDTH_DEFAULT, WINDOW_OPACITY_DEFAULT, clamp_sidebar_tone,
-    clamp_sidebar_width, clamp_window_opacity,
+    CODE_FONT_SIZE_DEFAULT, FOCAL_DEFAULT, MATH_SIZE_DEFAULT, MATH_SIZE_MAX, MATH_SIZE_MIN,
+    MathFont, NewThreadBackgroundEffect, SIDEBAR_TONE_DEFAULT, SIDEBAR_WIDTH_DEFAULT,
+    TERMINAL_FONT_SIZE_DEFAULT, THEME_DARK_DEFAULT, THEME_LIGHT_DEFAULT, TRANSCRIPT_WIDTH_DEFAULT,
+    WINDOW_OPACITY_DEFAULT, ZOOM_DEFAULT, clamp_focal, clamp_sidebar_tone, clamp_sidebar_width,
+    clamp_ui_font_size, clamp_window_opacity, clamp_zoom, font_family_from_word, font_family_word,
+    normalize_transcript_width, reduce_motion_from_word, reduce_motion_word,
+    wallpaper_color_from_str, wallpaper_color_to_str,
 };
 
 /// First line of every settings file written by [`save`]; also the
@@ -81,6 +86,54 @@ pub struct StoredSettings {
     pub digest: String,
     /// IANA time zone name, or `"system"` to follow the OS.
     pub timezone: String,
+    /// Registry variant id used in light appearance.
+    pub theme_light: String,
+    /// Registry variant id used in dark appearance.
+    pub theme_dark: String,
+    /// Interface font-family word (`momo-trust-sans`, `installed:<name>`, …).
+    pub ui_font_family: String,
+    /// Terminal font-family word.
+    pub terminal_font_family: String,
+    /// Code/diff font-family word.
+    pub code_font_family: String,
+    /// Terminal font size in px, `8.0..=32.0`.
+    pub terminal_font_size: f64,
+    /// Code/diff font size in px, `8.0..=32.0`.
+    pub code_font_size: f64,
+    /// Transcript column width in px, `560.0..=1200.0` on the 16 px grid.
+    pub transcript_width: f64,
+    /// Whether Markdown math is rendered.
+    pub render_math: bool,
+    /// Math face key (`fira`, `stixTwo`, …).
+    pub math_font: String,
+    /// Math size as a percent of the surrounding text, `90..=150`.
+    pub math_size: u16,
+    /// Whether mouse-wheel notches glide instead of jumping.
+    pub smooth_scrolling: bool,
+    /// Reduced-motion word (`system`, `on`, `off`).
+    pub reduce_motion: String,
+    /// Also snap animations while the main window is not focused.
+    pub pause_in_background: bool,
+    /// Whether the wallpaper tints the theme's accent.
+    pub wallpaper_theme_colors: bool,
+    /// Sampled wallpaper color as `#RRGGBB`, or empty.
+    pub wallpaper_color: String,
+    /// Device-local wallpaper folder, or empty.
+    pub wallpaper_folder: String,
+    /// Most recently displayed wallpaper source, or empty.
+    pub wallpaper_source: String,
+    /// Managed new-thread background image path, or empty.
+    pub new_thread_background_path: String,
+    /// Original file name of that image, shown in the row.
+    pub new_thread_background_name: String,
+    /// Normalized horizontal framing of the image, `0.0..=1.0`.
+    pub new_thread_background_focal_x: f64,
+    /// Normalized vertical framing of the image, `0.0..=1.0`.
+    pub new_thread_background_focal_y: f64,
+    /// Image zoom, `1.0..=4.0`.
+    pub new_thread_background_zoom: f64,
+    /// Background treatment word (`none`, `dither`, `ascii`, …).
+    pub new_thread_background_effect: String,
 }
 
 impl Default for StoredSettings {
@@ -104,6 +157,30 @@ impl Default for StoredSettings {
             channel_digest: false,
             digest: "immediate".to_string(),
             timezone: "system".to_string(),
+            theme_light: THEME_LIGHT_DEFAULT.to_string(),
+            theme_dark: THEME_DARK_DEFAULT.to_string(),
+            ui_font_family: "momo-trust-sans".to_string(),
+            terminal_font_family: "xanh-mono".to_string(),
+            code_font_family: "google-sans-code".to_string(),
+            terminal_font_size: TERMINAL_FONT_SIZE_DEFAULT,
+            code_font_size: CODE_FONT_SIZE_DEFAULT,
+            transcript_width: TRANSCRIPT_WIDTH_DEFAULT,
+            render_math: true,
+            math_font: "fira".to_string(),
+            math_size: MATH_SIZE_DEFAULT,
+            smooth_scrolling: true,
+            reduce_motion: "system".to_string(),
+            pause_in_background: false,
+            wallpaper_theme_colors: false,
+            wallpaper_color: String::new(),
+            wallpaper_folder: String::new(),
+            wallpaper_source: String::new(),
+            new_thread_background_path: String::new(),
+            new_thread_background_name: String::new(),
+            new_thread_background_focal_x: f64::from(FOCAL_DEFAULT),
+            new_thread_background_focal_y: f64::from(FOCAL_DEFAULT),
+            new_thread_background_zoom: f64::from(ZOOM_DEFAULT),
+            new_thread_background_effect: "none".to_string(),
         }
     }
 }
@@ -210,6 +287,63 @@ pub fn serialize(s: &StoredSettings) -> String {
     out.push_str(&format!("channel_digest={}\n", s.channel_digest));
     out.push_str(&format!("digest={}\n", escape(&s.digest)));
     out.push_str(&format!("timezone={}\n", escape(&s.timezone)));
+    out.push_str(&format!("theme_light={}\n", escape(&s.theme_light)));
+    out.push_str(&format!("theme_dark={}\n", escape(&s.theme_dark)));
+    out.push_str(&format!("ui_font_family={}\n", escape(&s.ui_font_family)));
+    out.push_str(&format!(
+        "terminal_font_family={}\n",
+        escape(&s.terminal_font_family)
+    ));
+    out.push_str(&format!(
+        "code_font_family={}\n",
+        escape(&s.code_font_family)
+    ));
+    out.push_str(&format!("terminal_font_size={}\n", s.terminal_font_size));
+    out.push_str(&format!("code_font_size={}\n", s.code_font_size));
+    out.push_str(&format!("transcript_width={}\n", s.transcript_width));
+    out.push_str(&format!("render_math={}\n", s.render_math));
+    out.push_str(&format!("math_font={}\n", escape(&s.math_font)));
+    out.push_str(&format!("math_size={}\n", s.math_size));
+    out.push_str(&format!("smooth_scrolling={}\n", s.smooth_scrolling));
+    out.push_str(&format!("reduce_motion={}\n", escape(&s.reduce_motion)));
+    out.push_str(&format!("pause_in_background={}\n", s.pause_in_background));
+    out.push_str(&format!(
+        "wallpaper_theme_colors={}\n",
+        s.wallpaper_theme_colors
+    ));
+    out.push_str(&format!("wallpaper_color={}\n", escape(&s.wallpaper_color)));
+    out.push_str(&format!(
+        "wallpaper_folder={}\n",
+        escape(&s.wallpaper_folder)
+    ));
+    out.push_str(&format!(
+        "wallpaper_source={}\n",
+        escape(&s.wallpaper_source)
+    ));
+    out.push_str(&format!(
+        "new_thread_background_path={}\n",
+        escape(&s.new_thread_background_path)
+    ));
+    out.push_str(&format!(
+        "new_thread_background_name={}\n",
+        escape(&s.new_thread_background_name)
+    ));
+    out.push_str(&format!(
+        "new_thread_background_focal_x={}\n",
+        s.new_thread_background_focal_x
+    ));
+    out.push_str(&format!(
+        "new_thread_background_focal_y={}\n",
+        s.new_thread_background_focal_y
+    ));
+    out.push_str(&format!(
+        "new_thread_background_zoom={}\n",
+        s.new_thread_background_zoom
+    ));
+    out.push_str(&format!(
+        "new_thread_background_effect={}\n",
+        escape(&s.new_thread_background_effect)
+    ));
     out
 }
 
@@ -348,6 +482,151 @@ pub fn parse(text: &str) -> Option<StoredSettings> {
                 let tz = unescape(value);
                 if !tz.is_empty() {
                     s.timezone = tz;
+                }
+            }
+            // Appearance-surface keys (`appearance-parity` R7). Unknown words
+            // and malformed numbers keep the default; string ids are kept as
+            // written (the registry resolves/falls back at apply time).
+            "theme_light" => {
+                let id = unescape(value);
+                if !id.is_empty() {
+                    s.theme_light = id;
+                }
+            }
+            "theme_dark" => {
+                let id = unescape(value);
+                if !id.is_empty() {
+                    s.theme_dark = id;
+                }
+            }
+            "ui_font_family" => {
+                if let Some(family) = font_family_from_word(&unescape(value)) {
+                    s.ui_font_family = font_family_word(&family);
+                }
+            }
+            "terminal_font_family" => {
+                if let Some(family) = font_family_from_word(&unescape(value)) {
+                    s.terminal_font_family = font_family_word(&family);
+                }
+            }
+            "code_font_family" => {
+                if let Some(family) = font_family_from_word(&unescape(value)) {
+                    s.code_font_family = font_family_word(&family);
+                }
+            }
+            "terminal_font_size" => {
+                if let Ok(f) = value.trim().parse::<f64>()
+                    && f.is_finite()
+                {
+                    s.terminal_font_size = clamp_ui_font_size(f, TERMINAL_FONT_SIZE_DEFAULT);
+                }
+            }
+            "code_font_size" => {
+                if let Ok(f) = value.trim().parse::<f64>()
+                    && f.is_finite()
+                {
+                    s.code_font_size = clamp_ui_font_size(f, CODE_FONT_SIZE_DEFAULT);
+                }
+            }
+            "transcript_width" => {
+                if let Ok(f) = value.trim().parse::<f64>()
+                    && f.is_finite()
+                {
+                    s.transcript_width = normalize_transcript_width(f);
+                }
+            }
+            "render_math" => {
+                if let Some(b) = parse_bool(value) {
+                    s.render_math = b;
+                }
+            }
+            "math_font" => {
+                if let Some(font) = MathFont::parse(&unescape(value)) {
+                    s.math_font = font.key().to_string();
+                }
+            }
+            "math_size" => {
+                // Any number rounds and clamps into the page's ladder range;
+                // text keeps the default rather than failing the file.
+                if let Ok(f) = value.trim().parse::<f64>()
+                    && f.is_finite()
+                {
+                    s.math_size = f
+                        .round()
+                        .clamp(f64::from(MATH_SIZE_MIN), f64::from(MATH_SIZE_MAX))
+                        as u16;
+                }
+            }
+            "smooth_scrolling" => {
+                if let Some(b) = parse_bool(value) {
+                    s.smooth_scrolling = b;
+                }
+            }
+            "reduce_motion" => {
+                if let Some(preference) = reduce_motion_from_word(&unescape(value)) {
+                    s.reduce_motion = reduce_motion_word(preference).to_string();
+                }
+            }
+            "pause_in_background" => {
+                if let Some(b) = parse_bool(value) {
+                    s.pause_in_background = b;
+                }
+            }
+            "wallpaper_theme_colors" => {
+                if let Some(b) = parse_bool(value) {
+                    s.wallpaper_theme_colors = b;
+                }
+            }
+            "wallpaper_color" => {
+                if let Some(color) = wallpaper_color_from_str(&unescape(value)) {
+                    s.wallpaper_color = wallpaper_color_to_str(color);
+                }
+            }
+            "wallpaper_folder" => {
+                let path = unescape(value);
+                if !path.is_empty() {
+                    s.wallpaper_folder = path;
+                }
+            }
+            "wallpaper_source" => {
+                let path = unescape(value);
+                if !path.is_empty() {
+                    s.wallpaper_source = path;
+                }
+            }
+            "new_thread_background_path" => {
+                let path = unescape(value);
+                if !path.is_empty() {
+                    s.new_thread_background_path = path;
+                }
+            }
+            "new_thread_background_name" => {
+                s.new_thread_background_name = unescape(value);
+            }
+            "new_thread_background_focal_x" => {
+                if let Ok(f) = value.trim().parse::<f64>()
+                    && f.is_finite()
+                {
+                    s.new_thread_background_focal_x = clamp_focal(f);
+                }
+            }
+            "new_thread_background_focal_y" => {
+                if let Ok(f) = value.trim().parse::<f64>()
+                    && f.is_finite()
+                {
+                    s.new_thread_background_focal_y = clamp_focal(f);
+                }
+            }
+            "new_thread_background_zoom" => {
+                if let Ok(f) = value.trim().parse::<f64>()
+                    && f.is_finite()
+                {
+                    s.new_thread_background_zoom = clamp_zoom(f);
+                }
+            }
+            "new_thread_background_effect" => {
+                if let Some(effect) = NewThreadBackgroundEffect::parse(&unescape(value)) {
+                    s.new_thread_background_effect = effect.word().to_string();
                 }
             }
             _ => {} // unknown key: ignore
@@ -795,6 +1074,7 @@ mod tests {
                 channel_digest: true,
                 digest: "weekly".into(),
                 timezone: "Asia/Tokyo".into(),
+                ..StoredSettings::default()
             },
         ] {
             assert_eq!(parse(&serialize(&s)), Some(s));
@@ -823,10 +1103,11 @@ mod tests {
             channel_digest: true,
             digest: "daily".into(),
             timezone: "Europe/London".into(),
+            ..StoredSettings::default()
         };
         let text = serialize(&s);
-        // Hostile bytes must not create extra lines.
-        assert_eq!(text.lines().count(), 19);
+        // Hostile bytes must not create extra lines: marker + 42 keys.
+        assert_eq!(text.lines().count(), 43);
         assert_eq!(parse(&text), Some(s));
         // Empty strings round-trip too.
         let empty = StoredSettings::default();
@@ -1251,10 +1532,36 @@ mod tests {
                 "channel_digest",
                 "digest",
                 "timezone",
+                // Appearance-surface keys (`appearance-parity` R7).
+                "theme_light",
+                "theme_dark",
+                "ui_font_family",
+                "terminal_font_family",
+                "code_font_family",
+                "terminal_font_size",
+                "code_font_size",
+                "transcript_width",
+                "render_math",
+                "math_font",
+                "math_size",
+                "smooth_scrolling",
+                "reduce_motion",
+                "pause_in_background",
+                "wallpaper_theme_colors",
+                "wallpaper_color",
+                "wallpaper_folder",
+                "wallpaper_source",
+                "new_thread_background_path",
+                "new_thread_background_name",
+                "new_thread_background_focal_x",
+                "new_thread_background_focal_y",
+                "new_thread_background_zoom",
+                "new_thread_background_effect",
             ]
         );
-        // Marker + 18 keys.
-        assert_eq!(text.lines().count(), 19);
+        // Marker + 18 original keys + 24 appearance keys.
+        assert_eq!(keys.len(), 42);
+        assert_eq!(text.lines().count(), 43);
         assert_eq!(text.lines().next(), Some(SETTINGS_MARKER));
     }
 
@@ -1292,6 +1599,32 @@ mod tests {
             channel_digest: true,
             digest: "weekly".into(),
             timezone: "Asia/Tokyo".into(),
+            theme_light: "custom-light".into(),
+            theme_dark: "custom-dark".into(),
+            ui_font_family: "installed:Inter".into(),
+            terminal_font_family: "xanh-mono".into(),
+            code_font_family: "google-sans-code".into(),
+            terminal_font_size: 15.0,
+            code_font_size: 11.0,
+            transcript_width: 800.0,
+            render_math: false,
+            math_font: "stixTwo".into(),
+            math_size: 120,
+            smooth_scrolling: false,
+            reduce_motion: "on".into(),
+            pause_in_background: true,
+            wallpaper_theme_colors: true,
+            wallpaper_color: "#AABBCC".into(),
+            wallpaper_folder: "/Users/tinh/Wallpapers/=set".into(),
+            wallpaper_source: "/Users/tinh/Wallpapers/=set/a b.png".into(),
+            new_thread_background_path:
+                "/Users/tinh/Library/Application Support/mono-desk/new-thread-backgrounds/bg image.png"
+                    .into(),
+            new_thread_background_name: "bg image.png".into(),
+            new_thread_background_focal_x: 0.25,
+            new_thread_background_focal_y: 0.75,
+            new_thread_background_zoom: 2.0,
+            new_thread_background_effect: "dither".into(),
         };
         let parsed = parse(&serialize(&populated)).expect("populated file is managed");
         let settings = AppSettings::from_stored(parsed);
@@ -1320,5 +1653,179 @@ mod tests {
             AppSettings::from_stored(junk).to_stored().accent,
             String::new()
         );
+    }
+
+    /// The 24 appearance keys round-trip through the codec, including an
+    /// `installed:` family word and paths holding spaces, `=`, a backslash and
+    /// an escaped newline.
+    #[test]
+    fn appearance_keys_round_trip_with_hostile_words_and_paths() {
+        let s = StoredSettings {
+            theme_light: "custom:light".into(),
+            theme_dark: "custom:dark".into(),
+            ui_font_family: "installed:My = Font".into(),
+            terminal_font_family: "installed:My = Font".into(),
+            code_font_family: "installed:日本語 Mono".into(),
+            terminal_font_size: 15.0,
+            code_font_size: 11.0,
+            transcript_width: 800.0,
+            render_math: false,
+            math_font: "euler".into(),
+            math_size: 120,
+            smooth_scrolling: false,
+            reduce_motion: "on".into(),
+            pause_in_background: true,
+            wallpaper_theme_colors: true,
+            wallpaper_color: "#AABBCC".into(),
+            wallpaper_folder: "C:\\Users\\tinh\\Wallpapers = set".into(),
+            wallpaper_source: "/tmp/a=b/c d.png".into(),
+            new_thread_background_path: "/tmp/bg\nsecond line.png".into(),
+            new_thread_background_name: "na=me\n.png".into(),
+            new_thread_background_focal_x: 0.25,
+            new_thread_background_focal_y: 0.75,
+            new_thread_background_zoom: 2.0,
+            new_thread_background_effect: "halftone".into(),
+            ..StoredSettings::default()
+        };
+        let text = serialize(&s);
+        // Hostile bytes must not create extra lines: marker + 42 keys.
+        assert_eq!(text.lines().count(), 43, "{text}");
+        assert_eq!(parse(&text), Some(s));
+    }
+
+    /// A file carrying every new key round-trips byte-for-byte through
+    /// serialize → parse → serialize, so a save after a load cannot churn the
+    /// file.
+    #[test]
+    fn appearance_key_file_round_trips_byte_equal() {
+        let s = StoredSettings {
+            theme_light: "custom:light".into(),
+            theme_dark: "custom:dark".into(),
+            ui_font_family: "installed:Inter".into(),
+            terminal_font_family: "installed:My Font".into(),
+            code_font_family: "xanh-mono".into(),
+            terminal_font_size: 15.0,
+            code_font_size: 11.5,
+            transcript_width: 800.0,
+            render_math: false,
+            math_font: "euler".into(),
+            math_size: 135,
+            smooth_scrolling: false,
+            reduce_motion: "off".into(),
+            pause_in_background: true,
+            wallpaper_theme_colors: true,
+            wallpaper_color: "#A1B2C3".into(),
+            wallpaper_folder: "/Users/tinh/Wallpapers".into(),
+            wallpaper_source: "/Users/tinh/Wallpapers/a b.png".into(),
+            new_thread_background_path: "/Users/tinh/bg image.png".into(),
+            new_thread_background_name: "bg image.png".into(),
+            new_thread_background_focal_x: 0.25,
+            new_thread_background_focal_y: 0.75,
+            new_thread_background_zoom: 2.0,
+            new_thread_background_effect: "scanlines".into(),
+            ..StoredSettings::default()
+        };
+        let text = serialize(&s);
+        assert_eq!(text.lines().count(), 43, "{text}");
+        let parsed = parse(&text).expect("managed file");
+        assert_eq!(parsed, s);
+        assert_eq!(serialize(&parsed), text);
+    }
+
+    /// Unknown words, empty strings and non-finite/malformed numbers keep each
+    /// new key's default; a hand-edited file never fails to load because of
+    /// them.
+    #[test]
+    fn invalid_appearance_words_and_numbers_fall_back() {
+        let text = format!(
+            "{SETTINGS_MARKER}\n\
+             theme_light=\n\
+             theme_dark=\n\
+             ui_font_family=bogus\n\
+             terminal_font_family=installed:\n\
+             code_font_family=\n\
+             terminal_font_size=NaN\n\
+             code_font_size=inf\n\
+             transcript_width=NaN\n\
+             render_math=maybe\n\
+             math_font=bogus\n\
+             math_size=banana\n\
+             smooth_scrolling=1\n\
+             reduce_motion=bogus\n\
+             pause_in_background=yes\n\
+             wallpaper_theme_colors=1\n\
+             wallpaper_color=not-a-color\n\
+             wallpaper_folder=\n\
+             wallpaper_source=\n\
+             new_thread_background_path=\n\
+             new_thread_background_name=\n\
+             new_thread_background_focal_x=NaN\n\
+             new_thread_background_focal_y=inf\n\
+             new_thread_background_zoom=NaN\n\
+             new_thread_background_effect=bogus\n"
+        );
+        assert_eq!(parse(&text), Some(StoredSettings::default()));
+    }
+
+    /// Numeric appearance keys clamp like their controls do.
+    #[test]
+    fn appearance_numbers_clamp_like_the_controls() {
+        let parsed = |body: &str| parse(&format!("{SETTINGS_MARKER}\n{body}")).unwrap();
+
+        let high = parsed(
+            "terminal_font_size=99\ncode_font_size=99\ntranscript_width=9999\n             math_size=999\nnew_thread_background_focal_x=5\n             new_thread_background_focal_y=5\nnew_thread_background_zoom=9\n",
+        );
+        assert_eq!(high.terminal_font_size, 32.0);
+        assert_eq!(high.code_font_size, 32.0);
+        assert_eq!(high.transcript_width, 1200.0);
+        assert_eq!(high.math_size, 150);
+        assert_eq!(high.new_thread_background_focal_x, 1.0);
+        assert_eq!(high.new_thread_background_focal_y, 1.0);
+        assert_eq!(high.new_thread_background_zoom, 4.0);
+
+        let low = parsed(
+            "terminal_font_size=1\ncode_font_size=1\ntranscript_width=1\n             math_size=1\nnew_thread_background_focal_x=-2\n             new_thread_background_focal_y=-2\nnew_thread_background_zoom=0.5\n",
+        );
+        assert_eq!(low.terminal_font_size, 8.0);
+        assert_eq!(low.code_font_size, 8.0);
+        assert_eq!(low.transcript_width, 560.0);
+        assert_eq!(low.math_size, 90);
+        assert_eq!(low.new_thread_background_focal_x, 0.0);
+        assert_eq!(low.new_thread_background_focal_y, 0.0);
+        assert_eq!(low.new_thread_background_zoom, 1.0);
+
+        // On the grid: a 736 px width and a 90–150 math size stay put.
+        let exact = parsed("transcript_width=736\nmath_size=100\n");
+        assert_eq!(exact.transcript_width, 736.0);
+        assert_eq!(exact.math_size, 100);
+    }
+
+    /// A settings file written before this phase (the 18 original keys) loads
+    /// unchanged, with every new key taking its default.
+    #[test]
+    fn old_eighteen_key_file_loads_with_new_defaults() {
+        let old = format!(
+            "{SETTINGS_MARKER}\n\
+             accent=\n\
+             appearance=light\n\
+             language=en\n\
+             font_size=14\n\
+             background_translucent=false\n\
+             window_opacity=85\n\
+             sidebar_tone=50\n\
+             sidebar_width=256\n\
+             background_blur=false\n\
+             launch_at_login=false\n\
+             notifications_enabled=true\n\
+             username=ninja\n\
+             display_name=Ninja\n\
+             channel_email=true\n\
+             channel_desktop=true\n\
+             channel_digest=false\n\
+             digest=immediate\n\
+             timezone=system\n"
+        );
+        assert_eq!(old.lines().count(), 19);
+        assert_eq!(parse(&old), Some(StoredSettings::default()));
     }
 }
