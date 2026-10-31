@@ -15,3 +15,10 @@ gpui = { git = "https://github.com/zeronsh/zui", rev = "b564a34413bb7ef1da04121c
 serde = { version = "1", features = ["derive"] }
 tracing = "0.1"
 zeron-theme = { path = "../zeron-theme" }
+# Installed-font catalog (upstream `crates/ui/src/typography.rs`) and the
+# background artwork pipeline (`new_thread_background_{image,effects,mask}.rs`,
+# upstream `crates/ui/src/`). Versions match what `gpui` already pins in
+# `Cargo.lock`; added by `docs/plans/active/appearance-parity.md`.
+fontdb = "0.23"
+ttf-parser = "0.25"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp", "tiff", "ico"] }
