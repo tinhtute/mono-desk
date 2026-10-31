@@ -1,18 +1,24 @@
 //! Embedded icon assets + the gpui [`AssetSource`] that serves them.
 //!
-//! The set mirrors the original zeron's icon usage exactly:
-//! - Most glyphs come from the **Solar Icons** set (Linear weight) by 480 Design,
-//!   the same set the Electron app used via `@solar-icons/react`. Solar Icons is
-//!   licensed under CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/);
-//!   attribution: "Solar Icons by 480 Design".
-//! - The terminal tab glyphs (`terminal`, `plus`, `close`) and the stop square
-//!   are ports of the hand-drawn inline SVGs in zeron's `terminal-panel.tsx` /
-//!   `composer-actions.tsx`.
-//! - The harness brand marks (`claude-mark`, `openai-mark`, `cursor-mark`) are
-//!   ports of zeron's `icons.tsx`. gpui tints SVGs with the text color, so the
-//!   Claude mark's brand orange is applied at the call site ([`CLAUDE_BRAND`]).
+//! The UI glyph set is **Phosphor Icons** v2.1.1 (https://phosphoricons.com/),
+//! MIT licensed — SVGs copied verbatim from
+//! `@phosphor-icons/core@2.1.1/assets/regular/`, except the two filled twin
+//! slots ([`FAST_TIER_BOLD`], [`STAR_BOLD`]) which take the `fill` weight.
+//! Phosphor draws on a 256-unit canvas with a 16-unit outline, i.e. the same
+//! 1.5-on-24 stroke weight as the Solar Linear set it replaced.
+//!
+//! Asset filenames keep zeron's slot names so the vendored call sites stay
+//! untouched; the `// phosphor:` marker on each line records which Phosphor
+//! glyph fills that slot, and `docs/memory/zeron-stack-port.md` keeps the
+//! swap record. The brand marks (`*_MARK`, [`ZERON_LOGO`]) are the documented
+//! exception: they are logos ported from zeron's `icons.tsx`, not UI glyphs,
+//! and Phosphor ships no equivalent.
 //!
 //! Icons render via [`icon`]: `icon(icons::PAPERCLIP).size(px(16.)).text_color(…)`.
+//!
+//! Swapping the artwork is safe because gpui rasterizes an SVG into an alpha
+//! mask and tints it with the element's `text_color` — the `fill` colour in
+//! the file never reaches the screen.
 
 use std::borrow::Cow;
 
@@ -51,199 +57,135 @@ macro_rules! icon_assets {
 }
 
 icon_assets![
-    (PROJECT_DEFAULT, "project-default"),
-    (REMOTE_SERVER, "remote-server"),
-    // Service-tier bolt, drawn in the toolbar family's linear weight; the
-    // filled twin marks fast mode on.
-    (FAST_TIER, "fast-tier"),
-    (FAST_TIER_BOLD, "fast-tier-bold"),
-    // Solar Icons (Linear), CC BY 4.0 — 480 Design.
-    (MONITOR, "monitor"),
-    (SUN, "sun"),
-    (MOON, "moon"),
-    // Browser globe, drawn in the same linear weight as the toolbar family.
-    (GLOBE, "globe"),
-    (CURSOR_SQUARE, "cursor-square"),
-    // The pointer alone: an annotation chip's glyph inside its well.
-    (CURSOR, "cursor"),
-    (LAPTOP, "laptop"),
-    (PEN_NEW_SQUARE, "pen-new-square"),
-    (SORT, "sort"),
-    (MORE_HORIZONTAL, "more-horizontal"),
-    (SORT_VERTICAL, "sort-vertical"),
-    // Compact six-dot grip used to reorder queued prompts.
-    (DRAG_HANDLE, "drag-handle"),
-    // Original queue-only line family: 24px canvas, 1.5px round strokes and
-    // medium-radius geometry. Kept separate so the queue can adopt the visual
-    // language of the supplied Central Icons reference without changing
-    // shared application glyphs or copying third-party artwork.
-    (QUEUE_DRAG_HANDLE, "queue-drag-handle"),
-    (QUEUE_SEND, "queue-send"),
-    (QUEUE_CHECK, "queue-check"),
-    (QUEUE_CLOSE, "queue-close"),
-    (QUEUE_PAPERCLIP, "queue-paperclip"),
-    (CLOCK_CIRCLE, "clock-circle"),
-    (CALENDAR, "calendar"),
-    (LIST, "list"),
-    (FOLDER_WITH_FILES, "folder-with-files"),
-    // Original tree glyph with compact nodes for the independent Files panel.
-    (FILE_TREE, "file-tree"),
-    (FOLDER_TREE, "folder-tree"),
-    // Hand-drawn floppy disk in the Solar Linear style. Workspace editor save.
-    (FLOPPY_DISK, "floppy-disk"),
-    // Zeron Icons (icons.zeron.sh): 24px canvas, 1.75px round strokes. The
-    // git family shares rails at x=6/18 and 2.25-radius nodes; the carets
-    // and arrows are the site's one path pre-rotated per direction.
-    (FOLDER, "folder"),
-    (FORK, "fork"),
-    (GIT_BRANCH, "git-branch"),
-    (PULL_REQUEST, "pull-request"),
-    (WORKTREE, "worktree"),
-    (PLUS, "plus"),
-    (MINUS, "minus"),
-    (ARROW_LEFT, "arrow-left"),
-    (ARROW_RIGHT, "arrow-right"),
-    (ALT_ARROW_DOWN, "alt-arrow-down"),
-    (ALT_ARROW_UP, "alt-arrow-up"),
-    (ALT_ARROW_LEFT, "alt-arrow-left"),
-    (ALT_ARROW_RIGHT, "alt-arrow-right"),
-    (PULL_REQUEST_DRAFT, "pull-request-draft"),
-    // Compact history-ref glyphs, drawn in the same linear style.
-    (CLOUD, "cloud"),
-    (TAG, "tag"),
-    (KEY_MINIMALISTIC, "key-minimalistic"),
-    (KEYBOARD, "keyboard"),
-    (ARROW_UP, "arrow-up"),
-    // arrow-up mirrored (like the sidebar flip) — the Solar Linear set here
-    // has no plain arrow-down.
-    (ARROW_DOWN, "arrow-down"),
-    // arrow-up rotated 45° — the "opens elsewhere" glyph on spawn chips;
-    // the set has no diagonal arrow.
-    (ARROW_UP_RIGHT, "arrow-up-right"),
-    // Hand-drawn return/enter arrow in the Solar Linear style (like the
-    // terminal/plus/close ports) — the set has no return glyph.
-    (RETURN, "return"),
-    // Hand-drawn expand/maximize arrows in the Solar Linear style (like the
-    // terminal/plus/return ports) — the set has no expand glyph.
-    (EXPAND_ARROWS, "expand-arrows"),
-    // Inward-pointing companion used to restore an expanded pane.
-    (COLLAPSE_ARROWS, "collapse-arrows"),
-    // Hand-drawn fold-all chevrons, drawn as a family with EXPAND_ARROWS
-    // (same stroke, caps, 90° joints) — Solar has no unfold-less either.
-    (FOLD_VERTICAL, "fold-vertical"),
-    // The changes pane's unified/split toggle: a rounded frame halved by a
-    // centre rule (Solar Linear weight).
-    (SPLIT_COLUMNS, "split-columns"),
-    // Long-line wrapping toggle shared by changes and agent Markdown fences.
-    (WRAP_TEXT, "wrap-text"),
-    (SMARTPHONE, "smartphone"),
-    (ARCHIVE_UP_MINIMALISTIC, "archive-up-minimalistic"),
-    (REFRESH, "refresh"),
-    (RESTART, "restart"),
-    (ADD_CIRCLE, "add-circle"),
-    (TUNING, "tuning"),
-    (EYE, "eye"),
-    (EYE_CLOSED, "eye-closed"),
-    (PAPERCLIP, "paperclip"),
-    // Hand-drawn pushpin in the Solar Linear style for local sidebar pins.
-    (PIN, "pin"),
-    (PEN, "pen"),
-    (ARCHIVE_MINIMALISTIC, "archive-minimalistic"),
-    (TRASH_BIN_MINIMALISTIC, "trash-bin-minimalistic"),
-    // Shared settings glyph: user-supplied horizontal sliders.
-    (SETTINGS, "settings"),
-    (SETTINGS_MINIMALISTIC, "settings-minimalistic"),
-    (LOGOUT_2, "logout-2"),
-    (MAGNIFER, "magnifer"),
-    // Compact magnifier with a distinct handle, matching the linear icon family.
-    (PALETTE_SEARCH, "palette-search"),
-    (COMMAND, "command"),
-    (DOCUMENT, "document"),
-    (DOCUMENT_ADD, "document-add"),
-    // File-kind glyphs, drawn in the same linear family for transcript badges.
-    (FILE_CODE, "file-code"),
-    (FILE_STYLE, "file-style"),
-    (FILE_DATA, "file-data"),
-    (FILE_MARKDOWN, "file-markdown"),
-    (FILE_IMAGE, "file-image"),
-    // A framed picture: the icon of `Image N` chips.
-    (GALLERY, "gallery"),
-    (GLOBAL, "global"),
-    (CHECKLIST, "checklist"),
-    (WIDGET, "widget"),
-    (MAGIC_STICK_3, "magic-stick-3"),
-    (WIFI_OFF, "wifi-off"),
-    (CLOSE_CIRCLE, "close-circle"),
-    // Hand-drawn info glyph in the Solar Linear style (like the terminal/
-    // plus/return ports) — the embedded set has no info-circle.
-    (INFO_CIRCLE, "info-circle"),
-    (DANGER_TRIANGLE, "danger-triangle"),
-    (CHAT_ROUND_LINE, "chat-round-line"),
-    // Hand-drawn bot head (antenna + eyes + ears) in the Solar Linear style
-    // — the embedded set has no bot/robot glyph. Subagent tabs.
-    (BOT, "bot"),
-    // Hand-drawn bell + speaker in the Solar Linear style (like the terminal/
-    // plus/return ports) — the embedded set has neither.
-    (BELL, "bell"),
-    // Hand-drawn head-and-shoulders glyph in the Solar Linear style: mono-desk's
-    // Profile section row. mono-desk addition — neither the embedded set nor
-    // zeron's own icon file ships a user glyph (zeron draws an initial avatar
-    // instead).
-    (USER, "user"),
-    (VOLUME_LOUD, "volume-loud"),
-    // Hand-drawn microphone pair in the Solar Linear style — voice controls.
-    (MICROPHONE, "microphone"),
-    (MICROPHONE_OFF, "microphone-off"),
-    (PHONE_HANG_UP, "phone-hang-up"),
-    // Hand-drawn zeron glyphs (terminal-panel.tsx / composer-actions.tsx /
-    // menu-check.tsx / logo.tsx).
-    (TERMINAL, "terminal"),
-    (CLOSE, "close"),
-    // Hand-drawn Linux caption glyphs (minimize dash, maximize square,
-    // restore stacked squares) in the same style as `close` — drawn for the
-    // client-side-decoration window controls; no system glyph font exists on
-    // Linux the way Segoe Fluent Icons does on Windows.
-    (WINDOW_MINIMIZE, "window-minimize"),
-    (WINDOW_MAXIMIZE, "window-maximize"),
-    (WINDOW_RESTORE, "window-restore"),
-    // Hand-drawn hard-drive + home glyphs in the Solar Linear style (like the
-    // terminal/plus/return ports) — drawn for the add-space palette's
-    // Locations rail; the set has neither.
-    (HARD_DRIVE, "hard-drive"),
-    (HOME, "home"),
-    (STOP, "stop"),
-    (CHECK, "check"),
-    (COPY, "copy"),
-    // Project Action icon family (Solar Linear-compatible strokes).
-    (ACTION_PLAY, "action-play"),
-    (ACTION_TEST, "action-test"),
-    (ACTION_LINT, "action-lint"),
-    (ACTION_CONFIGURE, "action-configure"),
-    (ACTION_BUILD, "action-build"),
-    (ACTION_DEBUG, "action-debug"),
-    // Hand-drawn star pair in the Solar Linear style (like the terminal/
-    // plus/return ports) — outline for the favorite affordance, bold for the
-    // favorited state and the picker's favorites rail tab.
-    (STAR, "star"),
-    (STAR_BOLD, "star-bold"),
-    (ZERON_LOGO, "zeron-logo"),
-    // Harness brand marks (icons.tsx).
-    (CLAUDE_MARK, "claude-mark"),
-    (OPENAI_MARK, "openai-mark"),
-    (CURSOR_MARK, "cursor-mark"),
-    (DEVIN_MARK, "devin-mark"),
-    (GROK_MARK, "grok-mark"),
-    (HERMES_MARK, "hermes-mark"),
-    (PI_MARK, "pi-mark"),
-    (OPENCODE_MARK, "opencode-mark"),
-    // GitHub's mark (Octicons `mark-github`, MIT) for the Cloud page's
-    // GitHub connection.
-    (GITHUB_MARK, "github-mark"),
-    // Settings → Billing (drawn to the Solar linear set's 1.5 stroke).
-    (WALLET, "wallet"),
-    (ANTIGRAVITY_MARK, "antigravity-mark"),
-    // Muse Code's mark (Meta's infinity), tinted its brand blue at call sites.
-    (MUSE_MARK, "muse-mark"),
+    (PROJECT_DEFAULT, "project-default"), // phosphor: folder-simple
+    (REMOTE_SERVER, "remote-server"), // phosphor: database
+    (FAST_TIER, "fast-tier"), // phosphor: lightning
+    (FAST_TIER_BOLD, "fast-tier-bold"), // phosphor: fill/lightning-fill
+    (MONITOR, "monitor"), // phosphor: monitor
+    (SUN, "sun"), // phosphor: sun
+    (MOON, "moon"), // phosphor: moon
+    (GLOBE, "globe"), // phosphor: globe
+    (CURSOR_SQUARE, "cursor-square"), // phosphor: selection
+    (CURSOR, "cursor"), // phosphor: cursor
+    (LAPTOP, "laptop"), // phosphor: laptop
+    (PEN_NEW_SQUARE, "pen-new-square"), // phosphor: note-pencil
+    (SORT, "sort"), // phosphor: arrows-down-up
+    (MORE_HORIZONTAL, "more-horizontal"), // phosphor: dots-three
+    (SORT_VERTICAL, "sort-vertical"), // phosphor: arrows-left-right
+    (DRAG_HANDLE, "drag-handle"), // phosphor: dots-six-vertical
+    (QUEUE_DRAG_HANDLE, "queue-drag-handle"), // phosphor: dots-six-vertical
+    (QUEUE_SEND, "queue-send"), // phosphor: paper-plane-tilt
+    (QUEUE_CHECK, "queue-check"), // phosphor: check-circle
+    (QUEUE_CLOSE, "queue-close"), // phosphor: x-circle
+    (QUEUE_PAPERCLIP, "queue-paperclip"), // phosphor: paperclip
+    (CLOCK_CIRCLE, "clock-circle"), // phosphor: clock
+    (CALENDAR, "calendar"), // phosphor: calendar-blank
+    (LIST, "list"), // phosphor: list-bullets
+    (FOLDER_WITH_FILES, "folder-with-files"), // phosphor: folder-open
+    (FILE_TREE, "file-tree"), // phosphor: tree-view
+    (FOLDER_TREE, "folder-tree"), // phosphor: folders
+    (FLOPPY_DISK, "floppy-disk"), // phosphor: floppy-disk
+    (FOLDER, "folder"), // phosphor: folder
+    (FORK, "fork"), // phosphor: git-fork
+    (GIT_BRANCH, "git-branch"), // phosphor: git-branch
+    (PULL_REQUEST, "pull-request"), // phosphor: git-pull-request
+    (WORKTREE, "worktree"), // phosphor: tree-structure
+    (PLUS, "plus"), // phosphor: plus
+    (MINUS, "minus"), // phosphor: minus
+    (ARROW_LEFT, "arrow-left"), // phosphor: arrow-left
+    (ARROW_RIGHT, "arrow-right"), // phosphor: arrow-right
+    (ALT_ARROW_DOWN, "alt-arrow-down"), // phosphor: caret-down
+    (ALT_ARROW_UP, "alt-arrow-up"), // phosphor: caret-up
+    (ALT_ARROW_LEFT, "alt-arrow-left"), // phosphor: caret-left
+    (ALT_ARROW_RIGHT, "alt-arrow-right"), // phosphor: caret-right
+    (PULL_REQUEST_DRAFT, "pull-request-draft"), // phosphor: git-pull-request
+    (CLOUD, "cloud"), // phosphor: cloud
+    (TAG, "tag"), // phosphor: tag
+    (KEY_MINIMALISTIC, "key-minimalistic"), // phosphor: key
+    (KEYBOARD, "keyboard"), // phosphor: keyboard
+    (ARROW_UP, "arrow-up"), // phosphor: arrow-up
+    (ARROW_DOWN, "arrow-down"), // phosphor: arrow-down
+    (ARROW_UP_RIGHT, "arrow-up-right"), // phosphor: arrow-up-right
+    (RETURN, "return"), // phosphor: arrow-elbow-down-left
+    (EXPAND_ARROWS, "expand-arrows"), // phosphor: arrows-out
+    (COLLAPSE_ARROWS, "collapse-arrows"), // phosphor: arrows-in
+    (FOLD_VERTICAL, "fold-vertical"), // phosphor: arrows-in-line-vertical
+    (SPLIT_COLUMNS, "split-columns"), // phosphor: columns
+    (WRAP_TEXT, "wrap-text"), // phosphor: text-align-left
+    (SMARTPHONE, "smartphone"), // phosphor: device-mobile
+    (ARCHIVE_UP_MINIMALISTIC, "archive-up-minimalistic"), // phosphor: tray-arrow-up
+    (REFRESH, "refresh"), // phosphor: arrows-clockwise
+    (RESTART, "restart"), // phosphor: arrow-counter-clockwise
+    (ADD_CIRCLE, "add-circle"), // phosphor: plus-circle
+    (TUNING, "tuning"), // phosphor: sliders-horizontal
+    (EYE, "eye"), // phosphor: eye
+    (EYE_CLOSED, "eye-closed"), // phosphor: eye-closed
+    (PAPERCLIP, "paperclip"), // phosphor: paperclip
+    (PIN, "pin"), // phosphor: push-pin
+    (PEN, "pen"), // phosphor: pencil
+    (ARCHIVE_MINIMALISTIC, "archive-minimalistic"), // phosphor: archive
+    (TRASH_BIN_MINIMALISTIC, "trash-bin-minimalistic"), // phosphor: trash
+    (SETTINGS, "settings"), // phosphor: sliders
+    (SETTINGS_MINIMALISTIC, "settings-minimalistic"), // phosphor: gear
+    (LOGOUT_2, "logout-2"), // phosphor: sign-out
+    (MAGNIFER, "magnifer"), // phosphor: magnifying-glass
+    (PALETTE_SEARCH, "palette-search"), // phosphor: magnifying-glass
+    (COMMAND, "command"), // phosphor: command
+    (DOCUMENT, "document"), // phosphor: file-text
+    (DOCUMENT_ADD, "document-add"), // phosphor: file-plus
+    (FILE_CODE, "file-code"), // phosphor: file-code
+    (FILE_STYLE, "file-style"), // phosphor: file-css
+    (FILE_DATA, "file-data"), // phosphor: file-csv
+    (FILE_MARKDOWN, "file-markdown"), // phosphor: file-md
+    (FILE_IMAGE, "file-image"), // phosphor: file-image
+    (GALLERY, "gallery"), // phosphor: images
+    (GLOBAL, "global"), // phosphor: globe-hemisphere-west
+    (CHECKLIST, "checklist"), // phosphor: list-checks
+    (WIDGET, "widget"), // phosphor: squares-four
+    (MAGIC_STICK_3, "magic-stick-3"), // phosphor: magic-wand
+    (WIFI_OFF, "wifi-off"), // phosphor: wifi-slash
+    (CLOSE_CIRCLE, "close-circle"), // phosphor: x-circle
+    (INFO_CIRCLE, "info-circle"), // phosphor: info
+    (DANGER_TRIANGLE, "danger-triangle"), // phosphor: warning
+    (CHAT_ROUND_LINE, "chat-round-line"), // phosphor: chat-circle
+    (BOT, "bot"), // phosphor: robot
+    (BELL, "bell"), // phosphor: bell
+    (USER, "user"), // phosphor: user
+    (VOLUME_LOUD, "volume-loud"), // phosphor: speaker-high
+    (MICROPHONE, "microphone"), // phosphor: microphone
+    (MICROPHONE_OFF, "microphone-off"), // phosphor: microphone-slash
+    (PHONE_HANG_UP, "phone-hang-up"), // phosphor: phone-x
+    (TERMINAL, "terminal"), // phosphor: terminal-window
+    (CLOSE, "close"), // phosphor: x
+    (WINDOW_MINIMIZE, "window-minimize"), // phosphor: minus
+    (WINDOW_MAXIMIZE, "window-maximize"), // phosphor: square
+    (WINDOW_RESTORE, "window-restore"), // phosphor: copy
+    (HARD_DRIVE, "hard-drive"), // phosphor: hard-drives
+    (HOME, "home"), // phosphor: house
+    (STOP, "stop"), // phosphor: square
+    (CHECK, "check"), // phosphor: check
+    (COPY, "copy"), // phosphor: copy
+    (ACTION_PLAY, "action-play"), // phosphor: play
+    (ACTION_TEST, "action-test"), // phosphor: test-tube
+    (ACTION_LINT, "action-lint"), // phosphor: check-circle
+    (ACTION_CONFIGURE, "action-configure"), // phosphor: gear
+    (ACTION_BUILD, "action-build"), // phosphor: hammer
+    (ACTION_DEBUG, "action-debug"), // phosphor: bug
+    (STAR, "star"), // phosphor: star
+    (STAR_BOLD, "star-bold"), // phosphor: fill/star-fill
+    (ZERON_LOGO, "zeron-logo"), // brand mark: zeron artwork, no Phosphor equivalent
+    (CLAUDE_MARK, "claude-mark"), // brand mark: zeron artwork, no Phosphor equivalent
+    (OPENAI_MARK, "openai-mark"), // brand mark: zeron artwork, no Phosphor equivalent
+    (CURSOR_MARK, "cursor-mark"), // brand mark: zeron artwork, no Phosphor equivalent
+    (DEVIN_MARK, "devin-mark"), // brand mark: zeron artwork, no Phosphor equivalent
+    (GROK_MARK, "grok-mark"), // brand mark: zeron artwork, no Phosphor equivalent
+    (HERMES_MARK, "hermes-mark"), // brand mark: zeron artwork, no Phosphor equivalent
+    (PI_MARK, "pi-mark"), // brand mark: zeron artwork, no Phosphor equivalent
+    (OPENCODE_MARK, "opencode-mark"), // brand mark: zeron artwork, no Phosphor equivalent
+    (GITHUB_MARK, "github-mark"), // phosphor: github-logo
+    (WALLET, "wallet"), // phosphor: wallet
+    (ANTIGRAVITY_MARK, "antigravity-mark"), // brand mark: zeron artwork, no Phosphor equivalent
+    (MUSE_MARK, "muse-mark"), // brand mark: zeron artwork, no Phosphor equivalent
 ];
 
 /// Serves the compact control-icon set through the single asset source
@@ -274,9 +216,9 @@ pub fn muse_brand() -> Hsla {
 
 /// An icon element for an embedded asset path. Size and colour are set by the
 /// caller (`.size(..)`, `.text_color(..)`), matching the web app's
-/// `[&_svg]:size-4` idiom.
-/// GPUI's SVG painter reads the SVG's own text color; a color on its parent
-/// does not provide the paint input. Always set `.text_color(..)` on the icon.
+/// `[&_svg]:size-4` idiom. GPUI rasterizes the SVG into an alpha mask and
+/// tints it with this element's `text_color`, so always set `.text_color(..)`
+/// on the icon itself — a color on its parent does not tint it.
 pub fn icon(path: &'static str) -> Svg {
     svg().path(path).flex_none()
 }
@@ -359,4 +301,51 @@ pub fn corner_card_glyph(size: f32, color: Hsla) -> Div {
         .size(px(size))
         .child(frame)
         .child(panel)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Slots that intentionally keep zeron's own artwork: the harness and app
+    /// brand marks are logos, not UI glyphs, and Phosphor ships no equivalent.
+    const BRAND_MARKS: &[&str] = &[
+        "icons/antigravity-mark.svg",
+        "icons/claude-mark.svg",
+        "icons/cursor-mark.svg",
+        "icons/devin-mark.svg",
+        "icons/grok-mark.svg",
+        "icons/hermes-mark.svg",
+        "icons/muse-mark.svg",
+        "icons/openai-mark.svg",
+        "icons/opencode-mark.svg",
+        "icons/pi-mark.svg",
+        "icons/zeron-logo.svg",
+    ];
+
+    /// The UI set is Phosphor Icons (https://phosphoricons.com/, MIT): every
+    /// slot that is not a brand mark carries a Phosphor glyph on Phosphor's
+    /// 256-unit canvas. Red before the swap (the Solar and hand-drawn ports
+    /// use 16/24-unit canvases), green after it.
+    #[test]
+    fn ui_icons_are_phosphor_glyphs() {
+        let paths = Assets.list("icons/").expect("icon asset source lists");
+        assert!(!paths.is_empty(), "the icon asset source serves icons");
+        for path in paths {
+            let path = path.to_string();
+            let svg = Assets
+                .load(&path)
+                .unwrap_or_else(|err| panic!("{path} loads: {err}"))
+                .unwrap_or_else(|| panic!("{path} is embedded"));
+            let svg = std::str::from_utf8(&svg).expect("icon SVG is UTF-8");
+            assert!(svg.trim_start().starts_with("<svg"), "{path} is an SVG");
+            if BRAND_MARKS.contains(&path.as_str()) {
+                continue;
+            }
+            assert!(
+                svg.contains("viewBox=\"0 0 256 256\""),
+                "{path} is not a Phosphor glyph (expected the 256-unit canvas)"
+            );
+        }
+    }
 }
