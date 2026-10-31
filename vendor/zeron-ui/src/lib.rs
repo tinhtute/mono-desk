@@ -9,17 +9,20 @@
 //! file header.
 //!
 //! Ported in the plan's `theme-foundation` phase
-//! (`docs/plans/active/zeron-stack-port.md`); the chrome and settings surfaces
-//! consume the rest in later phases.
+//! (`docs/plans/completed/zeron-stack-port.md`); the chrome and settings
+//! surfaces consume the rest, and `docs/plans/active/appearance-parity.md`
+//! extends this kit for zeron's Appearance page (scroll rail, installed-font
+//! catalog, wallpaper tint).
 //!
 //! Licensing: zeron is MIT (see `LICENSE`); the UI glyph set is Phosphor Icons
 //! v2.1.1 (MIT, https://phosphoricons.com/) and the brand marks keep zeron's
 //! artwork; the GPUI fork is Apache-2.0. See `THIRD_PARTY_NOTICES.md` at the
 //! repository root.
 
-// The port is complete for the surfaces mono-desk uses; a few upstream helpers
-// remain unused here (theme library, scrollbar rail, wallpaper plumbing) and
-// keep the vendored crate warning-free without patching upstream style rules.
+// A few upstream helpers remain unused here (the theme-library UI bridge will
+// live in `src/settings/theme_library.rs` from phase `state-persistence` T3,
+// and zeron's settings-search metadata is not ported), which keeps the
+// vendored crate warning-free without patching upstream style rules.
 #![allow(dead_code)]
 // Vendored upstream source. Clippy's evolving style lints (derivable impls,
 // argument counts, collapsible branches) are upstream's to fix: patching them
@@ -36,6 +39,8 @@ pub mod highlight;
 pub mod icons;
 pub mod loader_math;
 pub mod motion;
+pub mod new_thread_background_effects;
+pub mod new_thread_background_mask;
 pub mod popover;
 pub mod settings;
 pub mod theme;
