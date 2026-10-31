@@ -16,8 +16,13 @@
 ## Non-goals
 - Not a production settings/productivity app; no multi-window or multi-view
   product surface. No chat/workspace surface: zeron's chat-route chrome is
-  deliberately not ported (the app is its Settings route only). No theme
-  library/import, wallpaper, or cloud-only surfaces (port plan NG2).
+  deliberately not ported (the app is its Settings route only). The Appearance
+  page does port zeron's local theme library (VS Code theme import, review and
+  install), the managed new-thread background image with its adjustment/effect
+  dialog, and the wallpaper folder/shuffle rows; it still has **no wallpaper
+  painting layer, no transcript/Markdown surface, no cloud theme sync**, and
+  the settings-search anchors/`page_reveal` and zeron's kinetic-scroll engine
+  stay unported (appearance-parity NG1-NG6).
 
 ## What are the gate commands?
 - run from: repository root (host-local: `/Users/tinhtute/Lab/mono-desk`,
@@ -59,9 +64,15 @@
   `AppSettings` global → `open_window(..., Shell::new)`
 
 ## What are we working on right now?
-- plan: `docs/plans/active/zeron-stack-port.md` — porting mono-desk onto
-  zeron's GPUI stack. Phases `stack-bringup`, `theme-foundation`, `chrome` and
-  `settings-surface` are closed; `fidelity-close` (test-suite/docs/notices
-  close-out, independent `check full`, handoff) is in progress.
-- module map/adaptation rules: `docs/memory/zeron-stack-port.md`;
-  third-party licensing: `THIRD_PARTY_NOTICES.md`.
+- no active plan: the zeron-stack port
+  (`docs/plans/completed/zeron-stack-port.md`) and the Appearance-parity port
+  (`docs/plans/completed/appearance-parity.md`) are complete. mono-desk's
+  Settings route now carries zeron's full Appearance page — Color scheme,
+  Material/background (managed image, effect, wallpaper folder), Motion, the
+  local theme library with import/review dialogs, and Fonts and layout — with
+  its persistence, four-locale i18n and independent phase gates. The
+  remaining known gaps are visual-only (owner pass) and are listed as proof
+  gaps in the plan and `docs/memory/appearance-parity.md`.
+- module map/adaptation rules: `docs/memory/zeron-stack-port.md` and
+  `docs/memory/appearance-parity.md`; third-party licensing:
+  `THIRD_PARTY_NOTICES.md`.

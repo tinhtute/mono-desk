@@ -12,18 +12,29 @@ from zeron's MIT-licensed source
   over a blurred window background, sidebar tone, seven-section list and footer
   identity row
 - Seven settings pages on zeron's own page kit: General (language, time zone,
-  launch at login), Appearance (System/Light/Dark mode cards with previews,
-  theme variants, accent swatches, Glass surface, motion, font size),
-  Notifications (delivery, channels, digest, test notification), Profile
-  (username / display name with validation and preview), Finance UI (the
-  eight-card showcase rebuilt from the pre-port app), Reset (per-setting and
-  two-press reset-all), About
+  launch at login), **Appearance — zeron's full page**: edge-faded scroll +
+  floating rail, System/Light/Dark mode cards, registry theme-variant selectors
+  with palette previews, accent swatches, wallpaper-matched tinting, Glass
+  surface, New-thread background image with an adjustment/effect dialog,
+  wallpaper folder/shuffle, reduce-motion/pause/smooth-scrolling, the local
+  theme library (import VS Code themes, review the mapping, install), and the
+  Fonts and layout section (Interface/Terminal/Code pickers with search,
+  Conversation width slider, Render math + Math font/size), Notifications
+  (delivery, channels, digest, test notification), Profile (username / display
+  name with validation and preview), Finance UI (the eight-card showcase
+  rebuilt from the pre-port app), Reset (per-setting and two-press reset-all),
+  About
 - Sidebar search that filters the section list (⌘F to focus, Escape to clear)
 - Live theme: appearance/accent/glass/font-size are applied immediately through
   zeron's theme registry; the native window background follows the surface
   material
 - Persistence: `key=value` settings file with an ownership marker, atomic
-  writes, and OS autostart convergence (macOS LaunchAgent / Linux `.desktop`)
+  writes and OS autostart convergence (macOS LaunchAgent / Linux `.desktop`);
+  the appearance state (theme variants, three font families/sizes, transcript
+  width, math settings, motion preferences, background image/adjustment/effect,
+  wallpaper folder/source, wallpaper colors) lives in the same file, while the
+  imported theme library and copied background images live under
+  `Application Support/mono-desk/`
 
 ## Requirements
 
