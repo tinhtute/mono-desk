@@ -15,14 +15,16 @@
 
 ## Non-goals
 - Not a production settings/productivity app; no multi-window or multi-view
-  product surface. No chat/workspace surface: zeron's chat-route chrome is
-  deliberately not ported (the app is its Settings route only). The Appearance
-  page does port zeron's local theme library (VS Code theme import, review and
-  install), the managed new-thread background image with its adjustment/effect
-  dialog, and the wallpaper folder/shuffle rows; it still has **no wallpaper
-  painting layer, no transcript/Markdown surface, no cloud theme sync**, and
-  the settings-search anchors/`page_reveal` and zeron's kinetic-scroll engine
-  stay unported (appearance-parity NG1-NG6).
+  product surface. No chat/workspace surface: zeron's chat-route shell is
+  deliberately not ported (the app is its Settings route only) — the one
+  chat-shell control ported onto it is the sidebar collapse toggle
+  (`sidebar-collapse`). The Appearance page does port zeron's local theme
+  library (VS Code theme import, review and install), the managed new-thread
+  background image with its adjustment/effect dialog, and the wallpaper
+  folder/shuffle rows; it still has **no wallpaper painting layer, no
+  transcript/Markdown surface, no cloud theme sync**, and the settings-search
+  anchors/`page_reveal` and zeron's kinetic-scroll engine stay unported
+  (appearance-parity NG1-NG6).
 
 ## What are the gate commands?
 - run from: repository root (host-local: `/Users/tinhtute/Lab/mono-desk`,
@@ -43,8 +45,9 @@
   registry UI kit
 - chrome: zeron's Settings route (`vendor/zeron-ui/src/chrome.rs`,
   `src/shell.rs`) — glass root over the blurred window background, 38px
-  titlebar drag strip, 256px sidebar tone column, seven-section list, footer
-  identity row, sidebar search
+  titlebar drag strip, collapsible 256px sidebar column (zeron chat-shell
+  toggle in the top-left cluster, ⌘B, persisted `sidebar_collapsed`),
+  seven-section list, footer identity row, sidebar search
 - pages: `src/settings/` — one gpui view per page owning its `SelectState`s and
   `ScrollHandle`, built from zeron's vendored widgets (`settings::widgets`,
   `settings::select`, `settings::menu`) over `Theme::of(cx)` tokens

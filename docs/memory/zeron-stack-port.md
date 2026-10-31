@@ -80,14 +80,16 @@ settings route paints no titlebar control cluster, no centered title and no
 sidebar resize/collapse (those belong to the chat shell), and its `Back` row
 only exists to return to the chat. The owner chose "copy y màn Settings của
 zeron" and "bỏ nút Back, sidebar bắt đầu bằng ô search"; both are recorded as
-R2/R3 amendments in the plan.
+R2/R3 amendments in the plan. (R2's "no cluster / no collapse" half was later
+amended by `sidebar-collapse`, owner request 2026-10-31 — see the last section
+of this file; the settings-route layout itself is unchanged.)
 
 | Vendored / first-party | Upstream | Adaptation |
 |---|---|---|
-| `vendor/zeron-ui/chrome.rs` | `crates/ui/src/shell.rs` (`titlebar_cluster_start`, `titlebar_spacer_width`, `caption_buttons_width`, `cluster_buttons_start`, `cluster_clearance`, `titlebar_right_padding`, `TITLEBAR_*`/`CLUSTER_BUTTONS_WIDTH`, `WINDOWS_CAPTION_*`) | geometry + upstream's five tests only: the caption buttons (NG3) and the titlebar *element* helpers (`titlebar_spacer`, `window_control_button`/`_with`) are not ported — R2's settings surface paints no cluster, so they would be dead code; `TITLEBAR_CLUSTER_PAD` stays private like upstream |
+| `vendor/zeron-ui/chrome.rs` | `crates/ui/src/shell.rs` (`titlebar_cluster_start`, `titlebar_spacer_width`, `caption_buttons_width`, `cluster_buttons_start`, `cluster_clearance`, `titlebar_right_padding`, `TITLEBAR_*`/`CLUSTER_BUTTONS_WIDTH`, `WINDOWS_CAPTION_*`) | geometry + upstream's five tests only: the caption buttons (NG3) and the titlebar *element* helpers (`titlebar_spacer`, `window_control_button`/`_with`) are not vendored — R2's settings surface painted no cluster when this chapter was written. The `sidebar-collapse` amendment now draws the one-control cluster first-party in `src/shell.rs` (adapted `window_control_button_with` body + the spacer geometry); `TITLEBAR_CLUSTER_PAD` stays private like upstream and the shell carries its own pinned copy (see the last section) |
 | `vendor/zeron-ui/settings/mod.rs` | `shell.rs` `SettingsSection` | mono-desk's seven sections in zeron's order (General, Appearance, Notifications, Profile, Finance UI, Reset, About) with zeron's label/icon/`starts_nav_group` conventions; the `Appearance` row exists now, its page is `settings-surface` T3 |
 | `vendor/zeron-ui/settings/widgets.rs` | `settings/widgets.rs` (`section_tab`, `tab_selection_t`, `TabSelectionTravel`) | verbatim; `scroll_faded`/edge-fade wrappers not ported yet |
-| `src/shell.rs` (first-party app wiring) | `shell.rs` (`Shell::render` root, `sidebar_tone`, `titlebar_drag_region`, `render_settings_page` skeleton, `render_settings_nav`, `render_sidebar_footer_row` user-menu trigger) | app state reduced to the selected section + roving focus handles + the drag flag; chat chrome not ported (see above); no account popover — the footer pill is identity only, and the footer's square action is the appearance toggle |
+| `src/shell.rs` (first-party app wiring) | `shell.rs` (`Shell::render` root, `sidebar_tone`, `titlebar_drag_region`, `render_settings_page` skeleton, `render_settings_nav`, `render_sidebar_footer_row` user-menu trigger) | app state reduced to the selected section + roving focus handles + the drag flag; chat chrome not ported except the `sidebar-collapse` amendment's one-control toggle (see the last section); no account popover — the footer pill is identity only, and the footer's square action is the appearance toggle |
 
 Settings-route layout recipe as ported: root `id("shell-root")` +
 `.relative().flex().flex_row().size_full().bg(theme.glass())` +
@@ -154,7 +156,7 @@ Page conventions that must hold when adding the next pages:
 - there is no checkbox/radio/segmented widget in zeron's kit: booleans are
   `toggle_switch` rows, choices are `select`.
 
-Gates today: `cargo test` = 94 tests (mono-desk 33 = 9 `app_settings` +
+Gates when wave 1 closed: `cargo test` = 94 tests (mono-desk 33 = 9 `app_settings` +
 3 `i18n` + 21 `persist`; `vendor/zeron-theme` 24; `vendor/zeron-ui` 37).
 `make lint`/`fmt-check` remain `-p mono-desk`. Dev hooks grew one:
 `MONO_DESK_SECTION=<general|appearance|notifications|profile|finance-ui|reset|about>`
@@ -198,11 +200,13 @@ control uses:
 - `persist_now(cx)` after every write; `apply_launch_at_login(cx)` wherever
   `launch_at_login` can change (autostart entry converges, marker-guarded).
 - Persisted 8–32 px font sizes snap into zeron's 12–20 catalog; the accent
-  hex codec and all 18 keys/order are unchanged (NG4).
+  hex codec and the original 18 keys/order are unchanged (NG4). The
+  `sidebar-collapse` amendment adds one additive key, `sidebar_collapsed`,
+  immediately after `sidebar_width` — see its own section below.
 - Live-only (no persisted key, by design): the reduce-motion preference and
   the per-appearance theme-variant selects (built-in variant only).
 
-Gates today: `cargo test` = 115 (mono-desk 54 = 9 `app_settings` + 3 `i18n` +
+Gates when the phase closed: `cargo test` = 115 (mono-desk 54 = 9 `app_settings` + 3 `i18n` +
 21 `persist` + 2 search + 4 appearance + 4 reset + 5 finance + 6 other;
 `zeron-theme` 24; `zeron-ui` 37). Dev hooks: `MONO_DESK_SECTION=<slug>` (seven
 pages), `MONO_DESK_APPEARANCE=light|dark` now also analyzed through
@@ -239,3 +243,86 @@ Rules that keep the swap honest:
   (the red/green proof for the swap). Gates after it: `cargo test` = 120
   (mono-desk 58 + zeron-theme 24 + zeron-ui 38), plus `make check`,
   `make lint`, `make fmt-check` — all green.
+
+## Sidebar collapse — chat-shell toggle on the settings shell (2026-10-31)
+
+Owner request: "analyze và làm cái toggle collapse & expand của sidebar giống
+zeron". zeron's *settings* route has no collapse; the only upstream sidebar
+collapse is the chat shell's, so this amendment ports the chat shell's
+mechanism onto mono-desk's settings shell and amends plan R2's "no cluster /
+no collapse" decision (owner request is the new authority; R2's settings-route
+port itself is untouched).
+
+| First-party / vendored | Upstream | Adaptation |
+|---|---|---|
+| `src/shell.rs` `WidthTween` + `panel_duration_scale` | `shell.rs` `WidthTween` (`new` ~1487, `panel` ~1500), `Shell::panel_tween`/`eval_tween`/`tween_active` (~7756) | manual render-time evaluation kept (no `with_animation` remount replay); the test-time clock, fit-exit/edge-bounce and multi-panel retargeting are dropped — this shell has one collapsible column |
+| `src/shell.rs` `toggle_sidebar` + `sidebar_owns_focus` | `shell.rs` `Shell::toggle_sidebar` (3545) | chat-only `promote_hidden_panel`/`record_panel_open`/`resplit_panels` dropped; the write persists through `settings::persist_now`; when the column closes it blurs whichever sidebar control holds the keyboard (search field or nav row), because those unmount — upstream's chat rows stay mounted and its composer never unmounts |
+| `src/shell.rs` `render_titlebar_cluster` + `render_sidebar_toggle` | `shell.rs` `render_titlebar_cluster` (8010), `window_control_button_with` (13396), `titlebar_spacer` (7910); zeron `window-controls.tsx` | cluster carries only the sidebar toggle (no Back/Forward, plus, transcript identity or caption buttons); a11y role/aria-label/aria-expanded + a tracked focus handle (real Tab stop, Enter/Space activation, focus ring) + a localized tooltip are mono-desk additions; the fullscreen traffic-light spacer snaps from `Window::is_fullscreen` instead of running the 200ms `RESIZE` inset tween |
+| `src/shell.rs` `render_sidebar` | `shell.rs` chat `render_sidebar` (8520) mask + `render_settings_page` column | outer column = animated clipped width, inner content = fixed 256 (zeron's stable inner/clipped outer); content unmounts below 0.5px so the search field and nav rows leave the tab order; no resize seam / `sidebar_content_width` machinery |
+| `src/shell.rs` `menu::set_sidebar_width` call | `shell.rs` `render_settings_page` (~8595-8596: `set_sidebar_width(self.settings.sidebar_width)`) | publishes the *settled* target (0 when collapsed, 256 open), not the animated paint width: `settings::menu::pane_bounds`/`dropdown_limits` anchor popovers at `left = sidebar_width`, so a collapsed column must publish 0 or dropdowns sit 256px off (independent-review MAJOR, fixed) |
+| `src/shell.rs` tone call | `shell.rs` (14441) `sidebar_tone(sidebar_now, …)` | tone width rides the tween so it melts away with the collapse; the window-corner rounding branch stays unported (macOS trims natively, pre-existing) |
+| `src/app_settings.rs` + `src/persist.rs` `sidebar_collapsed` | `settings.rs` `UiSettings.sidebar_collapsed` (1075), `schedule_save` | additive key inserted after `sidebar_width`; strict `true`/`false`; old files read open, older builds ignore it; the merged codec's frozen-key test pins 43 keys (18 original + 24 appearance + this one) |
+| `src/i18n.rs` `sidebar.toggle` | `ShortcutId::ToggleSidebar.label()` ("Toggle left sidebar") | localized in all four locales instead of one English label |
+| `src/main.rs` key binding | `shell.rs` keymap `ToggleSidebar` default `mod-b` (463, 1504) | `secondary-b` binding (⌘ on macOS, Ctrl elsewhere) + `shell_actions::ToggleSidebar` handled on the shell root |
+| `src/shell.rs` render tail | `shell.rs` tail (14521): `motion_active \| hover_fades_active \| state_morphs_active` → `request_animation_frame` | first root-level motion clock in this app: the collapse tween and glyph morph need it; the existing hover fades (appearance toggle etc.) had no once-per-frame tick before, so they now animate like upstream. Both clocks tick on every pass (upstream's bitwise `\|`), never short-circuited by the tween flag |
+
+Ported verbatim: `icons::sidebar_glyph` geometry (panel 5.5 → 1.75),
+`motion::state_t` + `GLYPH_STATE` (280ms easeOutQuint), `PANEL_RESIZE`
+(180ms `ease`, distance-scaled by `sqrt(Δ/256)` up to 240ms), the 24px
+rounded-6 button with its fading `glass_hover` wash, `.occlude()` +
+`prevent_default` press handling (a press never becomes a window drag or
+titlebar double-click), the cluster geometry (10px pad + spacer → 88px on
+macOS, 10px elsewhere), and `sidebar_collapsed` defaulting to open.
+
+Surrounding behaviour: ⌘F (`shell_actions::FocusSearch`) expands a collapsed
+column through the same `set_sidebar_collapsed` path before focusing the
+search — no upstream analog, since zeron's settings route never collapses;
+`toggle_sidebar` blurs whichever sidebar control holds the keyboard (the search
+field or a nav row) when the column closes, so the keyboard never stays in an
+unmounted control; a focused page control is left alone.
+
+Known gaps (owner-eye checks; no pixel claim from an agent run): the animation
+only runs in a GUI session — the selftest proves the state/target path, not
+pixels. No sidebar resize handle, no fullscreen spacer tween, and
+`sidebar_width` persistence stays unused (R2 holds).
+
+Gates after merging the appearance-parity line: `cargo test` = 212 (mono-desk
+124 including the 5 `sidebar_tests`; zeron-theme 24; zeron-ui 64), `make check`,
+`make lint`, `make fmt-check` — all green. Dev hook: `MONO_DESK_SIDEBAR=collapsed|open`
+(`selftest sidebar collapsed=… target=… content=…`). End-to-end launch proof
+(agent, headless): a settings file with `sidebar_collapsed=true` under an
+isolated `HOME` makes the selftest print `sidebar collapsed=true target=0`, and
+loading/selftest leaves the file byte-identical (no write on launch).
+
+Two independent reviewer passes (subagents) read the uncommitted diff against
+upstream: no blockers, no majors on the final tree. The first pass found the
+popover-anchor MAJOR above, the short-circuited motion-clock tick, and the
+nav-row focus edge; the second pass found the toggle's inert tab stop
+(`tab_index`/`focus_visible` without a tracked focus handle — fixed with a real
+`track_focus` and Enter/Space activation) and stale ownership statements in
+this file. All fixed before the final gate run; the remaining items were nits
+(a 0.4px flex slot for one mid-animation frame, the env seed living in the
+persisted global, and a zero-width spacer now skipped off macOS).
+
+## Integration note — collapse on the appearance-parity line (2026-10-31)
+
+`feat/phosphor-icons` had been branched from the main lineage (054e936), so it
+did **not** contain the appearance-parity commits (Appearance page, fonts,
+theme library) that lived on `feat/appearance-parity` / `origin/feat/zeron-stack`
+(identical trees, 1e03b66 / 904cf26). The running app therefore looked
+"reverted" although the work was safe on the other branch. The two branches are
+twin histories off the same base (0cb89e1 and 054e936 have identical trees), so
+a plain merge would conflict on every rewritten file; instead the three
+appearance commits (c6783af deps, c0545fe feature, 904cf26 docs) were
+cherry-picked onto `feat/phosphor-icons` (3c12d89, 55c012c, 18a5e70) and the
+collapse delta was re-applied. `src/shell.rs` was untouched by the appearance
+line, so the collapse/expand port carried over exactly; `src/app_settings.rs`,
+`src/persist.rs`, `src/i18n.rs` and `src/main.rs` were three-way merged
+(conflicts only in the persisted-key count assertions and `docs/PROJECT.md`'s
+Non-goals paragraph). The pre-appearance codec had rewritten the owner's
+`settings.conf` during the sidebar test run and dropped the appearance keys;
+they were restored from the pre-write content (`theme_light=ayu-light`,
+`theme_dark=ayu-mirage`, `ui_font_family=installed:Departure Mono Viet`,
+`terminal_font_family=google-sans-code`, `code_font_family=google-sans-code`,
+`terminal_font_size=13`). The collapse commit is preserved on
+`feat/sidebar-collapse` (dc1a592) as the standalone record.
