@@ -2,7 +2,7 @@
 
 mono-desk vendors or links the following third-party sources. Files copied
 into `vendor/zeron-ui/` keep this notice; the plan that introduced them is
-`docs/plans/active/zeron-stack-port.md`.
+`docs/plans/completed/zeron-stack-port.md` (appearance parity: `docs/plans/completed/appearance-parity.md`).
 
 ## zeron — MIT
 
@@ -14,10 +14,18 @@ domain model in `vendor/zeron-theme/` come from zeron:
 https://github.com/zeronsh/zeron (pinned commit `8b7afb3`, version v0.2.129) —
 `crates/theme`, `crates/ui/src/{theme,typography,icons,motion,frost,glass,
 popover,edge_fade,chrome,shell}.rs`, `crates/ui/src/settings/{widgets,mod}.rs`,
-the structure and helper functions of `crates/ui/src/settings/appearance.rs`
-(ported into first-party `src/settings/appearance.rs`) and the search-field
-layout of `crates/ui/src/shell/settings_search.rs` (ported into `src/shell.rs`),
-and the pure phases in `crates/proto/src/motion.rs`.
+`crates/ui/src/settings/{wallpaper,wallpaper_colors}.rs`,
+`crates/ui/src/theme_library.rs`,
+`crates/ui/src/new_thread_background_{effects,mask,image}.rs`, the background
+install/remove and transcript/math helpers of `crates/ui/src/settings.rs`, the
+whole structure, layout constants, helper functions and dialogs of
+`crates/ui/src/settings/appearance.rs` (ported into first-party
+`src/settings/appearance/{mod,color,motion,preview,material,library,fonts,
+font_model,layout}.rs` + `src/settings/appearance/dialogs/{mod,background,
+library}.rs`; the same file informs the pure helpers in
+`src/settings/{background,wallpaper,wallpaper_colors,theme_library}.rs`) and the
+search-field layout of `crates/ui/src/shell/settings_search.rs` (ported into
+`src/shell.rs`), and the pure phases in `crates/proto/src/motion.rs`.
 
 ```
 MIT License
