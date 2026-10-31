@@ -43,18 +43,45 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## Solar Icons by 480 Design — CC BY 4.0
+## Phosphor Icons — MIT
 
-The icon SVGs under `vendor/zeron-ui/assets/icons/` are zeron's embedded
-subset of the Solar Icons set (Linear weight), licensed CC BY 4.0
-(https://creativecommons.org/licenses/by/4.0/). Attribution: "Solar Icons by
-480 Design".
+The UI glyphs under `vendor/zeron-ui/assets/icons/` are **Phosphor Icons**
+v2.1.1 (https://phosphoricons.com/), copied verbatim from
+`@phosphor-icons/core@2.1.1`: `assets/regular/` for the line set and
+`assets/fill/` for the two filled twin slots (`fast-tier-bold.svg`,
+`star-bold.svg`). Asset file names keep zeron's slot names so the vendored call
+sites stay untouched; the slot → Phosphor-glyph mapping is recorded per line in
+`vendor/zeron-ui/src/icons.rs` and in `docs/memory/zeron-stack-port.md`.
 
-One file there is a mono-desk addition rather than upstream zeron source:
-`user.svg` (the Profile section glyph) was hand-drawn for this project in the
-same Solar Linear style, because neither the embedded subset nor zeron's icon
-file ships a user glyph. It is original artwork for this repository, not part
-of the Solar set.
+The brand marks are not Phosphor artwork: `antigravity-mark`, `claude-mark`,
+`cursor-mark`, `devin-mark`, `grok-mark`, `hermes-mark`, `muse-mark`,
+`openai-mark`, `opencode-mark`, `pi-mark` and `zeron-logo` are logos ported
+from zeron's `icons.tsx` under the zeron notice above. `assets/brand/` (the
+mono-desk mark and `icon.icns`) is first-party artwork.
+
+```
+MIT License
+
+Copyright (c) 2023 Phosphor Icons
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
 
 ## Bundled fonts — SIL Open Font License 1.1
 
