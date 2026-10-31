@@ -9,7 +9,7 @@ edition 2024) built on **zeron's GPUI stack**: `gpui` + `gpui_platform` from
 sidebar/settings layout, widgets and theme are ported from zeron's
 MIT-licensed source (`github.com/zeronsh/zeron`) and vendored under
 `vendor/zeron-ui/` (UI) and `vendor/zeron-theme/` (theme domain model) — see
-`THIRD_PARTY_NOTICES.md` and `docs/plans/active/zeron-stack-port.md`. Vendored
+`THIRD_PARTY_NOTICES.md` and `docs/plans/completed/zeron-stack-port.md`. Vendored
 files are adapted copies of upstream source at a pinned rev; they are not
 drop-in updates. The three crates form one cargo workspace
 (`vendor/zeron-theme` and `vendor/zeron-ui` are `default-members`, so the gates
@@ -55,8 +55,9 @@ Use the Makefile — it auto-injects the linker shim flag (see caveats):
 - Dev review hooks in `src/main.rs`/`src/shell.rs`:
   `MONO_DESK_APPEARANCE=dark|light` pins the palette without touching the OS
   setting, `MONO_DESK_SELFTEST=1` prints the resolved appearance, tokens,
-  fonts, icon asset load, native window background, chrome geometry, nav and
-  settings state, then quits, and `MONO_DESK_SECTION=<general|appearance|
+  fonts, icon asset load, native window background, chrome geometry, nav,
+  settings state, the resolved appearance/rem markers and the theme-library
+  entry/warning counts, then quits, and `MONO_DESK_SECTION=<general|appearance|
   notifications|profile|finance-ui|reset|about>` opens the shell on that
   section (use it with the selftest to prove a page other than General
   paints), and `MONO_DESK_SEARCH=<text>` seeds the sidebar query so a headless
@@ -108,6 +109,30 @@ Use the Makefile — it auto-injects the linker shim flag (see caveats):
   keyed by `AppSettings.language`. Add role/aria/tab-index to every ported
   control the way upstream does, and publish `settings::set_sidebar_width` each
   frame (the shell does) or dropdowns cannot measure the pane.
+- Appearance page (`src/settings/appearance/`): zeron's full page split into
+  one file per section — `mod.rs` owns the scroll host/rail and assembles
+  header → Color scheme → color card → Material → Motion → library card →
+  Fonts and layout → library warning, with the single modal stack last
+  (`dialogs/{mod,background,library}.rs` in upstream priority order). Section
+  modules own their view state and return `section(...) -> AnyElement`;
+  `AppearancePage::new()` stays cx-free, so entities are created lazily in the
+  handlers/`ensure` helpers. Every appearance write persists and funnels
+  through `settings::apply_appearance` (theme library mutations additionally
+  run `theme_library::reconcile` on the persisted variant ids first); the
+  background install/remove path keeps the checked-persist contract in
+  `src/settings/background.rs`, and the page itself never touches the
+  filesystem. Constants/ids/roles/aria follow zeron's line map; record every
+  adaptation in the module header and the plan Log. The theme library data
+  and copied background images live under the app data dir
+  (`Application Support/mono-desk/`), not in `settings.conf`.
+- i18n: `src/i18n.rs` is a flat `(key, en, vi, zh-CN, ja)` table with a
+  completeness test; appearance keys are grouped by owning call site
+  (`appearance.background.*`, `appearance.library.*`, `appearance.fonts.*`,
+  `appearance.layout.*`, `appearance.surface.*`, `appearance.motion.*`).
+  Settings-domain error constants (`background`/`wallpaper`/`theme_library`)
+  are mapped through their `appearance.*.error.*` keys at the page boundary;
+  unexpected I/O diagnostics may stay raw (recorded in the plan Log). The
+  ReduceMotion option words are localized page-side (`appearance.motion.*`).
 - Accessibility: GPUI-painted controls do not appear in the macOS AX tree
   unless they carry explicit role/aria-label/tab-index metadata. Add it when
   porting a control that tests or the owner should reach by keyboard.
@@ -120,8 +145,10 @@ Use the Makefile — it auto-injects the linker shim flag (see caveats):
 ## References
 
 - zeron source (MIT): https://github.com/zeronsh/zeron — clone at
-  `/tmp/zeron-src` when porting more; the port plan is
-  `docs/plans/active/zeron-stack-port.md`.
+  `/tmp/zeron-src` when porting more; the port plans are
+  `docs/plans/completed/zeron-stack-port.md` and
+  `docs/plans/completed/appearance-parity.md`; the appearance module map and
+  adaptation rules live in `docs/memory/appearance-parity.md`.
 - GPUI fork (Apache-2.0): https://github.com/zeronsh/zui
 - Repo workflow: `docs/WORKFLOW.md`
 
