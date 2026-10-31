@@ -1,11 +1,1 @@
-<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-<circle cx="12" cy="12" r="6" stroke="currentColor" stroke-width="1.5"/>
-<path d="M12 2V3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-<path d="M12 21V22" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-<path d="M22 12L21 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-<path d="M3 12L2 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-<path d="M19.0708 4.9292L18.678 5.32204" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-<path d="M5.32178 18.6782L4.92894 19.0711" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-<path d="M19.0708 19.0708L18.678 18.678" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-<path d="M5.32178 5.32178L4.92894 4.92894" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor"><path d="M120,40V16a8,8,0,0,1,16,0V40a8,8,0,0,1-16,0Zm72,88a64,64,0,1,1-64-64A64.07,64.07,0,0,1,192,128Zm-16,0a48,48,0,1,0-48,48A48.05,48.05,0,0,0,176,128ZM58.34,69.66A8,8,0,0,0,69.66,58.34l-16-16A8,8,0,0,0,42.34,53.66Zm0,116.68-16,16a8,8,0,0,0,11.32,11.32l16-16a8,8,0,0,0-11.32-11.32ZM192,72a8,8,0,0,0,5.66-2.34l16-16a8,8,0,0,0-11.32-11.32l-16,16A8,8,0,0,0,192,72Zm5.66,114.34a8,8,0,0,0-11.32,11.32l16,16a8,8,0,0,0,11.32-11.32ZM48,128a8,8,0,0,0-8-8H16a8,8,0,0,0,0,16H40A8,8,0,0,0,48,128Zm80,80a8,8,0,0,0-8,8v24a8,8,0,0,0,16,0V216A8,8,0,0,0,128,208Zm112-88H216a8,8,0,0,0,0,16h24a8,8,0,0,0,0-16Z"/></svg>

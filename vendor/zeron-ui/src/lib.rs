@@ -12,9 +12,10 @@
 //! (`docs/plans/active/zeron-stack-port.md`); the chrome and settings surfaces
 //! consume the rest in later phases.
 //!
-//! Licensing: zeron is MIT (see `LICENSE`); the icon set is Solar Icons by 480
-//! Design (CC BY 4.0); the GPUI fork is Apache-2.0. See
-//! `THIRD_PARTY_NOTICES.md` at the repository root.
+//! Licensing: zeron is MIT (see `LICENSE`); the UI glyph set is Phosphor Icons
+//! v2.1.1 (MIT, https://phosphoricons.com/) and the brand marks keep zeron's
+//! artwork; the GPUI fork is Apache-2.0. See `THIRD_PARTY_NOTICES.md` at the
+//! repository root.
 
 // The port is complete for the surfaces mono-desk uses; a few upstream helpers
 // remain unused here (theme library, scrollbar rail, wallpaper plumbing) and
