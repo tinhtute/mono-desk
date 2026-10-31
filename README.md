@@ -11,6 +11,9 @@ from zeron's MIT-licensed source
 - Zeron's Settings-route shell: 38px titlebar drag strip, glass root surface
   over a blurred window background, sidebar tone, seven-section list and footer
   identity row
+- Collapsible sidebar like zeron's chat shell: the top-left titlebar toggle
+  (or ⌘B) animates the column between its 256px width and closed, persists the
+  state, and leaves the toggle reachable in both states
 - Seven settings pages on zeron's own page kit: General (language, time zone,
   launch at login), **Appearance — zeron's full page**: edge-faded scroll +
   floating rail, System/Light/Dark mode cards, registry theme-variant selectors
@@ -53,7 +56,8 @@ Headless review hooks (no GUI capture needed): `MONO_DESK_SELFTEST=1` prints the
 resolved appearance, theme tokens, fonts, chrome geometry and settings state;
 `MONO_DESK_SECTION=<general|appearance|notifications|profile|finance-ui|reset|about>`
 opens the shell on that page; `MONO_DESK_APPEARANCE=light|dark` pins the palette;
-`MONO_DESK_SEARCH=<text>` seeds the sidebar search.
+`MONO_DESK_SEARCH=<text>` seeds the sidebar search; `MONO_DESK_SIDEBAR=collapsed|open`
+seeds the sidebar collapse state.
 
 ## Make targets
 

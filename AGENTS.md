@@ -60,10 +60,12 @@ Use the Makefile — it auto-injects the linker shim flag (see caveats):
   entry/warning counts, then quits, and `MONO_DESK_SECTION=<general|appearance|
   notifications|profile|finance-ui|reset|about>` opens the shell on that
   section (use it with the selftest to prove a page other than General
-  paints), and `MONO_DESK_SEARCH=<text>` seeds the sidebar query so a headless
-  run prints the filtered section list. Use the selftest as the
-  machine-checkable half of a visual phase check; the owner supplies the
-  pixels. Do not claim pixel evidence from an agent run.
+  paints), `MONO_DESK_SEARCH=<text>` seeds the sidebar query so a headless
+  run prints the filtered section list, and `MONO_DESK_SIDEBAR=<collapsed|
+  open>` seeds the sidebar collapse state so a headless run proves the
+  collapsed shell (`selftest sidebar collapsed=… target=…`). Use the selftest
+  as the machine-checkable half of a visual phase check; the owner supplies
+  the pixels. Do not claim pixel evidence from an agent run.
 - Missing dev symlinks `libxkbcommon-x11.so` and `libX11-xcb.so` (Linux only)
   are shimmed at `~/.local/lib/dev-shim/`; the Makefile adds `-L` only while
   that dir exists. Proper fix is `make deps`.
@@ -82,10 +84,15 @@ Use the Makefile — it auto-injects the linker shim flag (see caveats):
   start 88, sidebar default 256); colors come from the ported zeron theme
   (`Theme::of(cx)`), never hardcoded once the theme lands. The shell is
   zeron's *Settings* route (`vendor/zeron-ui/src/chrome.rs`, `src/shell.rs`):
-  glass root, sidebar `wash(0.05)` tone and the 38px drag strip, deliberately
-  without a titlebar control cluster, centered title or resizable/collapsible
-  sidebar — those are zeron's chat-route chrome (plan R2, owner decision
-  2026-10-29).
+  glass root, sidebar `wash(0.05)` tone, collapsible sidebar column and the
+  38px drag strip. Plan R2 (owner decision 2026-10-29) ported that route
+  literally, i.e. without centered title or resize handle; the
+  `sidebar-collapse` amendment (owner request 2026-10-31) then added the chat
+  shell's sidebar toggle: one `toggle-sidebar` window-control button in the
+  top-left overlay cluster (88px cluster start, `icons::sidebar_glyph` morph)
+  that tweens the column between 256 and 0, bound to the primary modifier
+  (⌘B on macOS, Ctrl+B elsewhere) through `shell_actions::ToggleSidebar` and
+  persisted as `sidebar_collapsed`.
 - App state lives in a gpui `Global` (`AppSettings`, installed from
   `persist::load()` before the window opens); a settings write mirrors the
   global through `to_stored()` into `persist::save` via

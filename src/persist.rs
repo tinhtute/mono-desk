@@ -65,6 +65,10 @@ pub struct StoredSettings {
     pub sidebar_tone: f64,
     /// Persisted rail width in logical pixels, `242.0..=400.0`.
     pub sidebar_width: f64,
+    /// Whether the sidebar is collapsed to zero width (zeron's
+    /// `UiSettings.sidebar_collapsed`). Additive key: files written before it
+    /// existed read as `false` (open), and older builds ignore it.
+    pub sidebar_collapsed: bool,
     /// Whether the window asks the platform for a blurred (frosted)
     /// backdrop. Only meaningful while `background_translucent` is on.
     pub background_blur: bool,
@@ -147,6 +151,7 @@ impl Default for StoredSettings {
             window_opacity: WINDOW_OPACITY_DEFAULT,
             sidebar_tone: SIDEBAR_TONE_DEFAULT,
             sidebar_width: SIDEBAR_WIDTH_DEFAULT,
+            sidebar_collapsed: false,
             background_blur: false,
             launch_at_login: false,
             notifications_enabled: true,
@@ -274,6 +279,7 @@ pub fn serialize(s: &StoredSettings) -> String {
     out.push_str(&format!("window_opacity={}\n", s.window_opacity));
     out.push_str(&format!("sidebar_tone={}\n", s.sidebar_tone));
     out.push_str(&format!("sidebar_width={}\n", s.sidebar_width));
+    out.push_str(&format!("sidebar_collapsed={}\n", s.sidebar_collapsed));
     out.push_str(&format!("background_blur={}\n", s.background_blur));
     out.push_str(&format!("launch_at_login={}\n", s.launch_at_login));
     out.push_str(&format!(
@@ -437,6 +443,11 @@ pub fn parse(text: &str) -> Option<StoredSettings> {
                     && f.is_finite()
                 {
                     s.sidebar_width = clamp_sidebar_width(f);
+                }
+            }
+            "sidebar_collapsed" => {
+                if let Some(b) = parse_bool(value) {
+                    s.sidebar_collapsed = b;
                 }
             }
             "background_blur" => {
@@ -1064,6 +1075,7 @@ mod tests {
                 window_opacity: 62.0,
                 sidebar_tone: 74.0,
                 sidebar_width: 300.0,
+                sidebar_collapsed: true,
                 background_blur: true,
                 launch_at_login: true,
                 notifications_enabled: false,
@@ -1092,6 +1104,7 @@ mod tests {
             window_opacity: 55.0,
             sidebar_tone: 55.0,
             sidebar_width: 300.0,
+            sidebar_collapsed: true,
             background_blur: false,
             launch_at_login: false,
             notifications_enabled: true,
@@ -1106,8 +1119,8 @@ mod tests {
             ..StoredSettings::default()
         };
         let text = serialize(&s);
-        // Hostile bytes must not create extra lines: marker + 42 keys.
-        assert_eq!(text.lines().count(), 43);
+        // Hostile bytes must not create extra lines: marker + 43 keys.
+        assert_eq!(text.lines().count(), 44);
         assert_eq!(parse(&text), Some(s));
         // Empty strings round-trip too.
         let empty = StoredSettings::default();
@@ -1123,6 +1136,7 @@ mod tests {
             window_opacity: 55.0,
             sidebar_tone: 65.0,
             sidebar_width: 275.0,
+            sidebar_collapsed: true,
             background_blur: true,
             ..StoredSettings::default()
         };
@@ -1135,6 +1149,8 @@ mod tests {
         assert_eq!(legacy.window_opacity, WINDOW_OPACITY_DEFAULT);
         assert_eq!(legacy.sidebar_tone, SIDEBAR_TONE_DEFAULT);
         assert_eq!(legacy.sidebar_width, SIDEBAR_WIDTH_DEFAULT);
+        // The collapse key is additive: a file written before it keeps open.
+        assert!(!legacy.sidebar_collapsed);
         // The pre-release pane keys are dropped, not migrated: a file that
         // still carries them keeps the shipped defaults.
         let stale = parsed("sidebar_opacity=10\npane_opacity=10\n");
@@ -1180,6 +1196,10 @@ mod tests {
         assert!(!parsed("background_blur=maybe\n").background_blur);
         assert!(!parsed("background_translucent=1\n").background_translucent);
         assert!(parsed("background_translucent=true\n").background_translucent);
+        assert!(!parsed("sidebar_collapsed=maybe\n").sidebar_collapsed);
+        assert!(!parsed("sidebar_collapsed=1\n").sidebar_collapsed);
+        assert!(parsed("sidebar_collapsed=true\n").sidebar_collapsed);
+        assert!(!parsed("sidebar_collapsed=false\n").sidebar_collapsed);
 
         // The serialized file carries all three keys. An older build ignores
         // unknown keys, so this stays forward/backward compatible.
@@ -1188,6 +1208,7 @@ mod tests {
         assert!(text.contains("window_opacity=55\n"), "{text}");
         assert!(text.contains("sidebar_tone=65\n"), "{text}");
         assert!(text.contains("sidebar_width=275\n"), "{text}");
+        assert!(text.contains("sidebar_collapsed=true\n"), "{text}");
         assert!(text.contains("background_blur=true\n"), "{text}");
     }
 
@@ -1522,6 +1543,7 @@ mod tests {
                 "window_opacity",
                 "sidebar_tone",
                 "sidebar_width",
+                "sidebar_collapsed",
                 "background_blur",
                 "launch_at_login",
                 "notifications_enabled",
@@ -1559,9 +1581,9 @@ mod tests {
                 "new_thread_background_effect",
             ]
         );
-        // Marker + 18 original keys + 24 appearance keys.
-        assert_eq!(keys.len(), 42);
-        assert_eq!(text.lines().count(), 43);
+        // Marker + 18 original keys + 24 appearance keys + sidebar_collapsed.
+        assert_eq!(keys.len(), 43);
+        assert_eq!(text.lines().count(), 44);
         assert_eq!(text.lines().next(), Some(SETTINGS_MARKER));
     }
 
@@ -1589,6 +1611,7 @@ mod tests {
             window_opacity: 62.0,
             sidebar_tone: 74.0,
             sidebar_width: 300.0,
+            sidebar_collapsed: true,
             background_blur: true,
             launch_at_login: true,
             notifications_enabled: false,
@@ -1688,8 +1711,8 @@ mod tests {
             ..StoredSettings::default()
         };
         let text = serialize(&s);
-        // Hostile bytes must not create extra lines: marker + 42 keys.
-        assert_eq!(text.lines().count(), 43, "{text}");
+        // Hostile bytes must not create extra lines: marker + 43 keys.
+        assert_eq!(text.lines().count(), 44, "{text}");
         assert_eq!(parse(&text), Some(s));
     }
 
@@ -1726,7 +1749,7 @@ mod tests {
             ..StoredSettings::default()
         };
         let text = serialize(&s);
-        assert_eq!(text.lines().count(), 43, "{text}");
+        assert_eq!(text.lines().count(), 44, "{text}");
         let parsed = parse(&text).expect("managed file");
         assert_eq!(parsed, s);
         assert_eq!(serialize(&parsed), text);

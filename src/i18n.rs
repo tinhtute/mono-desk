@@ -628,6 +628,15 @@ static STRINGS: &[(&str, &str, &str, &str, &str)] = &[
         "清除搜索",
         "検索をクリア",
     ),
+    // Titlebar sidebar toggle (`sidebar-collapse`: zeron's chat-shell
+    // `toggle-sidebar` window-control button, ported to this shell).
+    (
+        "sidebar.toggle",
+        "Toggle sidebar",
+        "Ẩn/hiện thanh bên",
+        "切换侧边栏",
+        "サイドバーを切り替え",
+    ),
     (
         "settings.empty",
         "No sections match",

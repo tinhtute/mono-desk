@@ -627,6 +627,12 @@ pub(crate) struct AppSettings {
     /// Persisted rail width in logical pixels (242–400). The drag seam writes
     /// it live and persists on release, like the percentage sliders.
     pub(crate) sidebar_width: f64,
+    /// Whether the settings sidebar is collapsed to zero width. Ported from
+    /// zeron's `UiSettings.sidebar_collapsed` (the chat shell's `mod-b`
+    /// toggle/`toggle_sidebar`) and applied to this app's settings shell as an
+    /// amendment to plan R2's "no collapse" decision; the shell animates the
+    /// width and restores the persisted state at launch.
+    pub(crate) sidebar_collapsed: bool,
     /// Whether the window asks the platform to blur what is behind it. Only
     /// meaningful while `background_translucent` is on.
     pub(crate) background_blur: bool,
@@ -699,6 +705,8 @@ impl Default for AppSettings {
             window_opacity: WINDOW_OPACITY_DEFAULT,
             sidebar_tone: SIDEBAR_TONE_DEFAULT,
             sidebar_width: SIDEBAR_WIDTH_DEFAULT,
+            // Open on launch, like zeron's default chat shell.
+            sidebar_collapsed: false,
             background_blur: false,
             launch_at_login: false,
             notifications_enabled: true,
@@ -778,6 +786,7 @@ impl AppSettings {
             } else {
                 AppSettings::default().sidebar_width
             },
+            sidebar_collapsed: s.sidebar_collapsed,
             background_blur: s.background_blur,
             launch_at_login: s.launch_at_login,
             notifications_enabled: s.notifications_enabled,
@@ -854,6 +863,7 @@ impl AppSettings {
             window_opacity: self.window_opacity,
             sidebar_tone: self.sidebar_tone,
             sidebar_width: self.sidebar_width,
+            sidebar_collapsed: self.sidebar_collapsed,
             background_blur: self.background_blur,
             launch_at_login: self.launch_at_login,
             notifications_enabled: self.notifications_enabled,

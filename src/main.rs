@@ -89,7 +89,7 @@ fn selftest_and_quit(cx: &mut App) {
     // Shell chrome: the root surface is theme.glass() over the blurred window,
     // and the sidebar stands on zeron's wash(0.05) tone.
     eprintln!(
-        "selftest shell glass={:?} is_glass={} tone={:?} border={:?} sidebar={}",
+        "selftest shell glass={:?} is_glass={} tone={:?} border={:?} sidebar_default={}",
         theme.glass(),
         theme.is_glass(),
         zeron_ui::theme::wash(0.05),
@@ -103,6 +103,16 @@ fn selftest_and_quit(cx: &mut App) {
         zeron_ui::chrome::titlebar_cluster_start(false),
         zeron_ui::chrome::titlebar_spacer_width(cfg!(target_os = "macos"), false, 10.0),
         zeron_ui::chrome::cluster_clearance(true, false, 0, 16.0),
+    );
+    // Sidebar collapse (the chat shell's titlebar toggle ported onto this
+    // shell): the persisted state the shell seeds and the width its column
+    // targets. `MONO_DESK_SIDEBAR=collapsed` seeds it without a synthetic ⌘B,
+    // so a headless run can prove the collapsed shell path.
+    let collapsed = app_settings::AppSettings::global(cx).sidebar_collapsed;
+    eprintln!(
+        "selftest sidebar collapsed={collapsed} target={} content={}",
+        shell::sidebar_target(collapsed),
+        shell::SIDEBAR_WIDTH,
     );
     // Settings section list: the nav renders from this list alone.
     let sections: Vec<_> = zeron_ui::settings::SettingsSection::ALL
@@ -334,6 +344,14 @@ fn main() {
             cx.bind_keys([gpui::KeyBinding::new(
                 "cmd-f",
                 shell::shell_actions::FocusSearch,
+                None,
+            )]);
+            // zeron's `mod-b` sidebar toggle: the primary modifier (⌘ on macOS,
+            // Ctrl elsewhere — gpui's `secondary`) flips the collapse state;
+            // the titlebar button is the pointer path to the same action.
+            cx.bind_keys([gpui::KeyBinding::new(
+                "secondary-b",
+                shell::shell_actions::ToggleSidebar,
                 None,
             )]);
 
