@@ -1378,6 +1378,26 @@ impl Theme {
         )
     }
 
+    /// Resolve a selection with zeron's wallpaper-derived tint applied.
+    /// Upstream `Theme::install_selection_inner` passes
+    /// `settings::wallpaper_colors::active(cx)`; the app supplies the color
+    /// because the vendored theme cannot read the settings store.
+    pub fn for_selection_with_color(
+        appearance: Appearance,
+        variant_id: &str,
+        accent_selection: AccentSelection,
+        surface_preference: SurfacePreference,
+        wallpaper_color: Option<zeron_theme::Color>,
+    ) -> Self {
+        Self::for_selection_with_wallpaper(
+            appearance,
+            variant_id,
+            accent_selection,
+            surface_preference,
+            wallpaper_color,
+        )
+    }
+
     fn for_selection_with_wallpaper(
         appearance: Appearance,
         variant_id: &str,
@@ -1395,10 +1415,31 @@ impl Theme {
             .filter(|variant| model_appearance(variant.appearance) == appearance)
             .or_else(|| registry.variant(fallback_id))
             .expect("the built-in registry contains both Zeron appearances");
-        // Wallpaper tinting is not ported: mono-desk has no wallpaper layer,
-        // so a resolved selection is always built from the variant itself.
-        let _ = wallpaper_color;
-        Self::from_variant(variant, accent_selection, surface_preference)
+        // zeron's "Match wallpaper colors" (upstream `theme.rs:1388-1405`):
+        // the resolved variant is tinted with the artwork's dominant color,
+        // resolved through the theme-default accent, then the chosen accent
+        // selection is recorded for the settings rows.
+        if let Some(color) = wallpaper_color {
+            let mut tinted = variant.clone();
+            tint_variant(&mut tinted, color);
+            let mut theme = Self::from_variant(
+                &tinted,
+                AccentSelection::ThemeDefault,
+                surface_preference,
+            );
+            theme.accent_selection = accent_selection;
+            theme.wallpaper_color = Some(color);
+            if theme.surface_treatment == SurfaceTreatment::Frosted {
+                // Glass interactions lift toward white rather than laying a
+                // dark wallpaper accent over the translucent surface.
+                theme.element_hover = gpui::white().opacity(0.09);
+                theme.element_active = gpui::white().opacity(0.15);
+                theme.band = theme.element_hover;
+            }
+            theme
+        } else {
+            Self::from_variant(variant, accent_selection, surface_preference)
+        }
     }
 
     pub(crate) fn from_variant(
@@ -1541,6 +1582,29 @@ impl Theme {
             variant_id,
             accent_selection,
             surface_preference,
+            None,
+            false,
+            cx,
+        );
+    }
+
+    /// Install a selection with the wallpaper-derived tint applied. Used by the
+    /// Appearance page's "Match wallpaper colors" path; `None` keeps the plain
+    /// [`Self::install_selection`] behavior.
+    pub fn install_selection_with_color(
+        appearance: Appearance,
+        variant_id: &str,
+        accent_selection: AccentSelection,
+        surface_preference: SurfacePreference,
+        wallpaper_color: Option<zeron_theme::Color>,
+        cx: &mut App,
+    ) {
+        Self::install_selection_inner(
+            appearance,
+            variant_id,
+            accent_selection,
+            surface_preference,
+            wallpaper_color,
             false,
             cx,
         );
@@ -1562,6 +1626,7 @@ impl Theme {
             variant_id,
             accent_selection,
             surface_preference,
+            None,
             true,
             cx,
         );
@@ -1572,6 +1637,7 @@ impl Theme {
         variant_id: &str,
         accent_selection: AccentSelection,
         surface_preference: SurfacePreference,
+        wallpaper_color: Option<zeron_theme::Color>,
         force_generation: bool,
         cx: &mut App,
     ) {
@@ -1580,7 +1646,7 @@ impl Theme {
             variant_id,
             accent_selection,
             surface_preference,
-            None,
+            wallpaper_color,
         )
         .with_font_sans(crate::typography::effective_family_name(cx))
         .with_font_sans_fixed(crate::typography::code_effective_family_name(cx))
@@ -1621,6 +1687,48 @@ impl Theme {
     pub fn wash(&self, alpha: f32) -> Hsla {
         wash_for(self.appearance, alpha)
     }
+}
+
+/// zeron's wallpaper tint, ported from `crates/ui/src/settings/wallpaper_colors.rs`
+/// `tint_variant` (MIT, Copyright 2026 Wing, rev 8b7afb3): mixes the surface
+/// roles toward the image's dominant color and re-derives the interactive
+/// roles from it, so "Match wallpaper colors" recolors the shell while the
+/// selected theme family and the remembered accent selection stay intact.
+fn tint_variant(variant: &mut ThemeVariant, color: zeron_theme::Color) {
+    let neutral = if variant.appearance.is_dark() {
+        zeron_theme::Color::BLACK
+    } else {
+        zeron_theme::Color::WHITE
+    };
+    let tint = color.mix(
+        neutral,
+        if variant.appearance.is_dark() {
+            0.88
+        } else {
+            0.94
+        },
+    );
+    let colors = &mut variant.colors;
+    for surface in [
+        &mut colors.background,
+        &mut colors.shell,
+        &mut colors.raised,
+        &mut colors.card,
+        &mut colors.dialog,
+        &mut colors.overlay,
+        &mut colors.input,
+    ] {
+        *surface = surface.mix(tint, 0.4);
+    }
+    // Interactive roles use the existing contrast-aware accent derivation.
+    variant.accent =
+        zeron_theme::AccentRoles::derive(color, variant.appearance, colors.background);
+    colors.hover = variant.accent.primary.with_alpha(0.09);
+    colors.active = variant.accent.primary.with_alpha(0.15);
+    colors.border = variant.accent.primary.with_alpha(0.14);
+    colors.border_strong = variant.accent.primary.with_alpha(0.3);
+    variant.terminal.background = variant.terminal.background.mix(tint, 0.4);
+    variant.terminal.selection = variant.accent.selection;
 }
 
 impl Default for Theme {
@@ -1999,4 +2107,81 @@ pub fn mix(a: Hsla, b: Hsla, t: f32) -> Hsla {
         lerp(a.l, b.l),
         lerp(a.a, b.a),
     )
+}
+
+#[cfg(test)]
+mod tint_tests {
+    use super::*;
+
+    #[test]
+    fn wallpaper_tint_recolors_surfaces_and_derives_the_accent() {
+        let accent = AccentSelection::ThemeDefault;
+        let plain = Theme::for_selection(
+            Appearance::Dark,
+            "zeron-dark",
+            accent,
+            SurfacePreference::ThemeDefault,
+        );
+        assert_eq!(plain.wallpaper_color, None);
+        let color = zeron_theme::Color::rgb(200, 84, 32);
+        let tinted = Theme::for_selection_with_color(
+            Appearance::Dark,
+            "zeron-dark",
+            accent,
+            SurfacePreference::ThemeDefault,
+            Some(color),
+        );
+        assert_eq!(tinted.wallpaper_color, Some(color));
+        assert_ne!(plain.bg, tinted.bg);
+        assert_ne!(plain.surface, tinted.surface);
+        assert_ne!(plain.accent, tinted.accent);
+        assert_eq!(tinted.variant_id, plain.variant_id);
+        // No color keeps the plain selection byte-for-byte.
+        let none = Theme::for_selection_with_color(
+            Appearance::Dark,
+            "zeron-dark",
+            accent,
+            SurfacePreference::ThemeDefault,
+            None,
+        );
+        assert_eq!(none.bg, plain.bg);
+        assert_eq!(none.accent, plain.accent);
+        // The remembered accent selection survives the wallpaper override while
+        // the resolved accent roles stay the wallpaper-derived ones.
+        assert_eq!(tinted.accent_selection, accent);
+        // Default surface treatment resolves to Frosted, where zeron lifts the
+        // interaction washes toward white (upstream theme.rs:1395-1401).
+        assert_eq!(tinted.surface_treatment, SurfaceTreatment::Frosted);
+        assert_eq!(tinted.element_hover, gpui::white().opacity(0.09));
+        assert_eq!(tinted.element_active, gpui::white().opacity(0.15));
+        assert_eq!(tinted.band, tinted.element_hover);
+    }
+
+    #[test]
+    fn wallpaper_tint_keeps_the_selected_appearance() {
+        let color = zeron_theme::Color::rgb(36, 120, 224);
+        for (appearance, variant_id) in [
+            (Appearance::Light, "zeron-light"),
+            (Appearance::Dark, "zeron-dark"),
+        ] {
+            let plain = Theme::for_selection(
+                appearance,
+                variant_id,
+                AccentSelection::ThemeDefault,
+                SurfacePreference::ThemeDefault,
+            );
+            let theme = Theme::for_selection_with_color(
+                appearance,
+                variant_id,
+                AccentSelection::ThemeDefault,
+                SurfacePreference::ThemeDefault,
+                Some(color),
+            );
+            assert_eq!(theme.appearance, appearance);
+            assert_eq!(theme.wallpaper_color, Some(color));
+            // Both appearances actually take the tint, not just the field.
+            assert_ne!(theme.bg, plain.bg);
+            assert_ne!(theme.surface, plain.surface);
+        }
+    }
 }
